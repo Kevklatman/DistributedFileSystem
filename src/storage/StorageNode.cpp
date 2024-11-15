@@ -150,3 +150,64 @@ std::string StorageNode::getFullPath(const std::string &filename) const
 {
     return basePath + "/" + filename;
 }
+
+bool StorageNode::createDirectory(const std::string &path) {
+    std::string fullPath = getFullPath(path);
+    try {
+        return std::filesystem::create_directories(fullPath);
+    } catch (const std::filesystem::filesystem_error &) {
+        return false;
+    }
+}
+
+bool StorageNode::deleteDirectory(const std::string &path) {
+    std::string fullPath = getFullPath(path);
+    try {
+        return std::filesystem::remove_all(fullPath) > 0;
+    } catch (const std::filesystem::filesystem_error &) {
+        return false;
+    }
+}
+
+bool StorageNode::directoryExists(const std::string &path) const {
+    std::string fullPath = getFullPath(path);
+    try {
+        return std::filesystem::is_directory(fullPath);
+    } catch (const std::filesystem::filesystem_error &) {
+        return false;
+    }
+}
+
+std::vector<std::string> StorageNode::listDirectory(const std::string &path) const {
+    std::vector<std::string> entries;
+    std::string fullPath = getFullPath(path);
+
+    try {
+        if (!std::filesystem::is_directory(fullPath)) {
+            return entries;
+        }
+
+        for (const auto &entry : std::filesystem::directory_iterator(fullPath)) {
+            std::string relativePath = std::filesystem::relative(entry.path(), std::filesystem::path(basePath)).string();
+            entries.push_back(relativePath);
+        }
+    } catch (const std::filesystem::filesystem_error &) {
+        // Return empty vector on error
+    }
+
+    return entries;
+}
+
+bool StorageNode::isSubPath(const std::string &path, const std::string &base) const {
+    std::filesystem::path p = std::filesystem::absolute(path);
+    std::filesystem::path b = std::filesystem::absolute(base);
+    
+    for (auto bp = b.begin(); bp != b.end(); ++bp) {
+        if (p.begin() == p.end() || *p.begin() != *bp) {
+            return false;
+        }
+        ++p.begin();
+    }
+    
+    return true;
+}

@@ -8,6 +8,7 @@ enable_testing()
 
 # Find dependencies using CMake's built-in modules
 find_package(OpenSSL REQUIRED)
+find_package(Python COMPONENTS Interpreter Development REQUIRED)
 
 # Find gRPC and Protobuf
 find_package(gRPC CONFIG QUIET)
@@ -78,6 +79,9 @@ target_link_libraries(storage_proto PUBLIC
     ${GRPC_LIBRARIES}
 )
 
+# Add pybind11
+add_subdirectory(third_party/pybind11)
+
 # Core library
 add_library(dfs_core
     src/storage/StorageNode.cpp
@@ -97,6 +101,13 @@ target_link_libraries(dfs_core PUBLIC
     OpenSSL::SSL
     OpenSSL::Crypto
 )
+
+# Python bindings
+pybind11_add_module(fs_manager api/fs_manager_binding.cpp)
+target_include_directories(fs_manager PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+target_link_libraries(fs_manager PRIVATE dfs_core)
 
 # Function to add executable with common libraries
 function(add_dfs_executable target_name source_file)

@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <iomanip>
 #include <sstream>
+#include <set>
 
 FileSystemManager::FileSystemManager() : maxRetries(3) {}
 FileSystemManager::FileSystemManager(int retries) : maxRetries(retries) {}
@@ -292,4 +293,94 @@ bool FileSystemManager::validateWrite(const std::string &nodeId,
                                       size_t contentSize) const
 {
     return !nodeId.empty() && !filename.empty();
+}
+
+bool FileSystemManager::createDirectory(const std::string &path) {
+    if (!isValidPath(path)) {
+        return false;
+    }
+
+    std::string normalizedPath = normalizeFilepath(path);
+    
+    // Create directory in all storage nodes
+    bool success = true;
+    for (const auto &node : nodes) {
+        if (!node->createDirectory(normalizedPath)) {
+            success = false;
+            break;
+        }
+    }
+
+    // If any node failed, rollback the creation on other nodes
+    if (!success) {
+        for (const auto &node : nodes) {
+            node->deleteDirectory(normalizedPath);
+        }
+        return false;
+    }
+
+    return true;
+}
+
+bool FileSystemManager::deleteDirectory(const std::string &path) {
+    if (!isValidPath(path)) {
+        return false;
+    }
+
+    std::string normalizedPath = normalizeFilepath(path);
+    
+    // Delete directory from all storage nodes
+    bool success = true;
+    for (const auto &node : nodes) {
+        if (!node->deleteDirectory(normalizedPath)) {
+            success = false;
+        }
+    }
+
+    // Remove metadata for all files in this directory
+    std::string prefix = normalizedPath + "/";
+    auto it = fileMetadata.begin();
+    while (it != fileMetadata.end()) {
+        if (it->first.find(prefix) == 0) {
+            it = fileMetadata.erase(it);
+        } else {
+            ++it;
+        }
+    }
+
+    return success;
+}
+
+bool FileSystemManager::directoryExists(const std::string &path) const {
+    if (!isValidPath(path)) {
+        return false;
+    }
+
+    std::string normalizedPath = normalizeFilepath(path);
+    
+    // Check if directory exists in any storage node
+    for (const auto &node : nodes) {
+        if (node->directoryExists(normalizedPath)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+std::vector<std::string> FileSystemManager::listDirectory(const std::string &path) const {
+    if (!isValidPath(path)) {
+        return std::vector<std::string>();
+    }
+
+    std::string normalizedPath = normalizeFilepath(path);
+    std::set<std::string> uniqueEntries;
+    
+    // Collect entries from all storage nodes
+    for (const auto &node : nodes) {
+        auto entries = node->listDirectory(normalizedPath);
+        uniqueEntries.insert(entries.begin(), entries.end());
+    }
+
+    return std::vector<std::string>(uniqueEntries.begin(), uniqueEntries.end());
 }

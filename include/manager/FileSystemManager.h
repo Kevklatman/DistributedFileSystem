@@ -40,6 +40,12 @@ public:
     bool deleteFile(const std::string &filename);
     std::vector<std::string> listAllFiles();
 
+    // Directory operations
+    bool createDirectory(const std::string &path);
+    bool deleteDirectory(const std::string &path);
+    bool directoryExists(const std::string &path) const;
+    std::vector<std::string> listDirectory(const std::string &path) const;
+
     // File operations - Advanced
     WriteResult writeFileToNode(const std::string &nodeId,
                                 const std::string &filename,
