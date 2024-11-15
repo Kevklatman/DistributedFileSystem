@@ -1,60 +1,44 @@
-# storage-deployment.yaml
+# k8s/base/deployment.yaml
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: dfs-node
+  name: dfs-storage
   namespace: dfs-system
 spec:
-  serviceName: dfs-service
+  serviceName: dfs-storage
   replicas: 3
   selector:
     matchLabels:
-      app: dfs-node
+      app: dfs-storage
   template:
     metadata:
       labels:
-        app: dfs-node
+        app: dfs-storage
     spec:
       containers:
-      - name: dfs-node
-        image: your-registry/dfs-node:latest
+      - name: dfs-storage
+        image: your-registry/dfs-storage:latest
         ports:
         - containerPort: 50051
+          name: grpc
+        - containerPort: 9090
+          name: metrics
         volumeMounts:
-        - name: dfs-storage
+        - name: data
           mountPath: /data
-        - name: dfs-config
-          mountPath: /etc/dfs
-        env:
-        - name: NODE_ID
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.name
-        - name: POD_IP
-          valueFrom:
-            fieldRef:
-              fieldPath: status.podIP
         resources:
           requests:
-            memory: "512Mi"
-            cpu: "500m"
+            cpu: 500m
+            memory: 1Gi
           limits:
-            memory: "1Gi"
-            cpu: "1000m"
-        livenessProbe:
-          grpc:
-            port: 50051
-          initialDelaySeconds: 10
-          periodSeconds: 30
-      volumes:
-      - name: dfs-config
-        configMap:
-          name: dfs-config
+            cpu: 1000m
+            memory: 2Gi
   volumeClaimTemplates:
   - metadata:
-      name: dfs-storage
+      name: data
     spec:
       accessModes: [ "ReadWriteOnce" ]
+      storageClassName: dfs-ebs-sc
       resources:
         requests:
-          storage: 10Gi
+          storage: 100Gi

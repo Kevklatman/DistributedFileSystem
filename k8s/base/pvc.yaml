@@ -1,13 +1,11 @@
-# storage-pvc.yaml
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: dfs-storage-pvc
-  namespace: dfs-system
 spec:
   accessModes:
     - ReadWriteOnce
+  storageClassName: dfs-ebs-sc
   resources:
     requests:
-      storage: 10Gi
-  storageClassName: standard
+      storage: 100Gi

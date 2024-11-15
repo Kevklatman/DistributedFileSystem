@@ -141,3 +141,14 @@ If you encounter build errors:
 2. Check CMake configuration
 3. Verify include paths in VSCode settings
 4. Run `cmake --build . --verbose` for detailed output
+
+
+# Create namespace
+kubectl apply -f k8s/base/namespace.yaml
+
+# Apply storage class and IAM role
+kubectl apply -f k8s/base/aws-ebs-csi-driver.yaml
+kubectl apply -f k8s/base/aws-iam-role.yaml
+
+# Deploy the application
+kubectl apply -f k8s/base/deployment.yaml
