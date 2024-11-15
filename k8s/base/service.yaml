@@ -1,0 +1,13 @@
+# storage-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: dfs-service
+  namespace: dfs-system
+spec:
+  selector:
+    app: dfs-node
+  ports:
+  - port: 50051
+    targetPort: 50051
+  clusterIP: None

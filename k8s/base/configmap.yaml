@@ -1,0 +1,11 @@
+# configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dfs-config
+  namespace: dfs-system
+data:
+  storage.conf: |
+    max_file_size: 1073741824
+    replication_factor: 3
+    health_check_interval: 30

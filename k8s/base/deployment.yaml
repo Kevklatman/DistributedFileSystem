@@ -1,0 +1,60 @@
+# storage-deployment.yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: dfs-node
+  namespace: dfs-system
+spec:
+  serviceName: dfs-service
+  replicas: 3
+  selector:
+    matchLabels:
+      app: dfs-node
+  template:
+    metadata:
+      labels:
+        app: dfs-node
+    spec:
+      containers:
+      - name: dfs-node
+        image: your-registry/dfs-node:latest
+        ports:
+        - containerPort: 50051
+        volumeMounts:
+        - name: dfs-storage
+          mountPath: /data
+        - name: dfs-config
+          mountPath: /etc/dfs
+        env:
+        - name: NODE_ID
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+        livenessProbe:
+          grpc:
+            port: 50051
+          initialDelaySeconds: 10
+          periodSeconds: 30
+      volumes:
+      - name: dfs-config
+        configMap:
+          name: dfs-config
+  volumeClaimTemplates:
+  - metadata:
+      name: dfs-storage
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      resources:
+        requests:
+          storage: 10Gi
