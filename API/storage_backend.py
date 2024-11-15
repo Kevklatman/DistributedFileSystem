@@ -95,13 +95,18 @@ class LocalStorageBackend(StorageBackend):
 
 class AWSStorageBackend(StorageBackend):
     def __init__(self):
+        if not all([current_config['access_key'], current_config['secret_key']]):
+            raise ValueError(
+                'AWS credentials not found. Please set AWS_ACCESS_KEY and AWS_SECRET_KEY '
+                'environment variables when using AWS storage.'
+            )
+            
         self.s3 = boto3.client(
             's3',
-            endpoint_url=current_config['endpoint'],
+            endpoint_url=current_config.get('endpoint'),
             aws_access_key_id=current_config['access_key'],
             aws_secret_access_key=current_config['secret_key'],
-            region_name=current_config.get('region'),
-            config=Config(signature_version='s3v4')
+            region_name=current_config['region']
         )
 
     def create_bucket(self, bucket_name):
