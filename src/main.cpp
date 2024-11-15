@@ -1,21 +1,20 @@
 #include <iostream>
 #include <string>
 #include "manager/FileSystemManager.h"
-#include "storage/StorageNode.h
+#include "storage/StorageNode.h"
 
 void printMenu()
 {
     std::cout << "\n=== Distributed File System ===\n"
-              << "1. Write file (random node)\n"
-              << "2. Write file to specific node\n"
-              << "3. Read file\n"
-              << "4. List files\n"
-              << "5. Delete file\n"
-              << "6. Add storage node\n"
-              << "7. List storage nodes\n"
-              << "8. Show node status\n"
-              << "9. Exit\n"
-              << "Choose command (1-9): ";
+              << "1. Write file\n"
+              << "2. Read file\n"
+              << "3. List files\n"
+              << "4. Delete file\n"
+              << "5. Add storage node\n"
+              << "6. List storage nodes\n"
+              << "7. Show node status\n"
+              << "8. Exit\n"
+              << "Choose command (1-8): ";
 }
 
 int main()
@@ -43,7 +42,7 @@ int main()
             std::string filename, content;
             std::cout << "Enter filename: ";
             std::getline(std::cin, filename);
-            std::cout << "Enter content (end with Enter): ";
+            std::cout << "Enter content: ";
             std::getline(std::cin, content);
 
             if (fsManager.writeFile(filename, content))
@@ -58,35 +57,6 @@ int main()
         }
 
         case 2:
-        {
-            std::string nodeId, filename, content;
-
-            // First show available nodes
-            std::cout << "Available nodes:\n";
-            for (const auto &node : fsManager.listNodes())
-            {
-                std::cout << "- " << node << "\n";
-            }
-
-            std::cout << "Enter node ID: ";
-            std::getline(std::cin, nodeId);
-            std::cout << "Enter filename: ";
-            std::getline(std::cin, filename);
-            std::cout << "Enter content (end with Enter): ";
-            std::getline(std::cin, content);
-
-            if (fsManager.writeFileToNode(nodeId, filename, content))
-            {
-                std::cout << "✅ File written successfully to node " << nodeId << "\n";
-            }
-            else
-            {
-                std::cout << "❌ Failed to write file to node " << nodeId << "\n";
-            }
-            break;
-        }
-
-        case 3:
         {
             std::string filename;
             std::cout << "Enter filename to read: ";
@@ -105,7 +75,7 @@ int main()
             break;
         }
 
-        case 4:
+        case 3:
         {
             auto files = fsManager.listAllFiles();
             if (files.empty())
@@ -115,7 +85,7 @@ int main()
             break;
         }
 
-        case 5:
+        case 4:
         {
             std::string filename;
             std::cout << "Enter filename to delete: ";
@@ -132,7 +102,7 @@ int main()
             break;
         }
 
-        case 6:
+        case 5:
         {
             std::string nodeId, path;
             std::cout << "Enter node ID: ";
@@ -145,7 +115,7 @@ int main()
             break;
         }
 
-        case 7:
+        case 6:
         {
             std::cout << "\n=== Storage Nodes ===\n";
             for (const auto &node : fsManager.listNodes())
@@ -155,13 +125,13 @@ int main()
             break;
         }
 
-        case 8:
+        case 7:
         {
             fsManager.displayNodeStatus();
             break;
         }
 
-        case 9:
+        case 8:
         {
             std::cout << "Shutting down filesystem...\n";
             return 0;
