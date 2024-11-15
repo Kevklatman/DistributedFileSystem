@@ -42,4 +42,4 @@ WORKDIR /app
 EXPOSE 50051 5000
 
 # Run the Flask app from api directory
-CMD ["python3", "api/app.py"]
+CMD ["python3", "./api/app.py"]
