@@ -90,3 +90,45 @@ std::vector<std::string> FileSystemManager::listAllFiles() {
     }
     return allFiles;
 }
+
+std::string FileSystemManager::formatSize(size_t bytes) const {
+    const char* units[] = {"B", "KB", "MB", "GB"};
+    int unitIndex = 0;
+    double size = static_cast<double>(bytes);
+    
+    while (size >= 1024 && unitIndex < 3) {
+        size /= 1024;
+        unitIndex++;
+    }
+    
+    char buffer[32];
+    snprintf(buffer, sizeof(buffer), "%.2f %s", size, units[unitIndex]);
+    return std::string(buffer);
+}
+
+void FileSystemManager::displayNodeStatus() {
+    if (nodes.empty()) {
+        std::cout << "No storage nodes available\n";
+        return;
+    }
+
+    std::cout << "\n=== Node Status ===\n";
+    for (const auto& node : nodes) {
+        std::cout << "\n📁 Node ID: " << node->getNodeId() << "\n";
+        std::cout << "   Path: " << node->getBasePath() << "\n";
+        std::cout << "   Files stored: " << node->getFileCount() << "\n";
+        std::cout << "   Space used: " << formatSize(node->getTotalSpaceUsed()) << "\n";
+        std::cout << "   Disk usage: " << std::fixed << std::setprecision(2) 
+                  << node->getDiskUsagePercentage() << "%\n";
+        
+        // List files in this node
+        auto files = node->listFiles();
+        if (!files.empty()) {
+            std::cout << "   Files:\n";
+            for (const auto& file : files) {
+                std::cout << "   - " << file << "\n";
+            }
+        }
+        std::cout << "   -------------------\n";
+    }
+}

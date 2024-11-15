@@ -11,9 +11,12 @@ void printMenu() {
               << "5. Delete file\n"
               << "6. Add storage node\n"
               << "7. List storage nodes\n"
-              << "8. Exit\n"
-              << "Choose command (1-8): ";
+              << "8. Show node status\n"
+              << "9. Exit\n"
+              << "Choose command (1-9): ";
 }
+
+
 
 int main() {
     std::cout << "Distributed File System Starting...\n";
@@ -126,10 +129,15 @@ int main() {
                 break;
             }
             
-            case 8: {
-                std::cout << "Shutting down filesystem...\n";
-                return 0;
-            }
+case 8: {
+    fsManager.displayNodeStatus();
+    break;
+}
+
+case 9: {
+    std::cout << "Shutting down filesystem...\n";
+    return 0;
+}
             
             default:
                 std::cout << "❌ Invalid choice. Please select 1-8\n";
