@@ -11,31 +11,47 @@ find_package(gRPC CONFIG REQUIRED)
 find_package(OpenSSL REQUIRED)
 
 # Proto files
-set(PROTO_FILES
-    proto/storage.proto
-)
+set(PROTO_FILE "${CMAKE_CURRENT_SOURCE_DIR}/proto/storage.proto")
+
+# Verify proto file exists
+if(NOT EXISTS ${PROTO_FILE})
+    message(FATAL_ERROR "Proto file not found: ${PROTO_FILE}")
+endif()
 
 # Generate protobuf and gRPC code
 add_custom_command(
     OUTPUT
-        ${CMAKE_CURRENT_BINARY_DIR}/storage.pb.cc
-        ${CMAKE_CURRENT_BINARY_DIR}/storage.pb.h
-        ${CMAKE_CURRENT_BINARY_DIR}/storage.grpc.pb.cc
-        ${CMAKE_CURRENT_BINARY_DIR}/storage.grpc.pb.h
+        "${CMAKE_CURRENT_BINARY_DIR}/storage.pb.cc"
+        "${CMAKE_CURRENT_BINARY_DIR}/storage.pb.h"
+        "${CMAKE_CURRENT_BINARY_DIR}/storage.grpc.pb.cc"
+        "${CMAKE_CURRENT_BINARY_DIR}/storage.grpc.pb.h"
     COMMAND ${Protobuf_PROTOC_EXECUTABLE}
-    ARGS --grpc_out=${CMAKE_CURRENT_BINARY_DIR}
-         --cpp_out=${CMAKE_CURRENT_BINARY_DIR}
-         --proto_path=${CMAKE_CURRENT_SOURCE_DIR}/proto
-         --plugin=protoc-gen-grpc=$<TARGET_FILE:gRPC::grpc_cpp_plugin>
-         ${PROTO_FILES}
-    DEPENDS ${PROTO_FILES}
+        --grpc_out=${CMAKE_CURRENT_BINARY_DIR}
+        --cpp_out=${CMAKE_CURRENT_BINARY_DIR}
+        --proto_path=${CMAKE_CURRENT_SOURCE_DIR}/proto
+        --plugin=protoc-gen-grpc=$<TARGET_FILE:gRPC::grpc_cpp_plugin>
+        storage.proto
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/proto
+    DEPENDS ${PROTO_FILE}
+    VERBATIM
+)
+
+# Create a custom target for proto generation
+add_custom_target(generate_protos ALL
+    DEPENDS
+        "${CMAKE_CURRENT_BINARY_DIR}/storage.pb.cc"
+        "${CMAKE_CURRENT_BINARY_DIR}/storage.pb.h"
+        "${CMAKE_CURRENT_BINARY_DIR}/storage.grpc.pb.cc"
+        "${CMAKE_CURRENT_BINARY_DIR}/storage.grpc.pb.h"
 )
 
 # Storage proto library
 add_library(storage_proto
-    ${CMAKE_CURRENT_BINARY_DIR}/storage.pb.cc
-    ${CMAKE_CURRENT_BINARY_DIR}/storage.grpc.pb.cc
+    "${CMAKE_CURRENT_BINARY_DIR}/storage.pb.cc"
+    "${CMAKE_CURRENT_BINARY_DIR}/storage.grpc.pb.cc"
 )
+
+add_dependencies(storage_proto generate_protos)
 
 target_link_libraries(storage_proto
     PUBLIC
@@ -65,6 +81,9 @@ target_link_libraries(dfs_core
 
 target_include_directories(dfs_core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/storage
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/manager
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/utils
 )
 
 # Executables
@@ -82,4 +101,4 @@ target_link_libraries(storage_test PRIVATE dfs_core)
 target_link_libraries(manager_test PRIVATE dfs_core)
 
 add_test(NAME StorageTest COMMAND storage_test)
-add_test(NAME ManagerTest COMMAND manager_)
+add_test(NAME ManagerTest COMMAND manager_test)
