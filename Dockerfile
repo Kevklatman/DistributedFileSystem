@@ -1,4 +1,3 @@
-# Dockerfile
 FROM ubuntu:22.04
 
 # Install dependencies
@@ -16,7 +15,9 @@ RUN apt-get update && apt-get install -y \
     make \
     g++ \
     libgrpc++-dev \
-    protobuf-compiler-grpc
+    protobuf-compiler-grpc \
+    pkg-config \
+    && rm -rf /var/lib/apt/lists/*
 
 # Install Flask
 RUN pip3 install Flask
@@ -27,13 +28,15 @@ WORKDIR /app
 # Copy source code
 COPY . .
 
-# Ensure a clean build directory
-RUN rm -rf build && mkdir build
+# Create build directory
+RUN mkdir -p build
 
-# Build the application with verbose output
-RUN cd build && \
-    cmake -DCMAKE_BUILD_TYPE=Debug .. && \
-    make VERBOSE=1 -j$(nproc)
+# Build the application
+WORKDIR /app/build
+RUN cmake -DCMAKE_BUILD_TYPE=Debug .. && \
+    make -j$(nproc)
+
+WORKDIR /app
 
 # Expose gRPC and Flask ports
 EXPOSE 50051 5000
