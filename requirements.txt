@@ -1,6 +1,5 @@
-Flask==2.0.1
-Werkzeug==2.0.1
-xmltodict==0.13.0
+flask==2.0.1
 boto3==1.26.137
-botocore==1.29.137
 python-dotenv==1.0.0
+xmltodict==0.13.0
+werkzeug==2.0.3

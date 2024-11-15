@@ -1,221 +1,122 @@
 # Distributed File System
 
-A high-performance distributed file system with enterprise features.
+An S3-compatible distributed file system implemented in Python. Supports both local storage and AWS S3 backends.
 
-## Prerequisites
+## Features
 
-### Required packages:
+- S3-compatible API
+- Multiple storage backends (Local and AWS S3)
+- Easy switching between backends via environment variables
+- Docker support
+
+## API Endpoints
+
+All endpoints follow the S3 API specification:
+
+- `GET /` - List all buckets
+- `PUT /<bucket>` - Create a bucket
+- `DELETE /<bucket>` - Delete a bucket
+- `GET /<bucket>` - List objects in bucket
+- `PUT /<bucket>/<key>` - Upload an object
+- `GET /<bucket>/<key>` - Download an object
+- `DELETE /<bucket>/<key>` - Delete an object
+
+## Setup
+
+1. Clone the repository:
 ```bash
-# Ubuntu/Debian
-sudo apt-get update
-sudo apt-get install -y \
-    build-essential \
-    cmake \
-    libprotobuf-dev \
-    protobuf-compiler \
-    libgrpc++-dev \
-    protobuf-compiler-grpc \
-    libssl-dev \
-    zlib1g-dev \
-    libzookeeper-mt-dev
-
-# MacOS
-brew install \
-    cmake \
-    protobuf \
-    grpc \
-    openssl \
-    zookeeper
+git clone https://github.com/Kevklatman/DistributedFileSystem.git
+cd DistributedFileSystem
 ```
 
-## Command Reference
-
-### Building the Project
-
-1. Create and enter build directory:
+2. Create and activate a virtual environment:
 ```bash
-mkdir build && cd build
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
 ```
 
-2. Configure with CMake:
+3. Install dependencies:
 ```bash
-cmake ..
-```
-
-3. Build all targets:
-```bash
-# On Linux/Mac with make
-make -j$(nproc)
-# OR on Mac
-make -j$(sysctl -n hw.ncpu)
-```
-
-4. Run tests:
-```bash
-make test
-# Or run individual tests:
-./build/storage_test
-./build/manager_test
-```
-
-### Running the System
-
-1. Start the Storage Server:
-```bash
-# Start a storage node on port 50051
-./build/storage_server --host localhost --port 50051
-
-# Start additional nodes on different ports
-./build/storage_server --host localhost --port 50052
-./build/storage_server --host localhost --port 50053
-```
-
-2. Run the Main DFS Service:
-```bash
-./build/dfs_main
-```
-
-3. Use the CLI:
-```bash
-# General usage
-./build/dfs_cli [command] [options]
-
-# Common commands
-./build/dfs_cli list                    # List all files
-./build/dfs_cli upload <file>           # Upload a file
-./build/dfs_cli download <file>         # Download a file
-./build/dfs_cli delete <file>           # Delete a file
-```
-
-### S3-Compatible API Server
-
-1. Install Python dependencies:
-```bash
-cd api
 pip install -r requirements.txt
 ```
 
-2. Run the API server:
+4. Configure environment:
 ```bash
-python app.py
-# Server will start on http://localhost:5000
+cp .env.example .env
+# Edit .env with your settings
 ```
 
-3. Test S3 API endpoints:
+## Running
+
+### Local Development
+```bash
+python -m flask run --host=0.0.0.0 --port=5555
+```
+
+### Docker
+```bash
+docker build -t dfs .
+docker run -p 5555:5555 dfs
+```
+
+## Configuration
+
+Set the following environment variables in `.env`:
+
+```bash
+# Storage backend ('local' or 'aws')
+STORAGE_ENV=local
+
+# AWS credentials (if using aws backend)
+AWS_ACCESS_KEY=your-key
+AWS_SECRET_KEY=your-secret
+AWS_REGION=us-east-1
+
+# API settings
+API_HOST=0.0.0.0
+API_PORT=5555
+```
+
+## Testing
+
 ```bash
 # Create a bucket
-curl -X PUT http://localhost:5000/my-bucket
+curl -X PUT http://localhost:5555/my-bucket
 
-# Upload an object
-echo "Hello World" | curl -X PUT -d @- http://localhost:5000/my-bucket/hello.txt
+# Upload a file
+curl -X PUT -d "Hello World" http://localhost:5555/my-bucket/hello.txt
+
+# Download a file
+curl http://localhost:5555/my-bucket/hello.txt
 
 # List buckets
-curl http://localhost:5000/
-
-# List objects in bucket
-curl http://localhost:5000/my-bucket
-
-# Get object
-curl http://localhost:5000/my-bucket/hello.txt
-```
-
-### Docker Support
-
-1. Build the Docker image:
-```bash
-docker build -t distributed-fs .
-```
-
-2. Run the container:
-```bash
-# Run the main service
-docker run -p 50051:50051 distributed-fs
-
-# Run a storage node
-docker run -p 50052:50051 distributed-fs --node --host 0.0.0.0 --port 50051
-```
-
-### Kubernetes Deployment
-
-1. Create namespace and apply base configurations:
-```bash
-kubectl apply -f k8s/base/namespace.yaml
-kubectl apply -f k8s/base/aws-ebs-csi-driver.yaml
-kubectl apply -f k8s/base/aws-iam-role.yaml
-```
-
-2. Deploy the application:
-```bash
-kubectl apply -f k8s/base/deployment.yaml
-```
-
-3. Check deployment status:
-```bash
-kubectl get pods -n distributed-fs
-kubectl logs -f deployment/dfs-main -n distributed-fs
-```
-
-### Development Commands
-
-1. Generate Protocol Buffers:
-```bash
-# Manually generate protobufs (usually handled by CMake)
-protoc --grpc_out=generated \
-       --cpp_out=generated \
-       --proto_path=proto \
-       --plugin=protoc-gen-grpc=`which grpc_cpp_plugin` \
-       proto/storage.proto
-```
-
-2. Format code (if clang-format is installed):
-```bash
-find . -name '*.cpp' -o -name '*.h' | xargs clang-format -i
-```
-
-3. Run with debug logging:
-```bash
-RUST_LOG=debug ./build/dfs_main
+curl http://localhost:5555/
 ```
 
 ## Project Structure
 
 ```
 .
-├── CMakeLists.txt           # Main CMake configuration
-├── cmake/                   # CMake modules
-├── include/                 # Header files
-│   ├── manager/            # FileSystem manager headers
-│   └── storage/            # Storage node headers
-├── proto/                  # Protocol buffer definitions
-├── src/                    # Source files
-│   ├── manager/           # FileSystem manager implementation
-│   └── storage/           # Storage node implementation
-├── tests/                 # Test files
-├── api/                   # S3-compatible API
-└── k8s/                   # Kubernetes configurations
+├── src/
+│   └── api/
+│       ├── app.py           # Flask application
+│       ├── config.py        # Configuration management
+│       ├── s3_api.py        # S3-compatible API implementation
+│       ├── storage_backend.py # Storage backend interfaces
+│       └── mock_fs_manager.py # Local storage implementation
+├── .env.example            # Environment template
+├── requirements.txt        # Python dependencies
+└── Dockerfile             # Docker configuration
 ```
 
-## Configuration
+## Contributing
 
-The system can be configured through `config.json` or environment variables:
+1. Fork the repository
+2. Create a feature branch
+3. Commit your changes
+4. Push to the branch
+5. Create a Pull Request
 
-```json
-{
-    "cluster": {
-        "name": "production-dfs",
-        "zookeeper_connection": "localhost:2181",
-        "replication_factor": 3
-    }
-}
-```
+## License
 
-## Troubleshooting
-
-If you encounter build errors:
-
-1. Ensure all dependencies are installed
-2. Check CMake configuration
-3. Verify include paths in VSCode settings
-4. Run `cmake --build . --verbose` for detailed output
-
-For more detailed information, check the documentation in the `docs/` directory.
+This project is licensed under the MIT License - see the LICENSE file for details.

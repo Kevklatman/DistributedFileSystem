@@ -1,24 +1,22 @@
-FROM python:3.9-slim
+FROM python:3.8-slim
 
-# Set working directory
 WORKDIR /app
 
-# Copy requirements first to leverage Docker cache
+# Copy requirements and install dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy source code
-COPY . .
+COPY src/api ./api
+COPY .env.example .env
 
 # Set environment variables
-ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH=/app
 ENV FLASK_APP=api/app.py
 ENV FLASK_ENV=production
-ENV STORAGE_ENV=aws
 
 # Expose port
-EXPOSE 5000
+EXPOSE 5555
 
-# Run the Flask app
-CMD ["python", "api/app.py"]
-#j
+# Run the application
+CMD ["python", "-m", "flask", "run", "--host=0.0.0.0"]
