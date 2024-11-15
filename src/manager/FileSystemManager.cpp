@@ -32,6 +32,17 @@ std::string FileSystemManager::readFile(const std::string& filename) {
     return "";
 }
 
+bool FileSystemManager::deleteFile(const std::string& filename) {
+    // Try to delete from all nodes that might have the file
+    bool deletedAny = false;
+    for (const auto& node : nodes) {
+        if (node->deleteFile(filename)) {
+            deletedAny = true;
+        }
+    }
+    return deletedAny;
+}
+
 std::vector<std::string> FileSystemManager::listAllFiles() {
     std::vector<std::string> allFiles;
     for (const auto& node : nodes) {
