@@ -152,3 +152,7 @@ kubectl apply -f k8s/base/aws-iam-role.yaml
 
 # Deploy the application
 kubectl apply -f k8s/base/deployment.yaml
+
+# Build Docker
+
+sudo docker build -t distributed-fs .

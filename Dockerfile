@@ -41,5 +41,5 @@ WORKDIR /app
 # Expose gRPC and Flask ports
 EXPOSE 50051 5000
 
-# Run the main DFS executable
-CMD ["python3", "app.py"]
+# Run the Flask app from api directory
+CMD ["python3", "api/app.py"]
