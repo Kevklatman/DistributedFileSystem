@@ -1,9 +1,13 @@
 from flask import Flask, request, jsonify
+import os
+
+# Ensure that the storage_manager.py file is in the correct directory
+# and the FileSystemManager class is correctly defined in it.
 try:
     from storage_manager import FileSystemManager  # Import your distributed file system manager
 except ImportError:
     import sys
-    sys.path.append('/Users/kevinklatman/Development/Code/DistributedFileSystem')
+    sys.path.append(os.path.dirname(os.path.abspath(__file__)))
     from storage_manager import FileSystemManager
 
 app = Flask(__name__)

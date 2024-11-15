@@ -1,49 +1,42 @@
-# Use slim version of Ubuntu for smaller base image
+# Dockerfile
 FROM ubuntu:22.04
 
-# Combine RUN commands and clean up in the same layer to reduce image size
+# Install dependencies
 RUN apt-get update && apt-get install -y \
     build-essential \
     cmake \
     libssl-dev \
     python3 \
     python3-pip \
+    git \
+    autoconf \
+    automake \
+    libtool \
+    curl \
+    make \
+    g++ \
     libgrpc++-dev \
-    libgrpc-dev \
-    protobuf-compiler \
-    protobuf-compiler-grpc \
-    libprotobuf-dev \
-    pkg-config \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+    protobuf-compiler-grpc
 
-# Create storage directory
-RUN mkdir -p /data
-
-# Install Flask for the Python API component
+# Install Flask
 RUN pip3 install Flask
 
 # Set working directory
 WORKDIR /app
 
-# Copy only necessary files first
-COPY CMakeLists.txt ./
-COPY proto/ ./proto/
-COPY include/ ./include/
-COPY src/ ./src/
-COPY tests/ ./tests/
+# Copy source code
+COPY . .
 
-# Locate gRPC installation
-RUN echo "set(gRPC_DIR /usr/lib/x86_64-linux-gnu/cmake/grpc)" >> CMakeLists.txt
+# Ensure a clean build directory
+RUN rm -rf build && mkdir build
 
-# Build the application
-RUN mkdir build && \
-    cd build && \
-    cmake .. && \
-    make -j$(nproc)
+# Build the application with verbose output
+RUN cd build && \
+    cmake -DCMAKE_BUILD_TYPE=Debug .. && \
+    make VERBOSE=1 -j$(nproc)
 
 # Expose gRPC and Flask ports
 EXPOSE 50051 5000
 
 # Run the main DFS executable
-CMD ["./build/dfs_main"]
+CMD ["python3", "app.py"]
