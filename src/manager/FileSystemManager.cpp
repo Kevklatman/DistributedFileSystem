@@ -1,6 +1,7 @@
 #include "FileSystemManager.h"
 #include <iostream>
 #include <filesystem>
+#include <random>
 
 FileSystemManager::FileSystemManager() {
     // Initialize empty manager
@@ -11,32 +12,66 @@ void FileSystemManager::addStorageNode(const std::string& nodeId, const std::str
     std::cout << "Added storage node: " << nodeId << " at path: " << path << std::endl;
 }
 
+std::vector<std::string> FileSystemManager::listNodes() {
+    std::vector<std::string> nodeIds;
+    for (const auto& node : nodes) {
+        nodeIds.push_back(node->getNodeId());
+    }
+    return nodeIds;
+}
+
+bool FileSystemManager::writeFileToNode(const std::string& nodeId, const std::string& filename, const std::string& content) {
+    for (const auto& node : nodes) {
+        if (node->getNodeId() == nodeId) {
+            bool success = node->storeFile(filename, content);
+            if (success) {
+                std::cout << "File written to node: " << nodeId << std::endl;
+            } else {
+                std::cout << "Failed to write to node: " << nodeId << std::endl;
+            }
+            return success;
+        }
+    }
+    std::cout << "Node not found: " << nodeId << std::endl;
+    return false;
+}
+
 bool FileSystemManager::writeFile(const std::string& filename, const std::string& content) {
-    // For now, write to first available node
     if (nodes.empty()) {
         std::cout << "No storage nodes available" << std::endl;
         return false;
     }
     
-    return nodes[0]->storeFile(filename, content);
+    // Use a random node for better distribution
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<> dis(0, nodes.size() - 1);
+    int nodeIndex = dis(gen);
+    
+    bool success = nodes[nodeIndex]->storeFile(filename, content);
+    if (success) {
+        std::cout << "File written to node: " << nodes[nodeIndex]->getNodeId() << std::endl;
+    }
+    return success;
 }
 
 std::string FileSystemManager::readFile(const std::string& filename) {
-    // For now, read from first node that has the file
     for (const auto& node : nodes) {
         std::string content = node->retrieveFile(filename);
         if (!content.empty()) {
+            std::cout << "File found in node: " << node->getNodeId() << std::endl;
             return content;
         }
     }
+    std::cout << "File not found in any node" << std::endl;
     return "";
 }
 
 bool FileSystemManager::deleteFile(const std::string& filename) {
-    // Try to delete from all nodes that might have the file
     bool deletedAny = false;
     for (const auto& node : nodes) {
         if (node->deleteFile(filename)) {
+            std::cout << "File deleted from node: " << node->getNodeId() << std::endl;
             deletedAny = true;
         }
     }
@@ -46,7 +81,11 @@ bool FileSystemManager::deleteFile(const std::string& filename) {
 std::vector<std::string> FileSystemManager::listAllFiles() {
     std::vector<std::string> allFiles;
     for (const auto& node : nodes) {
+        std::cout << "\nFiles in node " << node->getNodeId() << ":\n";
         auto nodeFiles = node->listFiles();
+        for (const auto& file : nodeFiles) {
+            std::cout << "- " << file << std::endl;
+        }
         allFiles.insert(allFiles.end(), nodeFiles.begin(), nodeFiles.end());
     }
     return allFiles;
