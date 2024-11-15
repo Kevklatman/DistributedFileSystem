@@ -8,10 +8,9 @@
 #include <chrono>
 #include <thread>
 #include <future>
-#include <shared_mutex>
+#include <iomanip>
 
 FileSystemManager::FileSystemManager() : maxRetries(3) {}
-
 FileSystemManager::FileSystemManager(int retries) : maxRetries(retries) {}
 
 void FileSystemManager::addStorageNode(const std::string& nodeId, const std::string& path) {
@@ -327,7 +326,20 @@ bool FileSystemManager::decompressFile(const std::string& filename) {
 
     return false;
 }
+std::string FileSystemManager::formatSize(size_t bytes) const {
+    static const char* units[] = {"B", "KB", "MB", "GB", "TB"};
+    int unitIndex = 0;
+    double size = static_cast<double>(bytes);
 
+    while (size >= 1024.0 && unitIndex < 4) {
+        size /= 1024.0;
+        unitIndex++;
+    }
+
+    std::stringstream ss;
+    ss << std::fixed << std::setprecision(2) << size << " " << units[unitIndex];
+    return ss.str();
+}
 bool FileSystemManager::isFileCompressed(const std::string& filename) {
     return filename.length() > 3 && 
            filename.substr(filename.length() - 3) == ".gz";
