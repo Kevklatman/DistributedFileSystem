@@ -1,4 +1,3 @@
-// src/manager/FileSystemManager.cpp
 #include "manager/FileSystemManager.h"
 #include <iostream>
 #include <filesystem>
@@ -120,8 +119,9 @@ void FileSystemManager::displayNodeStatus()
     }
 }
 
-bool FileSystemManager::writeFileToNode(const std::string &nodeId, const std::string &filename,
-                                        const std::string &content)
+WriteResult FileSystemManager::writeFileToNode(const std::string &nodeId,
+                                               const std::string &filename,
+                                               const std::string &content)
 {
     for (const auto &node : nodes)
     {
@@ -130,17 +130,132 @@ bool FileSystemManager::writeFileToNode(const std::string &nodeId, const std::st
             bool success = node->storeFile(filename, content);
             if (success)
             {
-                std::cout << "File written to node: " << nodeId << std::endl;
+                return WriteResult(true, "File written successfully", nodeId, content.size());
             }
-            else
-            {
-                std::cout << "Failed to write to node: " << nodeId << std::endl;
-            }
-            return success;
+            return WriteResult(false, "Failed to write to node", nodeId);
         }
     }
-    std::cout << "Node not found: " << nodeId << std::endl;
-    return false;
+    return WriteResult(false, "Node not found", nodeId);
+}
+
+WriteResult FileSystemManager::writeFileToNodes(const std::vector<std::string> &nodeIds,
+                                                const std::string &filename,
+                                                const std::string &content)
+{
+    if (nodeIds.empty())
+    {
+        return WriteResult(false, "No target nodes specified");
+    }
+
+    std::vector<std::string> successfulNodes;
+    std::string errorMessages;
+
+    for (const auto &nodeId : nodeIds)
+    {
+        auto result = writeFileToNode(nodeId, filename, content);
+        if (result.success)
+        {
+            successfulNodes.push_back(nodeId);
+        }
+        else
+        {
+            errorMessages += "Node " + nodeId + ": " + result.message + "\n";
+        }
+    }
+
+    if (!successfulNodes.empty())
+    {
+        std::string message = "Written to " + std::to_string(successfulNodes.size()) +
+                              " of " + std::to_string(nodeIds.size()) + " nodes";
+        if (!errorMessages.empty())
+        {
+            message += "\nErrors:\n" + errorMessages;
+        }
+        return WriteResult(true, message, successfulNodes[0], content.size());
+    }
+
+    return WriteResult(false, "Failed to write to any nodes:\n" + errorMessages);
+}
+
+StorageNode *FileSystemManager::getNode(const std::string &nodeId)
+{
+    for (const auto &node : nodes)
+    {
+        if (node->getNodeId() == nodeId)
+        {
+            return node.get();
+        }
+    }
+    return nullptr;
+}
+
+void FileSystemManager::removeNode(const std::string &nodeId)
+{
+    nodes.erase(
+        std::remove_if(nodes.begin(), nodes.end(),
+                       [&nodeId](const auto &node)
+                       { return node->getNodeId() == nodeId; }),
+        nodes.end());
+}
+
+double FileSystemManager::getNodeUsage(const std::string &nodeId) const
+{
+    if (auto node = findNode(nodeId))
+    {
+        return node->getDiskUsagePercentage();
+    }
+    throw std::runtime_error("Node not found: " + nodeId);
+}
+
+bool FileSystemManager::rebalanceNodes()
+{
+    return false; // Placeholder implementation
+}
+
+StorageNode *FileSystemManager::selectOptimalNode() const
+{
+    if (nodes.empty())
+    {
+        return nullptr;
+    }
+    return nodes.front().get(); // Placeholder implementation
+}
+
+StorageNode *FileSystemManager::findNode(const std::string &nodeId)
+{
+    auto it = std::find_if(nodes.begin(), nodes.end(),
+                           [&nodeId](const auto &node)
+                           { return node->getNodeId() == nodeId; });
+    return it != nodes.end() ? it->get() : nullptr;
+}
+
+const StorageNode *FileSystemManager::findNode(const std::string &nodeId) const
+{
+    auto it = std::find_if(nodes.begin(), nodes.end(),
+                           [&nodeId](const auto &node)
+                           { return node->getNodeId() == nodeId; });
+    return it != nodes.end() ? it->get() : nullptr;
+}
+
+void FileSystemManager::validateNodeExists(const std::string &nodeId) const
+{
+    if (!findNode(nodeId))
+    {
+        throw std::runtime_error("Node not found: " + nodeId);
+    }
+}
+
+std::vector<std::string> FileSystemManager::getOverloadedNodes(double threshold) const
+{
+    std::vector<std::string> overloaded;
+    for (const auto &node : nodes)
+    {
+        if (node->getDiskUsagePercentage() > threshold)
+        {
+            overloaded.push_back(node->getNodeId());
+        }
+    }
+    return overloaded;
 }
 
 std::string FileSystemManager::formatSize(size_t bytes) const
@@ -170,4 +285,11 @@ std::string FileSystemManager::normalizeFilepath(const std::string &path) const
 {
     std::filesystem::path normalized = std::filesystem::path(path).lexically_normal();
     return normalized.string();
+}
+
+bool FileSystemManager::validateWrite(const std::string &nodeId,
+                                      const std::string &filename,
+                                      size_t contentSize) const
+{
+    return !nodeId.empty() && !filename.empty();
 }
