@@ -60,11 +60,46 @@ class StorageBackend(ABC):
         """List all in-progress multipart uploads for a bucket."""
         pass
 
+    @abstractmethod
+    def enable_versioning(self, bucket_name):
+        """Enable versioning for a bucket."""
+        pass
+
+    @abstractmethod
+    def disable_versioning(self, bucket_name):
+        """Disable versioning for a bucket."""
+        pass
+
+    @abstractmethod
+    def get_versioning_status(self, bucket_name):
+        """Get the versioning status of a bucket."""
+        pass
+
+    @abstractmethod
+    def list_object_versions(self, bucket_name, prefix=None):
+        """List all versions of objects in a bucket."""
+        pass
+
+    @abstractmethod
+    def get_object_version(self, bucket_name, object_key, version_id):
+        """Get a specific version of an object."""
+        pass
+
+    @abstractmethod
+    def delete_object_version(self, bucket_name, object_key, version_id):
+        """Delete a specific version of an object."""
+        pass
+
 class LocalStorageBackend(StorageBackend):
     def __init__(self, fs_manager):
         self.fs_manager = fs_manager
         self.buckets = {}  # In-memory bucket storage
         self.multipart_uploads = {}  # Store multipart upload data
+        self.versioning = {}  # Store versioning configuration
+        self.versions = {}  # Store object versions
+
+    def _generate_version_id(self):
+        return str(uuid.uuid4())
 
     def create_bucket(self, bucket_name):
         if bucket_name in self.buckets:
@@ -93,10 +128,35 @@ class LocalStorageBackend(StorageBackend):
         if bucket_name not in self.buckets:
             return False, "Bucket does not exist"
 
-        success = self.fs_manager.writeFile(f'/{bucket_name}/{object_key}', data)
-        if success:
-            self.buckets[bucket_name]['objects'][object_key] = len(data)
-        return success, None
+        # Initialize versions dict for bucket if needed
+        if bucket_name not in self.versions:
+            self.versions[bucket_name] = {}
+        if object_key not in self.versions[bucket_name]:
+            self.versions[bucket_name][object_key] = []
+
+        # Generate version ID if versioning is enabled
+        version_id = None
+        if self.versioning.get(bucket_name):
+            version_id = self._generate_version_id()
+            # Store the current version
+            self.versions[bucket_name][object_key].append({
+                'version_id': version_id,
+                'data': data,
+                'size': len(data),
+                'last_modified': datetime.datetime.now(datetime.timezone.utc)
+            })
+        else:
+            # If versioning is disabled, just keep the latest version
+            self.versions[bucket_name][object_key] = [{
+                'version_id': 'latest',
+                'data': data,
+                'size': len(data),
+                'last_modified': datetime.datetime.now(datetime.timezone.utc)
+            }]
+
+        # Update the object size in buckets
+        self.buckets[bucket_name]['objects'][object_key] = len(data)
+        return True, version_id
 
     def get_object(self, bucket_name, object_key):
         if bucket_name not in self.buckets:
@@ -104,7 +164,11 @@ class LocalStorageBackend(StorageBackend):
         if object_key not in self.buckets[bucket_name]['objects']:
             return None, "Object does not exist"
 
-        return self.fs_manager.readFile(f'/{bucket_name}/{object_key}'), None
+        # Get the latest version
+        versions = self.versions.get(bucket_name, {}).get(object_key, [])
+        if not versions:
+            return None, "Object has no versions"
+        return versions[-1]['data'], None
 
     def delete_object(self, bucket_name, object_key):
         if bucket_name not in self.buckets:
@@ -112,10 +176,25 @@ class LocalStorageBackend(StorageBackend):
         if object_key not in self.buckets[bucket_name]['objects']:
             return False, "Object does not exist"
 
-        success = self.fs_manager.deleteFile(f'/{bucket_name}/{object_key}')
-        if success:
+        if self.versioning.get(bucket_name):
+            # If versioning is enabled, add a delete marker
+            version_id = self._generate_version_id()
+            if bucket_name not in self.versions:
+                self.versions[bucket_name] = {}
+            if object_key not in self.versions[bucket_name]:
+                self.versions[bucket_name][object_key] = []
+            self.versions[bucket_name][object_key].append({
+                'version_id': version_id,
+                'is_delete_marker': True,
+                'last_modified': datetime.datetime.now(datetime.timezone.utc)
+            })
+        else:
+            # If versioning is disabled, actually delete the object
             del self.buckets[bucket_name]['objects'][object_key]
-        return success, None
+            if bucket_name in self.versions and object_key in self.versions[bucket_name]:
+                del self.versions[bucket_name][object_key]
+
+        return True, None
 
     def list_objects(self, bucket_name):
         if bucket_name not in self.buckets:
@@ -197,6 +276,71 @@ class LocalStorageBackend(StorageBackend):
             if upload['bucket'] == bucket_name
         ]
         return bucket_uploads, None
+
+    def enable_versioning(self, bucket_name):
+        if bucket_name not in self.buckets:
+            return False, "Bucket does not exist"
+        self.versioning[bucket_name] = True
+        return True, None
+
+    def disable_versioning(self, bucket_name):
+        if bucket_name not in self.buckets:
+            return False, "Bucket does not exist"
+        self.versioning[bucket_name] = False
+        return True, None
+
+    def get_versioning_status(self, bucket_name):
+        if bucket_name not in self.buckets:
+            return None, "Bucket does not exist"
+        return self.versioning.get(bucket_name, False), None
+
+    def get_object_version(self, bucket_name, object_key, version_id):
+        if bucket_name not in self.buckets:
+            return None, "Bucket does not exist"
+        if object_key not in self.versions.get(bucket_name, {}):
+            return None, "Object does not exist"
+
+        # Find the specific version
+        for version in self.versions[bucket_name][object_key]:
+            if version['version_id'] == version_id:
+                return version['data'], None
+        return None, "Version not found"
+
+    def delete_object_version(self, bucket_name, object_key, version_id):
+        if bucket_name not in self.buckets:
+            return False, "Bucket does not exist"
+        if object_key not in self.versions.get(bucket_name, {}):
+            return False, "Object does not exist"
+
+        # Remove the specific version
+        versions = self.versions[bucket_name][object_key]
+        for i, version in enumerate(versions):
+            if version['version_id'] == version_id:
+                versions.pop(i)
+                if not versions:  # If no versions left
+                    del self.versions[bucket_name][object_key]
+                    del self.buckets[bucket_name]['objects'][object_key]
+                return True, None
+        return False, "Version not found"
+
+    def list_object_versions(self, bucket_name, prefix=None):
+        if bucket_name not in self.buckets:
+            return None, "Bucket does not exist"
+
+        versions = []
+        bucket_versions = self.versions.get(bucket_name, {})
+        for key, obj_versions in bucket_versions.items():
+            if prefix is None or key.startswith(prefix):
+                for version in obj_versions:
+                    versions.append({
+                        'Key': key,
+                        'VersionId': version['version_id'],
+                        'IsLatest': version == obj_versions[-1],
+                        'LastModified': version['last_modified'].isoformat(),
+                        'Size': version.get('size', 0),
+                        'IsDeleteMarker': version.get('is_delete_marker', False)
+                    })
+        return versions, None
 
 class AWSStorageBackend(StorageBackend):
     def __init__(self):
@@ -317,6 +461,85 @@ class AWSStorageBackend(StorageBackend):
             return uploads, None
         except Exception as e:
             return None, str(e)
+
+    def enable_versioning(self, bucket_name):
+        try:
+            self.s3.put_bucket_versioning(
+                Bucket=bucket_name,
+                VersioningConfiguration={'Status': 'Enabled'}
+            )
+            return True, None
+        except Exception as e:
+            return False, str(e)
+
+    def disable_versioning(self, bucket_name):
+        try:
+            self.s3.put_bucket_versioning(
+                Bucket=bucket_name,
+                VersioningConfiguration={'Status': 'Suspended'}
+            )
+            return True, None
+        except Exception as e:
+            return False, str(e)
+
+    def get_versioning_status(self, bucket_name):
+        try:
+            response = self.s3.get_bucket_versioning(Bucket=bucket_name)
+            return response.get('Status') == 'Enabled', None
+        except Exception as e:
+            return None, str(e)
+
+    def list_object_versions(self, bucket_name, prefix=None):
+        try:
+            params = {'Bucket': bucket_name}
+            if prefix:
+                params['Prefix'] = prefix
+            response = self.s3.list_object_versions(**params)
+            
+            versions = []
+            for version in response.get('Versions', []):
+                versions.append({
+                    'Key': version['Key'],
+                    'VersionId': version['VersionId'],
+                    'IsLatest': version['IsLatest'],
+                    'LastModified': version['LastModified'].isoformat(),
+                    'Size': version['Size'],
+                    'IsDeleteMarker': False
+                })
+            for marker in response.get('DeleteMarkers', []):
+                versions.append({
+                    'Key': marker['Key'],
+                    'VersionId': marker['VersionId'],
+                    'IsLatest': marker['IsLatest'],
+                    'LastModified': marker['LastModified'].isoformat(),
+                    'Size': 0,
+                    'IsDeleteMarker': True
+                })
+            return versions, None
+        except Exception as e:
+            return None, str(e)
+
+    def get_object_version(self, bucket_name, object_key, version_id):
+        try:
+            response = self.s3.get_object(
+                Bucket=bucket_name,
+                Key=object_key,
+                VersionId=version_id
+            )
+            return response['Body'].read(), None
+        except Exception as e:
+            return None, str(e)
+
+    def delete_object_version(self, bucket_name, object_key, version_id):
+        try:
+            self.s3.delete_object(
+                Bucket=bucket_name,
+                Key=object_key,
+                VersionId=version_id
+            )
+            return True, None
+        except Exception as e:
+            return False, str(e)
 
 def get_storage_backend(fs_manager=None):
     """Factory function to get the appropriate storage backend"""

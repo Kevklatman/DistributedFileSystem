@@ -204,3 +204,92 @@ def handle_list_objects_or_uploads(bucket):
     if error:
         return make_response({'error': error}, 400)
     return make_response({'objects': objects}, 200)
+
+@app.route('/<bucket>/versioning', methods=['GET', 'PUT'])
+def handle_bucket_versioning(bucket):
+    """Handle bucket versioning operations"""
+    storage = get_storage_backend()
+
+    if request.method == 'GET':
+        # Get versioning status
+        enabled, error = storage.get_versioning_status(bucket)
+        if error:
+            return make_response({'error': error}, 400)
+        return make_response({
+            'Status': 'Enabled' if enabled else 'Suspended'
+        }, 200)
+
+    elif request.method == 'PUT':
+        # Set versioning status
+        try:
+            config = request.json
+            if not config or 'Status' not in config:
+                return make_response({'error': 'Missing Status in request'}, 400)
+
+            if config['Status'] == 'Enabled':
+                success, error = storage.enable_versioning(bucket)
+            elif config['Status'] == 'Suspended':
+                success, error = storage.disable_versioning(bucket)
+            else:
+                return make_response({'error': 'Invalid Status value'}, 400)
+
+            if error:
+                return make_response({'error': error}, 400)
+            return make_response('', 200)
+        except Exception as e:
+            return make_response({'error': str(e)}, 400)
+
+@app.route('/<bucket>/<key>', methods=['GET'])
+def handle_get_object_or_version(bucket, key):
+    """Handle object retrieval, optionally with version"""
+    storage = get_storage_backend()
+    
+    version_id = request.args.get('versionId')
+    if version_id:
+        # Get specific version
+        data, error = storage.get_object_version(bucket, key, version_id)
+    else:
+        # Get latest version
+        data, error = storage.get_object(bucket, key)
+
+    if error:
+        return make_response({'error': error}, 400)
+    return Response(data, mimetype='application/octet-stream')
+
+@app.route('/<bucket>', methods=['GET'])
+def handle_list_objects_or_versions(bucket):
+    """Handle listing objects or versions"""
+    storage = get_storage_backend()
+    
+    # List versions if versions parameter is present
+    if request.args.get('versions') is not None:
+        prefix = request.args.get('prefix')
+        versions, error = storage.list_object_versions(bucket, prefix)
+        if error:
+            return make_response({'error': error}, 400)
+        return make_response({
+            'Versions': versions
+        }, 200)
+    
+    # List objects (existing functionality)
+    objects, error = storage.list_objects(bucket)
+    if error:
+        return make_response({'error': error}, 400)
+    return make_response({'objects': objects}, 200)
+
+@app.route('/<bucket>/<key>', methods=['DELETE'])
+def handle_delete_object_or_version(bucket, key):
+    """Handle object or version deletion"""
+    storage = get_storage_backend()
+    
+    version_id = request.args.get('versionId')
+    if version_id:
+        # Delete specific version
+        success, error = storage.delete_object_version(bucket, key, version_id)
+    else:
+        # Delete latest version (or add delete marker if versioning enabled)
+        success, error = storage.delete_object(bucket, key)
+
+    if error:
+        return make_response({'error': error}, 400)
+    return make_response('', 204)
