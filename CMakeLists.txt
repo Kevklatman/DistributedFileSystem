@@ -96,9 +96,13 @@ target_link_libraries(dfs_main PRIVATE dfs_core)
 # Tests
 add_executable(storage_test tests/storage_tests/storage_test.cpp)
 add_executable(manager_test tests/manager_tests/manager_test.cpp)
-
+# CLI Executable
+add_executable(dfs_cli src/main.cpp)
+target_link_libraries(dfs_cli PRIVATE dfs_core)
 target_link_libraries(storage_test PRIVATE dfs_core)
 target_link_libraries(manager_test PRIVATE dfs_core)
 
 add_test(NAME StorageTest COMMAND storage_test)
 add_test(NAME ManagerTest COMMAND manager_test)
+
+#./dfs_cli run cli
