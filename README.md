@@ -28,60 +28,153 @@ brew install \
     zookeeper
 ```
 
-### Building from source
+## Command Reference
 
-1. Clone the repository:
-```bash
-git clone https://github.com/yourusername/distributed-fs.git
-cd distributed-fs
-```
+### Building the Project
 
-2. Create build directory:
+1. Create and enter build directory:
 ```bash
 mkdir build && cd build
 ```
 
-3. Configure with CMake:
+2. Configure with CMake:
 ```bash
 cmake ..
 ```
 
-4. Build:
+3. Build all targets:
 ```bash
+# On Linux/Mac with make
 make -j$(nproc)
+# OR on Mac
+make -j$(sysctl -n hw.ncpu)
 ```
 
-5. Run tests:
+4. Run tests:
 ```bash
 make test
+# Or run individual tests:
+./build/storage_test
+./build/manager_test
 ```
 
-## VSCode Configuration
+### Running the System
 
-Add the following to your `.vscode/c_cpp_properties.json`:
+1. Start the Storage Server:
+```bash
+# Start a storage node on port 50051
+./build/storage_server --host localhost --port 50051
 
-```json
-{
-    "configurations": [
-        {
-            "name": "Linux",
-            "includePath": [
-                "${workspaceFolder}/**",
-                "${workspaceFolder}/include",
-                "${workspaceFolder}/build",
-                "/usr/local/include",
-                "/usr/include/zookeeper"
-            ],
-            "defines": [],
-            "compilerPath": "/usr/bin/g++",
-            "cStandard": "c11",
-            "cppStandard": "c++17",
-            "intelliSenseMode": "gcc-x64",
-            "compileCommands": "${workspaceFolder}/build/compile_commands.json"
-        }
-    ],
-    "version": 4
-}
+# Start additional nodes on different ports
+./build/storage_server --host localhost --port 50052
+./build/storage_server --host localhost --port 50053
+```
+
+2. Run the Main DFS Service:
+```bash
+./build/dfs_main
+```
+
+3. Use the CLI:
+```bash
+# General usage
+./build/dfs_cli [command] [options]
+
+# Common commands
+./build/dfs_cli list                    # List all files
+./build/dfs_cli upload <file>           # Upload a file
+./build/dfs_cli download <file>         # Download a file
+./build/dfs_cli delete <file>           # Delete a file
+```
+
+### S3-Compatible API Server
+
+1. Install Python dependencies:
+```bash
+cd api
+pip install -r requirements.txt
+```
+
+2. Run the API server:
+```bash
+python app.py
+# Server will start on http://localhost:5000
+```
+
+3. Test S3 API endpoints:
+```bash
+# Create a bucket
+curl -X PUT http://localhost:5000/my-bucket
+
+# Upload an object
+echo "Hello World" | curl -X PUT -d @- http://localhost:5000/my-bucket/hello.txt
+
+# List buckets
+curl http://localhost:5000/
+
+# List objects in bucket
+curl http://localhost:5000/my-bucket
+
+# Get object
+curl http://localhost:5000/my-bucket/hello.txt
+```
+
+### Docker Support
+
+1. Build the Docker image:
+```bash
+docker build -t distributed-fs .
+```
+
+2. Run the container:
+```bash
+# Run the main service
+docker run -p 50051:50051 distributed-fs
+
+# Run a storage node
+docker run -p 50052:50051 distributed-fs --node --host 0.0.0.0 --port 50051
+```
+
+### Kubernetes Deployment
+
+1. Create namespace and apply base configurations:
+```bash
+kubectl apply -f k8s/base/namespace.yaml
+kubectl apply -f k8s/base/aws-ebs-csi-driver.yaml
+kubectl apply -f k8s/base/aws-iam-role.yaml
+```
+
+2. Deploy the application:
+```bash
+kubectl apply -f k8s/base/deployment.yaml
+```
+
+3. Check deployment status:
+```bash
+kubectl get pods -n distributed-fs
+kubectl logs -f deployment/dfs-main -n distributed-fs
+```
+
+### Development Commands
+
+1. Generate Protocol Buffers:
+```bash
+# Manually generate protobufs (usually handled by CMake)
+protoc --grpc_out=generated \
+       --cpp_out=generated \
+       --proto_path=proto \
+       --plugin=protoc-gen-grpc=`which grpc_cpp_plugin` \
+       proto/storage.proto
+```
+
+2. Format code (if clang-format is installed):
+```bash
+find . -name '*.cpp' -o -name '*.h' | xargs clang-format -i
+```
+
+3. Run with debug logging:
+```bash
+RUST_LOG=debug ./build/dfs_main
 ```
 
 ## Project Structure
@@ -97,26 +190,9 @@ Add the following to your `.vscode/c_cpp_properties.json`:
 ├── src/                    # Source files
 │   ├── manager/           # FileSystem manager implementation
 │   └── storage/           # Storage node implementation
-└── tests/                 # Test files
-```
-
-## Usage
-
-1. Start ZooKeeper:
-```bash
-zkServer.sh start
-```
-
-2. Run the filesystem:
-```bash
-./build/DistributedFileSystem
-```
-
-3. Add storage nodes:
-```bash
-# In separate terminals
-./build/DistributedFileSystem --node --host localhost --port 50051
-./build/DistributedFileSystem --node --host localhost --port 50052
+├── tests/                 # Test files
+├── api/                   # S3-compatible API
+└── k8s/                   # Kubernetes configurations
 ```
 
 ## Configuration
@@ -142,17 +218,4 @@ If you encounter build errors:
 3. Verify include paths in VSCode settings
 4. Run `cmake --build . --verbose` for detailed output
 
-
-# Create namespace
-kubectl apply -f k8s/base/namespace.yaml
-
-# Apply storage class and IAM role
-kubectl apply -f k8s/base/aws-ebs-csi-driver.yaml
-kubectl apply -f k8s/base/aws-iam-role.yaml
-
-# Deploy the application
-kubectl apply -f k8s/base/deployment.yaml
-
-# Build Docker
-
-sudo docker build -t distributed-fs .
+For more detailed information, check the documentation in the `docs/` directory.
