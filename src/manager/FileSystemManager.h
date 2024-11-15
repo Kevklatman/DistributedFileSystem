@@ -10,6 +10,7 @@
 #include <future>
 #include "storage.grpc.pb.h"
 #include "zookeeper/zookeeper.h"
+#include "StorageNode.h"
 
 class FileSystemManager
 {
