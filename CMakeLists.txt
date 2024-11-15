@@ -1,49 +1,85 @@
 cmake_minimum_required(VERSION 3.10)
-project(DistributedFileSystem)
+project(DistributedFS VERSION 1.0)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Find protobuf installation
+# Ensure protobuf compatibility
+set(protobuf_MODULE_COMPATIBLE TRUE)
 find_package(Protobuf REQUIRED)
-include_directories(${Protobuf_INCLUDE_DIRS})
+find_package(gRPC CONFIG REQUIRED)
+find_package(OpenSSL REQUIRED)
 
-# Find gRPC
-set(gRPC_DIR "/usr/local/lib/cmake/grpc")
-find_package(absl REQUIRED)
-find_package(gRPC REQUIRED)
+# Proto files
+set(PROTO_FILES
+    proto/storage.proto
+)
 
-# Include directories
-include_directories(
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/proto
+# Generate protobuf and gRPC code
+add_custom_command(
+    OUTPUT
+        ${CMAKE_CURRENT_BINARY_DIR}/storage.pb.cc
+        ${CMAKE_CURRENT_BINARY_DIR}/storage.pb.h
+        ${CMAKE_CURRENT_BINARY_DIR}/storage.grpc.pb.cc
+        ${CMAKE_CURRENT_BINARY_DIR}/storage.grpc.pb.h
+    COMMAND ${Protobuf_PROTOC_EXECUTABLE}
+    ARGS --grpc_out=${CMAKE_CURRENT_BINARY_DIR}
+         --cpp_out=${CMAKE_CURRENT_BINARY_DIR}
+         --proto_path=${CMAKE_CURRENT_SOURCE_DIR}/proto
+         --plugin=protoc-gen-grpc=$<TARGET_FILE:gRPC::grpc_cpp_plugin>
+         ${PROTO_FILES}
+    DEPENDS ${PROTO_FILES}
+)
+
+# Storage proto library
+add_library(storage_proto
+    ${CMAKE_CURRENT_BINARY_DIR}/storage.pb.cc
+    ${CMAKE_CURRENT_BINARY_DIR}/storage.grpc.pb.cc
+)
+
+target_link_libraries(storage_proto
+    PUBLIC
+        ${Protobuf_LIBRARIES}
+        gRPC::grpc++
+        gRPC::grpc++_reflection
+)
+
+target_include_directories(storage_proto PUBLIC
     ${CMAKE_CURRENT_BINARY_DIR}
-    ${PROTOBUF_INCLUDE_DIRS}
-    /usr/local/include
+    ${Protobuf_INCLUDE_DIRS}
 )
 
-link_directories(/usr/local/lib)
-
-# Source files
-set(SOURCES
-    src/manager/FileSystemManager.cpp
+# Core library
+add_library(dfs_core
     src/storage/StorageNode.cpp
-    src/utils/Logger.cpp
-    src/main.cpp
-    proto/storage.grpc.pb.cc
-    proto/storage.pb.cc
+    src/manager/FileSystemManager.cpp
+    src/storage/storage_service.cpp
 )
 
-# Create executable
-add_executable(${PROJECT_NAME} ${SOURCES})
-
-# Link libraries
-target_link_libraries(${PROJECT_NAME}
-    ${PROTOBUF_LIBRARIES}
-    gRPC::grpc++
-    gRPC::grpc++_reflection
+target_link_libraries(dfs_core
+    PUBLIC
+        storage_proto
+        OpenSSL::SSL
+        OpenSSL::Crypto
 )
+
+target_include_directories(dfs_core PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+
+# Executables
+add_executable(storage_server src/storage/storage_server.cpp)
+target_link_libraries(storage_server PRIVATE dfs_core)
+
+add_executable(dfs_main src/main.cpp)
+target_link_libraries(dfs_main PRIVATE dfs_core)
 
 # Tests
 add_executable(storage_test tests/storage_tests/storage_test.cpp)
 add_executable(manager_test tests/manager_tests/manager_test.cpp)
+
+target_link_libraries(storage_test PRIVATE dfs_core)
+target_link_libraries(manager_test PRIVATE dfs_core)
+
+add_test(NAME StorageTest COMMAND storage_test)
+add_test(NAME ManagerTest COMMAND manager_)
