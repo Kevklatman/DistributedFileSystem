@@ -14,6 +14,16 @@ add_executable(${PROJECT_NAME} ${SOURCES})
 target_include_directories(${PROJECT_NAME} PRIVATE
     ${PROJECT_SOURCE_DIR}/include
     ${PROJECT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_BINARY_DIR}  # For generated files
+    /usr/local/include  # For gRPC
+    /usr/local/include/zookeeper  # For ZooKeeper
+    ${PROJECT_SOURCE_DIR}/proto  # Add this line for proto files
+)
+
+# Link libraries
+target_link_libraries(${PROJECT_NAME} PRIVATE
+    grpc++  # For gRPC
+    zookeeper_mt  # For ZooKeeper
 )
 
 # Enable testing
