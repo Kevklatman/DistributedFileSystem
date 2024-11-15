@@ -1,0 +1,27 @@
+classDiagram
+    class FileSystemManager {
+        -nodes: vector~StorageNode~
+        -fileMetadata: map
+        +writeFile(filename, content)
+        +readFile(filename)
+        +deleteFile(filename)
+        +listAllFiles()
+        +addStorageNode(nodeId, path)
+        +searchByName(pattern)
+        +searchByContent(pattern)
+        +moveToDirectory(filename, dirPath)
+    }
+    
+    class StorageNode {
+        -nodeId: string
+        -basePath: string
+        -fileMap: map
+        +storeFile(filename, content)
+        +retrieveFile(filename)
+        +deleteFile(filename)
+        +listFiles()
+        +getNodeId()
+        +getTotalSpaceUsed()
+    }
+    
+    FileSystemManager "1" *-- "many" StorageNode : manages
