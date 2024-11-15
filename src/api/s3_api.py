@@ -1,10 +1,12 @@
-from flask import Flask, request, jsonify, Response
+from flask import Flask, request, jsonify, Response, make_response
 from werkzeug.exceptions import BadRequest
 import xmltodict
 import datetime
 import hashlib
 import os
 from storage_backend import get_storage_backend
+
+app = Flask(__name__)
 
 class S3ApiHandler:
     def __init__(self, fs_manager):
@@ -103,3 +105,102 @@ class S3ApiHandler:
         if not success:
             return self._generate_error_response('DeleteObjectError', error)
         return '', 204
+
+@app.route('/<bucket>/<key>', methods=['POST'])
+def handle_multipart(bucket, key):
+    """Handle multipart upload operations"""
+    storage = get_storage_backend()
+    
+    # Create multipart upload
+    if request.args.get('uploads') is not None:
+        upload_id, error = storage.create_multipart_upload(bucket, key)
+        if error:
+            return make_response({'error': error}, 400)
+        return make_response({
+            'bucket': bucket,
+            'key': key,
+            'upload_id': upload_id
+        }, 200)
+
+    # Upload part
+    upload_id = request.args.get('uploadId')
+    part_number = request.args.get('partNumber')
+    if upload_id and part_number:
+        try:
+            part_number = int(part_number)
+            if not (1 <= part_number <= 10000):
+                return make_response({'error': 'Part number must be between 1 and 10000'}, 400)
+        except ValueError:
+            return make_response({'error': 'Invalid part number'}, 400)
+
+        etag, error = storage.upload_part(bucket, key, upload_id, part_number, request.data)
+        if error:
+            return make_response({'error': error}, 400)
+        return make_response({'ETag': etag}, 200)
+
+    return make_response({'error': 'Invalid multipart upload request'}, 400)
+
+@app.route('/<bucket>/<key>', methods=['DELETE'])
+def handle_delete_object_or_upload(bucket, key):
+    """Handle object deletion or multipart upload abort"""
+    storage = get_storage_backend()
+    
+    # Abort multipart upload
+    upload_id = request.args.get('uploadId')
+    if upload_id:
+        success, error = storage.abort_multipart_upload(bucket, key, upload_id)
+        if error:
+            return make_response({'error': error}, 400)
+        return make_response('', 204)
+    
+    # Delete object (existing functionality)
+    success, error = storage.delete_object(bucket, key)
+    if error:
+        return make_response({'error': error}, 400)
+    return make_response('', 204)
+
+@app.route('/<bucket>/<key>', methods=['PUT'])
+def handle_put_object_or_complete_upload(bucket, key):
+    """Handle object upload or multipart upload completion"""
+    storage = get_storage_backend()
+    
+    # Complete multipart upload
+    upload_id = request.args.get('uploadId')
+    if upload_id:
+        try:
+            completion_data = request.json
+            if not completion_data or 'parts' not in completion_data:
+                return make_response({'error': 'Missing parts list'}, 400)
+            
+            success, error = storage.complete_multipart_upload(
+                bucket, key, upload_id, completion_data['parts']
+            )
+            if error:
+                return make_response({'error': error}, 400)
+            return make_response('', 200)
+        except Exception as e:
+            return make_response({'error': str(e)}, 400)
+    
+    # Regular put object (existing functionality)
+    success, error = storage.put_object(bucket, key, request.data)
+    if error:
+        return make_response({'error': error}, 400)
+    return make_response('', 200)
+
+@app.route('/<bucket>', methods=['GET'])
+def handle_list_objects_or_uploads(bucket):
+    """Handle listing objects or multipart uploads"""
+    storage = get_storage_backend()
+    
+    # List multipart uploads
+    if request.args.get('uploads') is not None:
+        uploads, error = storage.list_multipart_uploads(bucket)
+        if error:
+            return make_response({'error': error}, 400)
+        return make_response({'uploads': uploads}, 200)
+    
+    # List objects (existing functionality)
+    objects, error = storage.list_objects(bucket)
+    if error:
+        return make_response({'error': error}, 400)
+    return make_response({'objects': objects}, 200)

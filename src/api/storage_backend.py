@@ -2,6 +2,9 @@ from abc import ABC, abstractmethod
 import boto3
 from botocore.client import Config
 from config import current_config, STORAGE_ENV
+import uuid
+import datetime
+import hashlib
 
 class StorageBackend(ABC):
     @abstractmethod
@@ -32,10 +35,36 @@ class StorageBackend(ABC):
     def list_objects(self, bucket_name):
         pass
 
+    @abstractmethod
+    def create_multipart_upload(self, bucket_name, object_key):
+        """Initialize a multipart upload and return an upload ID."""
+        pass
+
+    @abstractmethod
+    def upload_part(self, bucket_name, object_key, upload_id, part_number, data):
+        """Upload a part of a multipart upload."""
+        pass
+
+    @abstractmethod
+    def complete_multipart_upload(self, bucket_name, object_key, upload_id, parts):
+        """Complete a multipart upload using the given parts."""
+        pass
+
+    @abstractmethod
+    def abort_multipart_upload(self, bucket_name, object_key, upload_id):
+        """Abort a multipart upload."""
+        pass
+
+    @abstractmethod
+    def list_multipart_uploads(self, bucket_name):
+        """List all in-progress multipart uploads for a bucket."""
+        pass
+
 class LocalStorageBackend(StorageBackend):
     def __init__(self, fs_manager):
         self.fs_manager = fs_manager
         self.buckets = {}  # In-memory bucket storage
+        self.multipart_uploads = {}  # Store multipart upload data
 
     def create_bucket(self, bucket_name):
         if bucket_name in self.buckets:
@@ -92,6 +121,82 @@ class LocalStorageBackend(StorageBackend):
         if bucket_name not in self.buckets:
             return None, "Bucket does not exist"
         return list(self.buckets[bucket_name]['objects'].keys()), None
+
+    def create_multipart_upload(self, bucket_name, object_key):
+        if bucket_name not in self.buckets:
+            return None, "Bucket does not exist"
+
+        upload_id = str(uuid.uuid4())
+        self.multipart_uploads[upload_id] = {
+            'bucket': bucket_name,
+            'key': object_key,
+            'parts': {},
+            'started': datetime.datetime.now(datetime.timezone.utc)
+        }
+        return upload_id, None
+
+    def upload_part(self, bucket_name, object_key, upload_id, part_number, data):
+        if upload_id not in self.multipart_uploads:
+            return None, "Upload ID does not exist"
+
+        upload = self.multipart_uploads[upload_id]
+        if upload['bucket'] != bucket_name or upload['key'] != object_key:
+            return None, "Bucket or key does not match upload ID"
+
+        # Store the part data
+        etag = hashlib.md5(data).hexdigest()
+        upload['parts'][part_number] = {
+            'data': data,
+            'etag': etag,
+            'size': len(data)
+        }
+        return etag, None
+
+    def complete_multipart_upload(self, bucket_name, object_key, upload_id, parts):
+        if upload_id not in self.multipart_uploads:
+            return False, "Upload ID does not exist"
+
+        upload = self.multipart_uploads[upload_id]
+        if upload['bucket'] != bucket_name or upload['key'] != object_key:
+            return False, "Bucket or key does not match upload ID"
+
+        # Combine all parts in order
+        combined_data = b''
+        for part_num in sorted(upload['parts'].keys()):
+            combined_data += upload['parts'][part_num]['data']
+
+        # Write the complete file
+        success = self.fs_manager.writeFile(f'/{bucket_name}/{object_key}', combined_data)
+        if success:
+            self.buckets[bucket_name]['objects'][object_key] = len(combined_data)
+            del self.multipart_uploads[upload_id]
+        return success, None
+
+    def abort_multipart_upload(self, bucket_name, object_key, upload_id):
+        if upload_id not in self.multipart_uploads:
+            return False, "Upload ID does not exist"
+
+        upload = self.multipart_uploads[upload_id]
+        if upload['bucket'] != bucket_name or upload['key'] != object_key:
+            return False, "Bucket or key does not match upload ID"
+
+        del self.multipart_uploads[upload_id]
+        return True, None
+
+    def list_multipart_uploads(self, bucket_name):
+        if bucket_name not in self.buckets:
+            return None, "Bucket does not exist"
+
+        bucket_uploads = [
+            {
+                'key': upload['key'],
+                'upload_id': upload_id,
+                'started': upload['started'].isoformat()
+            }
+            for upload_id, upload in self.multipart_uploads.items()
+            if upload['bucket'] == bucket_name
+        ]
+        return bucket_uploads, None
 
 class AWSStorageBackend(StorageBackend):
     def __init__(self):
@@ -155,6 +260,61 @@ class AWSStorageBackend(StorageBackend):
         try:
             response = self.s3.list_objects_v2(Bucket=bucket_name)
             return [obj['Key'] for obj in response.get('Contents', [])], None
+        except Exception as e:
+            return None, str(e)
+
+    def create_multipart_upload(self, bucket_name, object_key):
+        try:
+            response = self.s3.create_multipart_upload(Bucket=bucket_name, Key=object_key)
+            return response['UploadId'], None
+        except Exception as e:
+            return None, str(e)
+
+    def upload_part(self, bucket_name, object_key, upload_id, part_number, data):
+        try:
+            response = self.s3.upload_part(
+                Bucket=bucket_name,
+                Key=object_key,
+                UploadId=upload_id,
+                PartNumber=part_number,
+                Body=data
+            )
+            return response['ETag'], None
+        except Exception as e:
+            return None, str(e)
+
+    def complete_multipart_upload(self, bucket_name, object_key, upload_id, parts):
+        try:
+            response = self.s3.complete_multipart_upload(
+                Bucket=bucket_name,
+                Key=object_key,
+                UploadId=upload_id,
+                MultipartUpload={'Parts': parts}
+            )
+            return True, None
+        except Exception as e:
+            return False, str(e)
+
+    def abort_multipart_upload(self, bucket_name, object_key, upload_id):
+        try:
+            self.s3.abort_multipart_upload(
+                Bucket=bucket_name,
+                Key=object_key,
+                UploadId=upload_id
+            )
+            return True, None
+        except Exception as e:
+            return False, str(e)
+
+    def list_multipart_uploads(self, bucket_name):
+        try:
+            response = self.s3.list_multipart_uploads(Bucket=bucket_name)
+            uploads = [{
+                'key': upload['Key'],
+                'upload_id': upload['UploadId'],
+                'started': upload['Initiated'].isoformat()
+            } for upload in response.get('Uploads', [])]
+            return uploads, None
         except Exception as e:
             return None, str(e)
 
