@@ -17,6 +17,9 @@ RUN apt-get update && apt-get install -y \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
+# Create storage directory
+RUN mkdir -p /data
+
 # Install Flask for the Python API component
 RUN pip3 install Flask
 
