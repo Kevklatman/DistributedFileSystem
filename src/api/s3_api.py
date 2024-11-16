@@ -23,7 +23,8 @@ class S3ApiHandler:
         return xmltodict.unparse(error, pretty=True), 400, {'Content-Type': 'application/xml'}
 
     def _success_response(self, body):
-        return xmltodict.unparse(body, pretty=True), 200, {'Content-Type': 'application/xml'}
+        xml_str = xmltodict.unparse(body, pretty=True)
+        return Response(xml_str, mimetype='application/xml')
 
     def list_buckets(self):
         buckets = self.storage.list_buckets()
@@ -61,19 +62,43 @@ class S3ApiHandler:
     def list_objects(self, bucket_name):
         try:
             objects = self.storage.list_objects(bucket_name)
+            if isinstance(objects, tuple):
+                objects, error = objects
+                if error:
+                    return self._generate_error_response('ListObjectsError', str(error))
 
-            objects_list = [{
-                'Key': obj['Key'],
-                'LastModified': obj['LastModified'].isoformat() if isinstance(obj['LastModified'], datetime.datetime) else obj['LastModified'],
-                'Size': obj['Size'],
-                'StorageClass': 'STANDARD'
-            } for obj in objects]
+            # Ensure objects is a list
+            if objects is None:
+                objects = []
+            elif not isinstance(objects, list):
+                objects = list(objects)
+
+            # Convert objects to the expected format
+            objects_list = []
+            for obj in objects:
+                if isinstance(obj, dict):
+                    obj_data = {
+                        'Key': obj.get('Key', ''),
+                        'LastModified': obj.get('LastModified', datetime.datetime.now(datetime.timezone.utc)).isoformat(),
+                        'Size': str(obj.get('Size', 0)),
+                        'StorageClass': obj.get('StorageClass', 'STANDARD')
+                    }
+                    objects_list.append(obj_data)
+                else:
+                    # Handle case where object might be a string
+                    obj_data = {
+                        'Key': str(obj),
+                        'LastModified': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                        'Size': '0',
+                        'StorageClass': 'STANDARD'
+                    }
+                    objects_list.append(obj_data)
 
             response = {
                 'ListBucketResult': {
                     'Name': bucket_name,
                     'Contents': objects_list if objects_list else None,
-                    'IsTruncated': False
+                    'IsTruncated': 'false'
                 }
             }
             return self._success_response(response)

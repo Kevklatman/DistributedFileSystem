@@ -71,20 +71,64 @@ const createBucketIfNeeded = async (bucketName) => {
 };
 
 const parseXMLResponse = (xmlString) => {
-  const parser = new DOMParser();
-  const xmlDoc = parser.parseFromString(xmlString, "text/xml");
-
-  const contents = xmlDoc.getElementsByTagName('Contents');
-  const objects = Array.from(contents).map(content => {
-    return {
-      key: content.getElementsByTagName('Key')[0]?.textContent || '',
-      lastModified: content.getElementsByTagName('LastModified')[0]?.textContent || '',
-      size: parseInt(content.getElementsByTagName('Size')[0]?.textContent || '0'),
-      storageClass: content.getElementsByTagName('StorageClass')[0]?.textContent || ''
-    };
-  });
-
-  return objects;
+  try {
+    // Unescape the XML string if it's escaped
+    const unescapedXML = xmlString.replace(/&quot;/g, '"')
+                                   .replace(/&apos;/g, "'")
+                                   .replace(/&lt;/g, '<')
+                                   .replace(/&gt;/g, '>')
+                                   .replace(/&amp;/g, '&');
+    
+    console.log('XML Parsing - Unescaped XML:', unescapedXML);
+    
+    const parser = new DOMParser();
+    const xmlDoc = parser.parseFromString(unescapedXML, "text/xml");
+    
+    // Debug logging
+    console.log('XML Parsing - Raw XML:', xmlString);
+    console.log('XML Parsing - Parsed Doc:', xmlDoc);
+    
+    // Check for parsing errors
+    const parserError = xmlDoc.getElementsByTagName('parsererror');
+    if (parserError.length > 0) {
+      console.error('XML Parsing Error:', parserError[0].textContent);
+      return [];
+    }
+    
+    // Get all Contents elements
+    const contents = xmlDoc.getElementsByTagName('Contents');
+    console.log('XML Parsing - Contents elements:', contents.length);
+    
+    const objects = [];
+    
+    for (let i = 0; i < contents.length; i++) {
+      const content = contents[i];
+      console.log('XML Parsing - Processing content:', content);
+      
+      const key = content.getElementsByTagName('Key')[0]?.textContent;
+      const lastModified = content.getElementsByTagName('LastModified')[0]?.textContent;
+      const size = content.getElementsByTagName('Size')[0]?.textContent;
+      const storageClass = content.getElementsByTagName('StorageClass')[0]?.textContent;
+      
+      console.log('XML Parsing - Extracted values:', { key, lastModified, size, storageClass });
+      
+      if (key) {
+        objects.push({
+          Key: key,
+          LastModified: lastModified,
+          Size: parseInt(size, 10),
+          StorageClass: storageClass,
+          Name: key.split('/').pop() || key // Use full key if no path separator
+        });
+      }
+    }
+    
+    console.log('XML Parsing - Final objects:', objects);
+    return objects;
+  } catch (error) {
+    console.error('Error parsing XML:', error);
+    return [];
+  }
 };
 
 function App() {
@@ -172,37 +216,58 @@ function App() {
       console.log(`Fetching files for bucket: ${selectedBucket}`);
       const response = await axios.get(`${API_URL}/api/v1/s3/buckets/${selectedBucket}/objects`, {
         headers: {
-          'Accept': 'application/xml, text/xml, */*'
+          'Accept': 'application/xml'
         },
-        transformResponse: [(data) => {
-          // Keep the original response
-          return data;
-        }]
+        responseType: 'text'
       });
 
       console.log('Files response:', response.data);
-
-      // Check if response is XML
-      if (typeof response.data === 'string' && response.data.includes('<?xml')) {
-        const objects = parseXMLResponse(response.data);
-        console.log('Parsed objects from XML:', objects);
-        setFiles(objects);
-      } else if (response.data.objects) {
-        // Handle JSON response if server sends JSON
-        console.log('Setting files from JSON:', response.data.objects);
-        setFiles(response.data.objects);
-      } else {
-        console.warn('Unexpected response format:', response.data);
+      
+      // Parse XML response
+      const parser = new DOMParser();
+      const xmlDoc = parser.parseFromString(response.data, "text/xml");
+      
+      // Check for parsing errors
+      const parserError = xmlDoc.getElementsByTagName('parsererror');
+      if (parserError.length > 0) {
+        console.error('XML Parsing Error:', parserError[0].textContent);
         setFiles([]);
+        return;
       }
+      
+      // Get all Contents elements
+      const contents = xmlDoc.getElementsByTagName('Contents');
+      console.log('Found contents:', contents.length);
+      
+      const objects = [];
+      for (let i = 0; i < contents.length; i++) {
+        const content = contents[i];
+        const key = content.getElementsByTagName('Key')[0]?.textContent;
+        const lastModified = content.getElementsByTagName('LastModified')[0]?.textContent;
+        const size = content.getElementsByTagName('Size')[0]?.textContent;
+        const storageClass = content.getElementsByTagName('StorageClass')[0]?.textContent;
+        
+        if (key) {
+          objects.push({
+            Key: key,
+            LastModified: lastModified,
+            Size: parseInt(size, 10),
+            StorageClass: storageClass,
+            Name: key.split('/').pop() || key
+          });
+        }
+      }
+      
+      console.log('Parsed objects:', objects);
+      setFiles(objects);
     } catch (error) {
-      console.error('Error fetching files:', error.response?.data || error);
+      console.error('Error fetching files:', error);
+      setFiles([]);
       setSnackbar({
         open: true,
-        message: error.response?.data?.error || 'Failed to fetch files',
+        message: `Failed to fetch files: ${error.response?.data?.error || error.message}`,
         severity: 'error'
       });
-      setFiles([]);
     }
   };
 
@@ -699,7 +764,7 @@ function App() {
             <List>
               {files.map((file) => (
                 <ListItem
-                  key={file.key}
+                  key={file.Key}
                   secondaryAction={
                     <IconButton onClick={(e) => handleFileMenuClick(e, file)}>
                       <MoreVert />
@@ -707,8 +772,8 @@ function App() {
                   }
                 >
                   <ListItemText
-                    primary={file.key}
-                    secondary={`Last modified: ${new Date(file.lastModified).toLocaleString()}`}
+                    primary={file.Name}
+                    secondary={`Last modified: ${new Date(file.LastModified).toLocaleString()}`}
                   />
                 </ListItem>
               ))}
@@ -752,10 +817,10 @@ function App() {
                 key={version.versionId}
                 secondaryAction={
                   <Box>
-                    <IconButton onClick={() => handleDownloadFile(selectedFileMenu?.key, version.versionId)}>
+                    <IconButton onClick={() => handleDownloadFile(selectedFileMenu?.Key, version.versionId)}>
                       <Download />
                     </IconButton>
-                    <IconButton onClick={() => handleDeleteFile(selectedFileMenu?.key, version.versionId)}>
+                    <IconButton onClick={() => handleDeleteFile(selectedFileMenu?.Key, version.versionId)}>
                       <Delete />
                     </IconButton>
                   </Box>
