@@ -412,9 +412,9 @@ class AWSStorageBackend(StorageBackend):
             'region_name': current_config['region']
         }
         
-        # Only add endpoint_url if it's explicitly set and not None
+        # Only add endpoint_url if it's explicitly set and not None or a comment
         endpoint = current_config.get('endpoint')
-        if endpoint and endpoint != 'None' and endpoint != 'null':
+        if endpoint and isinstance(endpoint, str) and not endpoint.startswith('#'):
             kwargs['endpoint_url'] = endpoint
 
         self.s3 = boto3.client('s3', **kwargs)
