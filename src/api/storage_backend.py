@@ -101,6 +101,21 @@ class LocalStorageBackend(StorageBackend):
     def _generate_version_id(self):
         return str(uuid.uuid4())
 
+    def _cleanup_orphaned_data(self, bucket_name, object_key):
+        """Clean up any orphaned data for an object"""
+        # Clean up versions
+        if bucket_name in self.versions:
+            if object_key in self.versions[bucket_name]:
+                del self.versions[bucket_name][object_key]
+            # Remove bucket from versions if empty
+            if not self.versions[bucket_name]:
+                del self.versions[bucket_name]
+        
+        # Clean up multipart uploads
+        upload_key = f"{bucket_name}/{object_key}"
+        if upload_key in self.multipart_uploads:
+            del self.multipart_uploads[upload_key]
+
     def create_bucket(self, bucket_name):
         # Validate bucket name according to S3 rules
         if not bucket_name:
@@ -187,13 +202,15 @@ class LocalStorageBackend(StorageBackend):
         if bucket_name not in self.buckets:
             return False, "Bucket does not exist"
         
-        # Normalize the object key
+        # Normalize the object key and create file path
         object_key = object_key.lstrip('/')
         file_path = f'/{bucket_name}/{object_key}'
 
+        # Check if object exists
         if object_key not in self.buckets[bucket_name]['objects']:
             return False, "Object does not exist"
 
+        # Handle versioning
         if self.versioning.get(bucket_name):
             # If versioning is enabled, add a delete marker
             version_id = self._generate_version_id()
@@ -201,19 +218,25 @@ class LocalStorageBackend(StorageBackend):
                 self.versions[bucket_name] = {}
             if object_key not in self.versions[bucket_name]:
                 self.versions[bucket_name][object_key] = []
+            
+            # Add delete marker
             self.versions[bucket_name][object_key].append({
                 'version_id': version_id,
                 'is_delete_marker': True,
                 'last_modified': datetime.datetime.now(datetime.timezone.utc)
             })
-        else:
-            # If versioning is not enabled, remove the object completely
+            
+            # Remove from current objects but keep versions
             del self.buckets[bucket_name]['objects'][object_key]
-            if bucket_name in self.versions and object_key in self.versions[bucket_name]:
-                del self.versions[bucket_name][object_key]
+        else:
+            # If versioning is not enabled, remove everything
+            del self.buckets[bucket_name]['objects'][object_key]
+            self._cleanup_orphaned_data(bucket_name, object_key)
+            
+            # Delete the file from filesystem
+            if not self.fs_manager.deleteFile(file_path):
+                return False, "Failed to delete file from filesystem"
 
-        # Delete the file from the filesystem
-        self.fs_manager.deleteFile(file_path)
         return True, None
 
     def list_objects(self, bucket_name):
@@ -226,7 +249,7 @@ class LocalStorageBackend(StorageBackend):
             return None, "Bucket does not exist"
 
         upload_id = str(uuid.uuid4())
-        self.multipart_uploads[upload_id] = {
+        self.multipart_uploads[f"{bucket_name}/{object_key}"] = {
             'bucket': bucket_name,
             'key': object_key,
             'parts': {},
@@ -235,10 +258,11 @@ class LocalStorageBackend(StorageBackend):
         return upload_id, None
 
     def upload_part(self, bucket_name, object_key, upload_id, part_number, data):
-        if upload_id not in self.multipart_uploads:
+        if upload_id not in [upload['started'] for upload in self.multipart_uploads.values()]:
             return None, "Upload ID does not exist"
 
-        upload = self.multipart_uploads[upload_id]
+        upload_key = f"{bucket_name}/{object_key}"
+        upload = self.multipart_uploads[upload_key]
         if upload['bucket'] != bucket_name or upload['key'] != object_key:
             return None, "Bucket or key does not match upload ID"
 
@@ -252,10 +276,11 @@ class LocalStorageBackend(StorageBackend):
         return etag, None
 
     def complete_multipart_upload(self, bucket_name, object_key, upload_id, parts):
-        if upload_id not in self.multipart_uploads:
+        if upload_id not in [upload['started'] for upload in self.multipart_uploads.values()]:
             return False, "Upload ID does not exist"
 
-        upload = self.multipart_uploads[upload_id]
+        upload_key = f"{bucket_name}/{object_key}"
+        upload = self.multipart_uploads[upload_key]
         if upload['bucket'] != bucket_name or upload['key'] != object_key:
             return False, "Bucket or key does not match upload ID"
 
@@ -268,18 +293,19 @@ class LocalStorageBackend(StorageBackend):
         success = self.fs_manager.writeFile(f'/{bucket_name}/{object_key}', combined_data)
         if success:
             self.buckets[bucket_name]['objects'][object_key] = len(combined_data)
-            del self.multipart_uploads[upload_id]
+            del self.multipart_uploads[upload_key]
         return success, None
 
     def abort_multipart_upload(self, bucket_name, object_key, upload_id):
-        if upload_id not in self.multipart_uploads:
+        if upload_id not in [upload['started'] for upload in self.multipart_uploads.values()]:
             return False, "Upload ID does not exist"
 
-        upload = self.multipart_uploads[upload_id]
+        upload_key = f"{bucket_name}/{object_key}"
+        upload = self.multipart_uploads[upload_key]
         if upload['bucket'] != bucket_name or upload['key'] != object_key:
             return False, "Bucket or key does not match upload ID"
 
-        del self.multipart_uploads[upload_id]
+        del self.multipart_uploads[upload_key]
         return True, None
 
     def list_multipart_uploads(self, bucket_name):
@@ -289,58 +315,67 @@ class LocalStorageBackend(StorageBackend):
         bucket_uploads = [
             {
                 'key': upload['key'],
-                'upload_id': upload_id,
+                'upload_id': upload['started'].isoformat(),
                 'started': upload['started'].isoformat()
             }
-            for upload_id, upload in self.multipart_uploads.items()
+            for upload_key, upload in self.multipart_uploads.items()
             if upload['bucket'] == bucket_name
         ]
         return bucket_uploads, None
 
     def enable_versioning(self, bucket_name):
+        """Enable versioning for a bucket."""
         if bucket_name not in self.buckets:
             return False, "Bucket does not exist"
         self.versioning[bucket_name] = True
         return True, None
 
     def disable_versioning(self, bucket_name):
+        """Disable versioning for a bucket."""
         if bucket_name not in self.buckets:
             return False, "Bucket does not exist"
         self.versioning[bucket_name] = False
         return True, None
 
     def get_versioning_status(self, bucket_name):
+        """Get the versioning status of a bucket."""
         if bucket_name not in self.buckets:
-            return None, "Bucket does not exist"
-        return self.versioning.get(bucket_name, False), None
-
-    def get_object_version(self, bucket_name, object_key, version_id):
-        if bucket_name not in self.buckets:
-            return None, "Bucket does not exist"
-        if object_key not in self.versions.get(bucket_name, {}):
-            return None, "Object does not exist"
-
-        # Find the specific version
-        for version in self.versions[bucket_name][object_key]:
-            if version['version_id'] == version_id:
-                return version['data'], None
-        return None, "Version not found"
+            return False
+        return self.versioning.get(bucket_name, False)
 
     def delete_object_version(self, bucket_name, object_key, version_id):
+        """Delete a specific version of an object."""
         if bucket_name not in self.buckets:
             return False, "Bucket does not exist"
-        if object_key not in self.versions.get(bucket_name, {}):
-            return False, "Object does not exist"
-
-        # Remove the specific version
+        
+        # Normalize the object key
+        object_key = object_key.lstrip('/')
+        
+        # Check if versioning is enabled and versions exist
+        if not self.versioning.get(bucket_name):
+            return False, "Versioning not enabled for this bucket"
+        
+        if bucket_name not in self.versions or object_key not in self.versions[bucket_name]:
+            return False, "No versions found for this object"
+        
+        # Find and remove the specific version
         versions = self.versions[bucket_name][object_key]
         for i, version in enumerate(versions):
-            if version['version_id'] == version_id:
+            if version.get('version_id') == version_id:
                 versions.pop(i)
-                if not versions:  # If no versions left
+                
+                # If this was the last version, clean up the object
+                if not versions:
                     del self.versions[bucket_name][object_key]
-                    del self.buckets[bucket_name]['objects'][object_key]
+                    if object_key in self.buckets[bucket_name]['objects']:
+                        del self.buckets[bucket_name]['objects'][object_key]
+                    
+                    # Clean up the file if no versions remain
+                    file_path = f'/{bucket_name}/{object_key}'
+                    self.fs_manager.deleteFile(file_path)
+                
                 return True, None
+        
         return False, "Version not found"
 
     def list_object_versions(self, bucket_name, prefix=None):

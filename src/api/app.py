@@ -73,13 +73,40 @@ def put_object(bucket_name, object_key):
 def get_object(bucket_name, object_key):
     return s3_handler.get_object(bucket_name, object_key)
 
+@app.route('/<bucket_name>/versioning', methods=['GET', 'PUT'])
+def handle_versioning(bucket_name):
+    if request.method == 'GET':
+        try:
+            status = s3_handler.get_versioning_status(bucket_name)
+            return jsonify({'VersioningEnabled': status})
+        except Exception as e:
+            return make_response({'error': str(e)}, 400)
+    elif request.method == 'PUT':
+        try:
+            data = request.get_json()
+            if data.get('VersioningEnabled'):
+                s3_handler.enable_versioning(bucket_name)
+            else:
+                s3_handler.disable_versioning(bucket_name)
+            return '', 200
+        except Exception as e:
+            return make_response({'error': str(e)}, 400)
+
 @app.route('/<bucket_name>/<object_key>', methods=['DELETE'])
 def delete_object(bucket_name, object_key):
     try:
-        response = s3_handler.delete_object(bucket_name, object_key)
-        return response
+        # Handle version-specific deletion
+        version_id = request.args.get('versionId')
+        if version_id:
+            success, error = s3_handler.delete_object_version(bucket_name, object_key, version_id)
+        else:
+            success, error = s3_handler.delete_object(bucket_name, object_key)
+
+        if not success:
+            return make_response({'error': error}, 404 if 'not exist' in error.lower() else 400)
+        return '', 204
     except Exception as e:
-        return make_response({'error': str(e)}, 400)
+        return make_response({'error': str(e)}, 500)
 
 if __name__ == '__main__':
     from config import API_HOST, API_PORT, DEBUG
