@@ -432,18 +432,17 @@ class AWSStorageBackend(StorageBackend):
 
     def create_bucket(self, bucket_name):
         try:
-            # Only include LocationConstraint if not us-east-1
+            # Always specify LocationConstraint for non-us-east-1 regions
             if self.region != 'us-east-1':
-                location = {'LocationConstraint': self.region}
                 self.s3.create_bucket(
                     Bucket=bucket_name,
-                    CreateBucketConfiguration=location
+                    CreateBucketConfiguration={'LocationConstraint': self.region}
                 )
             else:
-                # us-east-1 doesn't accept a LocationConstraint
                 self.s3.create_bucket(Bucket=bucket_name)
             return True, None
         except Exception as e:
+            print(f"Error creating bucket: {str(e)}")
             return False, str(e)
 
     def delete_bucket(self, bucket_name):
@@ -484,10 +483,32 @@ class AWSStorageBackend(StorageBackend):
 
     def list_objects(self, bucket_name):
         try:
-            response = self.s3.list_objects_v2(Bucket=bucket_name)
-            return [obj['Key'] for obj in response.get('Contents', [])], None
+            # First, get the bucket's location
+            location = self.s3.get_bucket_location(Bucket=bucket_name)
+            bucket_region = location['LocationConstraint']
+
+            # If bucket is in a different region, create a new client for that region
+            if bucket_region and bucket_region != self.region:
+                print(f"Switching to bucket region: {bucket_region}")
+                temp_client = boto3.client(
+                    's3',
+                    aws_access_key_id=current_config['access_key'],
+                    aws_secret_access_key=current_config['secret_key'],
+                    region_name=bucket_region,
+                    config=Config(
+                        signature_version='s3v4',
+                        s3={'addressing_style': 'path'}
+                    )
+                )
+                response = temp_client.list_objects_v2(Bucket=bucket_name)
+            else:
+                response = self.s3.list_objects_v2(Bucket=bucket_name)
+
+            objects = response.get('Contents', [])
+            return [{'Key': obj['Key'], 'Size': obj['Size'], 'LastModified': obj['LastModified']} for obj in objects]
         except Exception as e:
-            return None, str(e)
+            print(f"Error listing objects: {str(e)}")
+            raise
 
     def create_multipart_upload(self, bucket_name, object_key):
         try:
