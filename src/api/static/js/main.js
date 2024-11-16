@@ -17,12 +17,19 @@ function formatDate(dateString) {
 
 // API functions
 async function listBuckets() {
-    const response = await fetch('/api/s3/buckets');
-    if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+    try {
+        console.log('Fetching buckets...');
+        const response = await fetch('/api/v1/s3/buckets');
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const data = await response.json();
+        console.log('Received bucket data:', data);
+        return data.buckets || [];
+    } catch (error) {
+        console.error('Error in listBuckets:', error);
+        throw error;
     }
-    const data = await response.json();
-    return data.buckets || [];
 }
 
 async function createBucket() {
@@ -30,7 +37,7 @@ async function createBucket() {
     if (!bucketName) return;
 
     try {
-        const response = await fetch(`/api/s3/buckets/${bucketName}`, {
+        const response = await fetch(`/api/v1/s3/buckets/${bucketName}`, {
             method: 'PUT'
         });
         if (!response.ok) {
@@ -48,7 +55,7 @@ async function deleteBucket(bucketName) {
     if (!confirm(`Are you sure you want to delete bucket "${bucketName}"?`)) return;
 
     try {
-        const response = await fetch(`/api/s3/buckets/${bucketName}`, {
+        const response = await fetch(`/api/v1/s3/buckets/${bucketName}`, {
             method: 'DELETE'
         });
         if (!response.ok) {
@@ -66,7 +73,7 @@ async function deleteBucket(bucketName) {
 }
 
 async function listObjects(bucketName) {
-    const response = await fetch(`/api/s3/buckets/${bucketName}/objects`);
+    const response = await fetch(`/api/v1/s3/buckets/${bucketName}/objects`);
     if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
     }
@@ -75,7 +82,7 @@ async function listObjects(bucketName) {
 }
 
 async function uploadFile(file, bucketName) {
-    const response = await fetch(`/api/s3/buckets/${bucketName}/objects/${file.name}`, {
+    const response = await fetch(`/api/v1/s3/buckets/${bucketName}/objects/${file.name}`, {
         method: 'PUT',
         body: file
     });
@@ -86,7 +93,7 @@ async function uploadFile(file, bucketName) {
 }
 
 async function deleteObject(bucketName, objectKey) {
-    const response = await fetch(`/api/s3/buckets/${bucketName}/objects/${objectKey}`, {
+    const response = await fetch(`/api/v1/s3/buckets/${bucketName}/objects/${objectKey}`, {
         method: 'DELETE'
     });
     if (!response.ok) {
@@ -96,7 +103,7 @@ async function deleteObject(bucketName, objectKey) {
 }
 
 async function getVersioning(bucketName) {
-    const response = await fetch(`/api/s3/buckets/${bucketName}/versioning`);
+    const response = await fetch(`/api/v1/s3/buckets/${bucketName}/versioning`);
     if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
     }
@@ -105,7 +112,7 @@ async function getVersioning(bucketName) {
 }
 
 async function setVersioning(bucketName, enabled) {
-    const response = await fetch(`/api/s3/buckets/${bucketName}/versioning`, {
+    const response = await fetch(`/api/v1/s3/buckets/${bucketName}/versioning`, {
         method: 'PUT',
         headers: {
             'Content-Type': 'application/json'
@@ -121,7 +128,7 @@ async function setVersioning(bucketName, enabled) {
 }
 
 async function listVersions(bucketName, objectKey) {
-    const response = await fetch(`/api/s3/buckets/${bucketName}/objects/${objectKey}/versions`);
+    const response = await fetch(`/api/v1/s3/buckets/${bucketName}/objects/${objectKey}/versions`);
     if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
     }
@@ -130,7 +137,7 @@ async function listVersions(bucketName, objectKey) {
 }
 
 async function getObjectVersion(bucketName, objectKey, versionId) {
-    const response = await fetch(`/api/s3/buckets/${bucketName}/objects/${objectKey}?versionId=${versionId}`);
+    const response = await fetch(`/api/v1/s3/buckets/${bucketName}/objects/${objectKey}?versionId=${versionId}`);
     if (!response.ok) {
         const error = await response.json();
         throw new Error(error.error || 'Failed to get version');
@@ -139,7 +146,7 @@ async function getObjectVersion(bucketName, objectKey, versionId) {
 }
 
 async function deleteObjectVersion(bucketName, objectKey, versionId) {
-    const response = await fetch(`/api/s3/buckets/${bucketName}/objects/${objectKey}?versionId=${versionId}`, {
+    const response = await fetch(`/api/v1/s3/buckets/${bucketName}/objects/${objectKey}?versionId=${versionId}`, {
         method: 'DELETE'
     });
     if (!response.ok) {
@@ -311,7 +318,7 @@ async function handleFiles(files) {
 
 async function downloadObject(objectKey) {
     try {
-        const response = await fetch(`/api/s3/buckets/${currentBucket}/objects/${objectKey}`);
+        const response = await fetch(`/api/v1/s3/buckets/${currentBucket}/objects/${objectKey}`);
         if (!response.ok) {
             const error = await response.json();
             throw new Error(error.error || 'Failed to download object');

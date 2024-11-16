@@ -17,7 +17,7 @@ app = Flask(__name__,
            static_folder='static')
 
 # Enable CORS
-CORS(app)
+CORS(app, resources={r"/api/*": {"origins": "*"}})
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -36,7 +36,7 @@ api = Api(app, version='1.0',
           title='Distributed File System API',
           description='S3-compatible API for distributed file storage',
           doc='/docs',
-          prefix='/api')
+          prefix='/api/v1')
 
 # Define namespaces
 s3_ns = api.namespace('s3',
