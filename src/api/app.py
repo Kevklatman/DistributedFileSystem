@@ -148,6 +148,14 @@ class JSONEncoder(json.JSONEncoder):
 
 app.json_encoder = JSONEncoder
 
+# Health check endpoint
+@app.route('/api/v1/health', methods=['GET'])
+def health_check():
+    return jsonify({
+        'status': 'available',
+        'timestamp': datetime.datetime.now().isoformat()
+    })
+
 # Decorate existing routes with API documentation
 @s3_ns.route('/buckets')
 class BucketList(Resource):

@@ -136,12 +136,41 @@
         .status-down {
             background-color: #dc3545;
         }
+        .environment-labels {
+            display: flex;
+            gap: 20px;
+            margin: 10px 0;
+            font-size: 0.9em;
+        }
+        .env-label {
+            padding: 5px 10px;
+            border-radius: 4px;
+        }
+        .env-label a {
+            color: inherit;
+            text-decoration: none;
+        }
+        .env-label a:hover {
+            text-decoration: underline;
+        }
+        .prod {
+            background-color: #28a745;
+            color: white;
+        }
+        .dev {
+            background-color: #ffc107;
+            color: #000;
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
             <h1>DFS Dashboard</h1>
+            <div class="environment-labels">
+                <div class="env-label prod">Production UI: <a href="http://localhost:3000" target="_blank">localhost:3000</a></div>
+                <div class="env-label dev">Development UI: <a href="http://localhost:5555" target="_blank">localhost:5555</a></div>
+            </div>
             <div class="timestamp">Last updated: <span id="timestamp"></span></div>
         </div>
 
@@ -239,11 +268,22 @@
         function checkServiceStatus(service, port) {
             const indicator = document.getElementById(`${service}-indicator`);
             const statusText = document.getElementById(`${service}-status-text`);
-
-            fetch(`http://localhost:${port}`)
-                .then(() => {
-                    indicator.className = 'status-indicator status-up';
-                    statusText.textContent = 'Running';
+            
+            const endpoint = service === 'api' ? `/api/v1/health` : '';
+            
+            fetch(`http://localhost:${port}${endpoint}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (service === 'api' && data.status === 'available') {
+                        indicator.className = 'status-indicator status-up';
+                        statusText.textContent = 'Available';
+                    } else if (service === 'web-ui') {
+                        indicator.className = 'status-indicator status-up';
+                        statusText.textContent = 'Running';
+                    } else {
+                        indicator.className = 'status-indicator status-down';
+                        statusText.textContent = 'Not Available';
+                    }
                 })
                 .catch(() => {
                     indicator.className = 'status-indicator status-down';

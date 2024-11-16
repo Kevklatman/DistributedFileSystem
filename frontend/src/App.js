@@ -155,9 +155,28 @@ function App() {
   const fileInputRef = React.createRef(null);
   const [versionHistoryOpen, setVersionHistoryOpen] = useState(false);
   const [selectedFileVersions, setSelectedFileVersions] = useState([]);
+  const [apiStatus, setApiStatus] = useState('Not Available');
+
+  // Add API health check
+  const checkApiStatus = async () => {
+    try {
+      const response = await axios.get(`${API_URL}/api/v1/health`);
+      if (response.data.status === 'available') {
+        setApiStatus('Available');
+      } else {
+        setApiStatus('Not Available');
+      }
+    } catch (error) {
+      console.error('API health check failed:', error);
+      setApiStatus('Not Available');
+    }
+  };
 
   useEffect(() => {
     fetchBuckets();
+    checkApiStatus();
+    const statusInterval = setInterval(checkApiStatus, 30000); // Check every 30 seconds
+    return () => clearInterval(statusInterval);
   }, []);
 
   useEffect(() => {
@@ -664,7 +683,10 @@ function App() {
       <AppBar position="static">
         <Toolbar>
           <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
-            Distributed File System
+            Distributed File System (Production UI)
+          </Typography>
+          <Typography variant="body2" color={apiStatus === 'Available' ? 'success.main' : 'error.main'} sx={{ mr: 2 }}>
+            API Service Status: {apiStatus}
           </Typography>
         </Toolbar>
       </AppBar>
