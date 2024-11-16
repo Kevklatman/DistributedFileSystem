@@ -69,6 +69,23 @@ const createBucketIfNeeded = async (bucketName) => {
   }
 };
 
+const parseXMLResponse = (xmlString) => {
+  const parser = new DOMParser();
+  const xmlDoc = parser.parseFromString(xmlString, "text/xml");
+
+  const contents = xmlDoc.getElementsByTagName('Contents');
+  const objects = Array.from(contents).map(content => {
+    return {
+      key: content.getElementsByTagName('Key')[0]?.textContent || '',
+      lastModified: content.getElementsByTagName('LastModified')[0]?.textContent || '',
+      size: parseInt(content.getElementsByTagName('Size')[0]?.textContent || '0'),
+      storageClass: content.getElementsByTagName('StorageClass')[0]?.textContent || ''
+    };
+  });
+
+  return objects;
+};
+
 function App() {
   const [buckets, setBuckets] = useState([]);
   const [selectedBucket, setSelectedBucket] = useState(null);
@@ -93,9 +110,12 @@ function App() {
   }, []);
 
   useEffect(() => {
+    console.log('Selected bucket changed to:', selectedBucket);
     if (selectedBucket) {
       fetchFiles();
       fetchVersioningStatus();
+    } else {
+      setFiles([]);
     }
   }, [selectedBucket]);
 
@@ -119,15 +139,40 @@ function App() {
   const fetchFiles = async () => {
     if (!selectedBucket) return;
     try {
-      const response = await axios.get(`${API_URL}/${selectedBucket}`);
-      setFiles(response.data.objects || []);
+      console.log(`Fetching files for bucket: ${selectedBucket}`);
+      const response = await axios.get(`${API_URL}/${selectedBucket}`, {
+        headers: {
+          'Accept': 'application/xml, text/xml, */*'
+        },
+        transformResponse: [(data) => {
+          // Keep the original response
+          return data;
+        }]
+      });
+
+      console.log('Files response:', response.data);
+
+      // Check if response is XML
+      if (typeof response.data === 'string' && response.data.includes('<?xml')) {
+        const objects = parseXMLResponse(response.data);
+        console.log('Parsed objects from XML:', objects);
+        setFiles(objects);
+      } else if (response.data.objects) {
+        // Handle JSON response if server sends JSON
+        console.log('Setting files from JSON:', response.data.objects);
+        setFiles(response.data.objects);
+      } else {
+        console.warn('Unexpected response format:', response.data);
+        setFiles([]);
+      }
     } catch (error) {
-      console.error('Error fetching files:', error);
+      console.error('Error fetching files:', error.response?.data || error);
       setSnackbar({
         open: true,
-        message: 'Failed to fetch files',
+        message: error.response?.data?.error || 'Failed to fetch files',
         severity: 'error'
       });
+      setFiles([]);
     }
   };
 
@@ -417,6 +462,11 @@ function App() {
     handleFileMenuClose();
   };
 
+  const handleBucketSelect = (bucketName) => {
+    console.log('Selecting bucket:', bucketName);
+    setSelectedBucket(bucketName);
+  };
+
   return (
     <Box sx={{ flexGrow: 1 }}>
       <AppBar position="static">
@@ -462,7 +512,7 @@ function App() {
                       borderRadius: 1,
                       p: 1
                     }}
-                    onClick={() => setSelectedBucket(bucket.name)}
+                    onClick={() => handleBucketSelect(bucket.name)}
                   />
                 </ListItem>
               ))}
