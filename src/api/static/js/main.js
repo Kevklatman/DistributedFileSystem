@@ -136,7 +136,7 @@ async function refreshBuckets() {
 
 async function refreshCurrentBucket() {
     if (!currentBucket) return;
-    
+
     try {
         // Update versioning switch
         const versioning = await getVersioning(currentBucket);
@@ -276,7 +276,7 @@ async function downloadObject(objectKey) {
     try {
         const response = await fetch(`/${currentBucket}/${objectKey}`);
         if (!response.ok) throw new Error('Failed to download object');
-        
+
         const blob = await response.blob();
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');

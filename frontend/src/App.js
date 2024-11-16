@@ -33,7 +33,7 @@ import {
 } from '@mui/icons-material';
 import axios from 'axios';
 
-const API_URL = 'http://localhost:8000';
+const API_URL = 'http://localhost:5555';
 const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB chunks for multipart upload
 
 function App() {
