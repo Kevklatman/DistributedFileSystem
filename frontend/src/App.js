@@ -582,14 +582,14 @@ function App() {
             <List>
               {buckets.map((bucket) => (
                 <ListItem
-                  key={bucket.name}
+                  key={bucket.Name}
                   secondaryAction={
                     <IconButton
                       edge="end"
                       aria-label="delete"
                       onClick={(e) => {
                         e.stopPropagation();
-                        handleDeleteBucket(bucket.name);
+                        handleDeleteBucket(bucket.Name);
                       }}
                     >
                       <Delete />
@@ -597,14 +597,14 @@ function App() {
                   }
                 >
                   <ListItemText
-                    primary={bucket.name}
+                    primary={bucket.Name}
                     sx={{
                       cursor: 'pointer',
-                      bgcolor: selectedBucket === bucket.name ? 'action.selected' : 'transparent',
+                      bgcolor: selectedBucket === bucket.Name ? 'action.selected' : 'transparent',
                       borderRadius: 1,
                       p: 1
                     }}
-                    onClick={() => handleBucketSelect(bucket.name)}
+                    onClick={() => handleBucketSelect(bucket.Name)}
                   />
                 </ListItem>
               ))}
