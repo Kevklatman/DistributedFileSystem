@@ -1,9 +1,10 @@
-from flask import Flask, render_template, jsonify
+from flask import Flask, render_template, jsonify, Response
 from kubernetes import client, config, utils
 from datetime import datetime
 import os
 import ssl
 import urllib3
+import requests
 
 # Disable SSL warnings
 urllib3.disable_warnings()
@@ -105,6 +106,23 @@ def metrics():
         'storage': get_storage_metrics(),
         'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     })
+
+# Proxy routes for other services
+@app.route('/web-ui/<path:path>')
+def web_ui_proxy(path):
+    try:
+        resp = requests.get(f'http://localhost:3000/{path}')
+        return Response(resp.content, resp.status_code, resp.headers.items())
+    except:
+        return "Web UI service unavailable", 503
+
+@app.route('/api/<path:path>')
+def api_proxy(path):
+    try:
+        resp = requests.get(f'http://localhost:5555/{path}')
+        return Response(resp.content, resp.status_code, resp.headers.items())
+    except:
+        return "API service unavailable", 503
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
