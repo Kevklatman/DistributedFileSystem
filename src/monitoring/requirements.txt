@@ -1,0 +1,5 @@
+flask==2.0.1
+kubernetes==26.1.0
+prometheus-client==0.17.1
+requests==2.31.0
+gunicorn==21.2.0
