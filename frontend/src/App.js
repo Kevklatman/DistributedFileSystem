@@ -36,6 +36,9 @@ import axios from 'axios';
 const API_URL = 'http://localhost:5555';
 const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB chunks for multipart upload
 
+// Configure axios defaults
+axios.defaults.headers.common['Accept'] = 'application/json';
+
 function App() {
   const [buckets, setBuckets] = useState([]);
   const [selectedBucket, setSelectedBucket] = useState(null);
@@ -63,12 +66,18 @@ function App() {
 
   const fetchBuckets = async () => {
     try {
-      const response = await axios.get(`${API_URL}/`, {
-        headers: { Accept: 'application/json' }
-      });
-      setBuckets(response.data.buckets || []);
+      console.log('Fetching buckets...');
+      const response = await axios.get(`${API_URL}/`);
+      console.log('Buckets response:', response.data);
+      if (response.data.buckets) {
+        setBuckets(response.data.buckets);
+      } else {
+        console.error('Unexpected response format:', response.data);
+        setBuckets([]);
+      }
     } catch (error) {
-      console.error('Error fetching buckets:', error);
+      console.error('Error fetching buckets:', error.response || error);
+      setBuckets([]);
     }
   };
 
@@ -168,7 +177,9 @@ function App() {
 
   const fetchFiles = async (bucketName) => {
     try {
+      console.log(`Fetching files for bucket ${bucketName}...`);
       const response = await axios.get(`${API_URL}/${bucketName}`);
+      console.log('Files response:', response.data);
       const parser = new DOMParser();
       const xmlDoc = parser.parseFromString(response.data, "text/xml");
       const objects = Array.from(xmlDoc.querySelectorAll("Contents")).map(obj => ({
@@ -176,9 +187,10 @@ function App() {
         lastModified: obj.querySelector("LastModified").textContent,
         size: parseInt(obj.querySelector("Size").textContent),
       }));
+      console.log('Parsed files:', objects);
       setFiles(objects);
     } catch (error) {
-      console.error('Error fetching files:', error);
+      console.error('Error fetching files:', error.response || error);
     }
   };
 
@@ -254,13 +266,35 @@ function App() {
   };
 
   const handleFileMenuClick = (event, file) => {
+    event.preventDefault();
     setMenuAnchorEl(event.currentTarget);
     setSelectedFileMenu(file);
   };
 
   const handleFileMenuClose = () => {
+    // Ensure we remove focus from menu items before closing
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
     setMenuAnchorEl(null);
     setSelectedFileMenu(null);
+  };
+
+  const handleMenuItemClick = (action) => {
+    // Execute the action
+    switch (action) {
+      case 'download':
+        handleDownloadFile(selectedFileMenu?.key);
+        break;
+      case 'version-history':
+        fetchVersions(selectedFileMenu?.key);
+        break;
+      case 'delete':
+        handleDeleteFile(selectedFileMenu?.key);
+        break;
+    }
+    // Close menu after action
+    handleFileMenuClose();
   };
 
   return (
@@ -403,25 +437,29 @@ function App() {
         anchorEl={menuAnchorEl}
         open={Boolean(menuAnchorEl)}
         onClose={handleFileMenuClose}
+        MenuListProps={{
+          'aria-label': 'File actions',
+          autoFocusItem: false
+        }}
       >
-        <MenuItem onClick={() => {
-          handleDownloadFile(selectedFileMenu?.key);
-          handleFileMenuClose();
-        }}>
+        <MenuItem 
+          key="download"
+          onClick={() => handleMenuItemClick('download')}
+        >
           <Download sx={{ mr: 1 }} /> Download
         </MenuItem>
         {versioningEnabled && (
-          <MenuItem onClick={() => {
-            fetchVersions(selectedFileMenu?.key);
-            handleFileMenuClose();
-          }}>
+          <MenuItem 
+            key="version-history"
+            onClick={() => handleMenuItemClick('version-history')}
+          >
             <History sx={{ mr: 1 }} /> Version History
           </MenuItem>
         )}
-        <MenuItem onClick={() => {
-          handleDeleteFile(selectedFileMenu?.key);
-          handleFileMenuClose();
-        }}>
+        <MenuItem 
+          key="delete"
+          onClick={() => handleMenuItemClick('delete')}
+        >
           <Delete sx={{ mr: 1 }} /> Delete
         </MenuItem>
       </Menu>

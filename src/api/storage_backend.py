@@ -134,7 +134,8 @@ class LocalStorageBackend(StorageBackend):
         return True, None
 
     def list_buckets(self):
-        return list(self.buckets.keys())
+        buckets = [{'name': name} for name in self.buckets.keys()]
+        return buckets, None
 
     def put_object(self, bucket_name, object_key, data):
         if bucket_name not in self.buckets:
@@ -391,7 +392,8 @@ class AWSStorageBackend(StorageBackend):
     def list_buckets(self):
         try:
             response = self.s3.list_buckets()
-            return [bucket['Name'] for bucket in response['Buckets']], None
+            buckets = [{'name': bucket['Name']} for bucket in response['Buckets']]
+            return buckets, None
         except Exception as e:
             return None, str(e)
 

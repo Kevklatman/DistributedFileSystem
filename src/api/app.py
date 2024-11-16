@@ -18,7 +18,7 @@ s3_handler = S3ApiHandler(fs_manager)
 def index():
     if request.headers.get('Accept') == 'application/json':
         # API request for listing buckets
-        storage = get_storage_backend()
+        storage = get_storage_backend(fs_manager)
         buckets, error = storage.list_buckets()
         if error:
             return make_response({'error': error}, 400)

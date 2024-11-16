@@ -8,7 +8,7 @@ load_dotenv()
 STORAGE_ENV = os.getenv('STORAGE_ENV', 'local')
 
 # API Configuration
-API_HOST = os.getenv('API_HOST', '0.0.0.0')
+API_HOST = os.getenv('API_HOST', 'localhost:3000')
 API_PORT = int(os.getenv('API_PORT', 5555))
 DEBUG = os.getenv('DEBUG', 'True').lower() == 'true'
 
