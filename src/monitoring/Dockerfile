@@ -2,13 +2,13 @@ FROM python:3.8-slim
 
 WORKDIR /app
 
-# Copy only requirements first
-COPY requirements.txt ./
+# Copy requirements first
+COPY src/monitoring/requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application files
-COPY app.py ./
-COPY templates ./templates/
+# Copy monitoring application files
+COPY src/monitoring/app.py ./
+COPY src/monitoring/templates ./templates/
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
@@ -17,4 +17,4 @@ ENV FLASK_ENV=production
 
 EXPOSE 5000
 
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "4", "--threads", "2", "--access-logfile", "-", "--error-logfile", "-", "app:app"]
+CMD ["python", "-m", "flask", "run", "--host=0.0.0.0", "--port=5000"]
