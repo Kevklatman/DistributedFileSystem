@@ -410,12 +410,24 @@ class AWSStorageBackend(StorageBackend):
         if not self.region:
             self.region = 'us-east-2'  # Fallback to us-east-2 if not set
 
-        print(f"Initializing S3 client with region: {self.region}")  # Debug print
+        print(f"Initial region configuration: {self.region}")
 
+        # Create a client for each AWS region to handle cross-region operations
+        self.regional_clients = {}
+        self.available_regions = [
+            'eu-south-1', 'us-east-1', 'us-east-2', 'us-west-1', 'us-west-2',
+            'eu-west-1', 'eu-west-2', 'eu-west-3', 'eu-central-1'
+        ]
+
+        # Initialize the default client
+        self.s3 = self._create_client(self.region)
+
+    def _create_client(self, region):
+        """Create an S3 client for a specific region."""
         kwargs = {
             'aws_access_key_id': current_config['access_key'],
             'aws_secret_access_key': current_config['secret_key'],
-            'region_name': self.region,
+            'region_name': region,
             'config': Config(
                 signature_version='s3v4',
                 s3={'addressing_style': 'path'}
@@ -427,8 +439,69 @@ class AWSStorageBackend(StorageBackend):
         if endpoint and isinstance(endpoint, str) and not endpoint.startswith('#'):
             kwargs['endpoint_url'] = endpoint
 
-        print(f"S3 client configuration: {kwargs}")  # Debug print (credentials will be hidden)
-        self.s3 = boto3.client('s3', **kwargs)
+        return boto3.client('s3', **kwargs)
+
+    def _get_client_for_bucket(self, bucket_name):
+        """Get the appropriate S3 client for a bucket, handling region differences."""
+        try:
+            # Try to get the bucket location
+            location = self.s3.get_bucket_location(Bucket=bucket_name)
+            region = location.get('LocationConstraint')
+
+            # Handle the special case where None means us-east-1
+            if region is None:
+                region = 'us-east-1'
+
+            print(f"Bucket {bucket_name} is in region: {region}")
+
+            # If we're already in the right region, use the current client
+            if region == self.region:
+                return self.s3
+
+            # Create or get a client for the bucket's region
+            if region not in self.regional_clients:
+                print(f"Creating new client for region: {region}")
+                self.regional_clients[region] = self._create_client(region)
+
+            return self.regional_clients[region]
+
+        except self.s3.exceptions.ClientError as e:
+            error_code = e.response['Error']['Code']
+            if error_code == 'AccessDenied':
+                print(f"Access denied when getting bucket location. Trying all available regions...")
+                # Try each region until we find one that works
+                for region in self.available_regions:
+                    try:
+                        client = self._create_client(region)
+                        # Try a simple operation to test if this is the right region
+                        client.head_bucket(Bucket=bucket_name)
+                        print(f"Found working region for bucket: {region}")
+                        self.regional_clients[region] = client
+                        return client
+                    except:
+                        continue
+
+            # If we couldn't find the right region, use the default client
+            print(f"Could not determine bucket region, using default client")
+            return self.s3
+        except Exception as e:
+            print(f"Error getting bucket region: {str(e)}")
+            return self.s3
+
+    def list_objects(self, bucket_name):
+        """List objects in a bucket, handling region-specific requirements."""
+        try:
+            # Get the appropriate client for this bucket
+            client = self._get_client_for_bucket(bucket_name)
+
+            # Use the region-specific client to list objects
+            response = client.list_objects_v2(Bucket=bucket_name)
+
+            objects = response.get('Contents', [])
+            return [{'Key': obj['Key'], 'Size': obj['Size'], 'LastModified': obj['LastModified']} for obj in objects]
+        except Exception as e:
+            print(f"Error listing objects: {str(e)}")
+            raise
 
     def create_bucket(self, bucket_name):
         try:
@@ -480,46 +553,6 @@ class AWSStorageBackend(StorageBackend):
             return True, None
         except Exception as e:
             return False, str(e)
-
-    def list_objects(self, bucket_name):
-        try:
-            # Try to get bucket location, but handle access denied gracefully
-            try:
-                location = self.s3.get_bucket_location(Bucket=bucket_name)
-                bucket_region = location.get('LocationConstraint')
-            except self.s3.exceptions.ClientError as e:
-                if e.response['Error']['Code'] == 'AccessDenied':
-                    print("Warning: Unable to get bucket location due to permissions. Defaulting to configured region.")
-                    bucket_region = self.region
-                else:
-                    raise
-
-            # If bucket is in a different region, create a new client for that region
-            if bucket_region and bucket_region != self.region:
-                print(f"Switching to bucket region: {bucket_region}")
-                temp_client = boto3.client(
-                    's3',
-                    aws_access_key_id=current_config['access_key'],
-                    aws_secret_access_key=current_config['secret_key'],
-                    region_name=bucket_region,
-                    config=Config(
-                        signature_version='s3v4',
-                        s3={'addressing_style': 'path'}
-                    )
-                )
-                try:
-                    response = temp_client.list_objects_v2(Bucket=bucket_name)
-                except Exception as e:
-                    print(f"Error with temp client: {str(e)}. Falling back to default client.")
-                    response = self.s3.list_objects_v2(Bucket=bucket_name)
-            else:
-                response = self.s3.list_objects_v2(Bucket=bucket_name)
-
-            objects = response.get('Contents', [])
-            return [{'Key': obj['Key'], 'Size': obj['Size'], 'LastModified': obj['LastModified']} for obj in objects]
-        except Exception as e:
-            print(f"Error listing objects: {str(e)}")
-            raise
 
     def create_multipart_upload(self, bucket_name, object_key):
         try:
