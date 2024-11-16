@@ -100,7 +100,43 @@ s3_handler = S3ApiHandler(fs_manager)
 # Add back the index route
 @app.route('/')
 def index():
-    """Serve the web UI"""
+    """Serve the web UI or list buckets based on Accept header"""
+    accept_header = request.headers.get('Accept', '')
+    
+    # If client accepts JSON, return bucket list
+    if 'application/json' in accept_header:
+        try:
+            storage = get_storage_backend(fs_manager)
+            logger.debug("Using storage backend: %s", storage.__class__.__name__)
+
+            buckets, error = storage.list_buckets()
+
+            if error:
+                logger.error("Error listing buckets: %s", error)
+                return jsonify({'error': str(error)}), 500
+
+            # Ensure buckets is a list and contains valid data
+            if buckets is None:
+                buckets = []
+            elif not isinstance(buckets, list):
+                buckets = list(buckets)
+
+            # Convert bucket objects to dictionaries
+            bucket_list = []
+            for bucket in buckets:
+                if isinstance(bucket, dict):
+                    bucket_list.append(bucket)
+                else:
+                    # Handle case where bucket might be a string or other object
+                    bucket_list.append({'Name': str(bucket)})
+
+            logger.debug("Found buckets: %s", bucket_list)
+            return jsonify({'buckets': bucket_list}), 200
+        except Exception as e:
+            logger.error("Unexpected error listing buckets: %s", str(e))
+            return jsonify({'error': 'Internal server error'}), 500
+    
+    # Otherwise serve the web UI
     return send_from_directory('static', 'index.html')
 
 # Decorate existing routes with API documentation
