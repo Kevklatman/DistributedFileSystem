@@ -36,13 +36,11 @@ api = Api(app, version='1.0',
           title='Distributed File System API',
           description='S3-compatible API for distributed file storage',
           doc='/docs',
-          prefix='/api',
-          authorizations=authorizations)
+          prefix='/api')
 
 # Define namespaces
 s3_ns = api.namespace('s3',
-                      description='S3-compatible operations',
-                      path='/')
+                      description='S3-compatible operations')
 
 # Define models for request/response documentation
 bucket_model = api.model('Bucket', {
@@ -100,7 +98,7 @@ fs_manager = FileSystemManager()
 s3_handler = S3ApiHandler(fs_manager)
 
 # Add back the index route
-@app.route('/', methods=['GET', 'OPTIONS'])
+@app.route('/')
 def index():
     """Serve the web UI"""
     return send_from_directory('static', 'index.html')
@@ -229,17 +227,6 @@ class VersioningOperations(Resource):
             return s3_handler.enable_versioning(bucket_name)
         else:
             return s3_handler.disable_versioning(bucket_name)
-
-# Serve static files
-@app.route('/<path:path>')
-def serve_static(path):
-    try:
-        if path.startswith('swaggerui/'):
-            return send_from_directory('static/swaggerui', path[10:])
-        return send_from_directory('static', path)
-    except Exception as e:
-        logger.error(f"Error serving static file {path}: {str(e)}")
-        return jsonify({'error': str(e)}), 500
 
 # Serve Swagger UI files
 @app.route('/swaggerui/<path:path>')
