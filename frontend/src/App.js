@@ -518,7 +518,7 @@ function App() {
     if (!selectedBucket) return;
     try {
       await axios.put(`${API_URL}/${selectedBucket}/versioning`, {
-        Status: versioningEnabled ? 'Suspended' : 'Enabled'
+        VersioningEnabled: !versioningEnabled
       });
       setVersioningEnabled(!versioningEnabled);
       setSnackbar({
@@ -534,7 +534,7 @@ function App() {
           await createBucketIfNeeded(selectedBucket);
           // After creating bucket, try toggling versioning again
           await axios.put(`${API_URL}/${selectedBucket}/versioning`, {
-            Status: versioningEnabled ? 'Suspended' : 'Enabled'
+            VersioningEnabled: !versioningEnabled
           });
           setVersioningEnabled(!versioningEnabled);
           setSnackbar({
@@ -552,7 +552,7 @@ function App() {
       } else {
         setSnackbar({
           open: true,
-          message: error.response?.data?.error || 'Failed to toggle versioning',
+          message: `Failed to toggle versioning: ${error.response?.data?.error || error.message}`,
           severity: 'error'
         });
       }

@@ -32,7 +32,7 @@ class S3ApiHandler:
             if error:
                 return self._generate_error_response('InternalError', error)
 
-        buckets_list = [{'Name': name, 'CreationDate': datetime.datetime.now(datetime.timezone.utc).isoformat()} 
+        buckets_list = [{'Name': name, 'CreationDate': datetime.datetime.now(datetime.timezone.utc).isoformat()}
                        for name in buckets]
 
         response = {
@@ -104,15 +104,71 @@ class S3ApiHandler:
         success, error = self.storage.delete_object(bucket_name, object_key)
         if not success:
             return self._generate_error_response('DeleteObjectError', error)
-        
+
         # Return empty response with 204 status code
         return '', 204, {'Content-Type': 'application/xml'}
+
+    def get_versioning_status(self, bucket_name):
+        """Get versioning status for a bucket"""
+        try:
+            status = self.storage.get_versioning_status(bucket_name)
+            return jsonify({'VersioningEnabled': status})
+        except Exception as e:
+            return self._generate_error_response('GetVersioningError', str(e))
+
+    def enable_versioning(self, bucket_name):
+        """Enable versioning for a bucket"""
+        try:
+            success, error = self.storage.enable_versioning(bucket_name)
+            if not success:
+                return self._generate_error_response('EnableVersioningError', error)
+            return '', 200
+        except Exception as e:
+            return self._generate_error_response('EnableVersioningError', str(e))
+
+    def disable_versioning(self, bucket_name):
+        """Disable versioning for a bucket"""
+        try:
+            success, error = self.storage.disable_versioning(bucket_name)
+            if not success:
+                return self._generate_error_response('DisableVersioningError', error)
+            return '', 200
+        except Exception as e:
+            return self._generate_error_response('DisableVersioningError', str(e))
+
+    def list_object_versions(self, bucket_name, prefix=None):
+        """List all versions of objects in a bucket"""
+        try:
+            versions, error = self.storage.list_object_versions(bucket_name, prefix)
+            if error:
+                return self._generate_error_response('ListVersionsError', error)
+
+            versions_list = []
+            for key, version_list in versions.items():
+                for version in version_list:
+                    versions_list.append({
+                        'Key': key,
+                        'VersionId': version['version_id'],
+                        'IsLatest': version == version_list[-1],
+                        'LastModified': version['last_modified'].isoformat(),
+                        'IsDeleteMarker': version.get('is_delete_marker', False)
+                    })
+
+            response = {
+                'ListVersionsResult': {
+                    'Name': bucket_name,
+                    'Versions': versions_list
+                }
+            }
+            return self._success_response(response)
+        except Exception as e:
+            return self._generate_error_response('ListVersionsError', str(e))
 
 @app.route('/<bucket>/<key>', methods=['POST'])
 def handle_multipart(bucket, key):
     """Handle multipart upload operations"""
     storage = get_storage_backend()
-    
+
     # Create multipart upload
     if request.args.get('uploads') is not None:
         upload_id, error = storage.create_multipart_upload(bucket, key)
@@ -146,7 +202,7 @@ def handle_multipart(bucket, key):
 def handle_delete_object_or_upload(bucket, key):
     """Handle object deletion or multipart upload abort"""
     storage = get_storage_backend()
-    
+
     # Abort multipart upload
     upload_id = request.args.get('uploadId')
     if upload_id:
@@ -154,7 +210,7 @@ def handle_delete_object_or_upload(bucket, key):
         if error:
             return make_response({'error': error}, 400)
         return make_response('', 204)
-    
+
     # Delete object (existing functionality)
     success, error = storage.delete_object(bucket, key)
     if error:
@@ -165,7 +221,7 @@ def handle_delete_object_or_upload(bucket, key):
 def handle_put_object_or_complete_upload(bucket, key):
     """Handle object upload or multipart upload completion"""
     storage = get_storage_backend()
-    
+
     # Complete multipart upload
     upload_id = request.args.get('uploadId')
     if upload_id:
@@ -173,7 +229,7 @@ def handle_put_object_or_complete_upload(bucket, key):
             completion_data = request.json
             if not completion_data or 'parts' not in completion_data:
                 return make_response({'error': 'Missing parts list'}, 400)
-            
+
             success, error = storage.complete_multipart_upload(
                 bucket, key, upload_id, completion_data['parts']
             )
@@ -182,7 +238,7 @@ def handle_put_object_or_complete_upload(bucket, key):
             return make_response('', 200)
         except Exception as e:
             return make_response({'error': str(e)}, 400)
-    
+
     # Regular put object (existing functionality)
     success, error = storage.put_object(bucket, key, request.data)
     if error:
@@ -193,14 +249,14 @@ def handle_put_object_or_complete_upload(bucket, key):
 def handle_list_objects_or_uploads(bucket):
     """Handle listing objects or multipart uploads"""
     storage = get_storage_backend()
-    
+
     # List multipart uploads
     if request.args.get('uploads') is not None:
         uploads, error = storage.list_multipart_uploads(bucket)
         if error:
             return make_response({'error': error}, 400)
         return make_response({'uploads': uploads}, 200)
-    
+
     # List objects (existing functionality)
     objects, error = storage.list_objects(bucket)
     if error:
@@ -245,7 +301,7 @@ def handle_bucket_versioning(bucket):
 def handle_get_object_or_version(bucket, key):
     """Handle object retrieval, optionally with version"""
     storage = get_storage_backend()
-    
+
     version_id = request.args.get('versionId')
     if version_id:
         # Get specific version
@@ -262,7 +318,7 @@ def handle_get_object_or_version(bucket, key):
 def handle_list_objects_or_versions(bucket):
     """Handle listing objects or versions"""
     storage = get_storage_backend()
-    
+
     # List versions if versions parameter is present
     if request.args.get('versions') is not None:
         prefix = request.args.get('prefix')
@@ -272,7 +328,7 @@ def handle_list_objects_or_versions(bucket):
         return make_response({
             'Versions': versions
         }, 200)
-    
+
     # List objects (existing functionality)
     objects, error = storage.list_objects(bucket)
     if error:
@@ -283,7 +339,7 @@ def handle_list_objects_or_versions(bucket):
 def handle_delete_object_or_version(bucket, key):
     """Handle object or version deletion"""
     storage = get_storage_backend()
-    
+
     version_id = request.args.get('versionId')
     if version_id:
         # Delete specific version

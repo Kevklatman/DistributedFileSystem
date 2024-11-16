@@ -77,18 +77,22 @@ def get_object(bucket_name, object_key):
 def handle_versioning(bucket_name):
     if request.method == 'GET':
         try:
-            status = s3_handler.get_versioning_status(bucket_name)
-            return jsonify({'VersioningEnabled': status})
+            return s3_handler.get_versioning_status(bucket_name)
         except Exception as e:
             return make_response({'error': str(e)}, 400)
     elif request.method == 'PUT':
         try:
             data = request.get_json()
-            if data.get('VersioningEnabled'):
-                s3_handler.enable_versioning(bucket_name)
+            if data is None:
+                return make_response({'error': 'Missing request body'}, 400)
+
+            if 'VersioningEnabled' not in data:
+                return make_response({'error': 'Missing VersioningEnabled field'}, 400)
+
+            if data['VersioningEnabled']:
+                return s3_handler.enable_versioning(bucket_name)
             else:
-                s3_handler.disable_versioning(bucket_name)
-            return '', 200
+                return s3_handler.disable_versioning(bucket_name)
         except Exception as e:
             return make_response({'error': str(e)}, 400)
 
