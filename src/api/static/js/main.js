@@ -153,17 +153,21 @@ async function refreshBuckets() {
     try {
         const buckets = await listBuckets();
         const bucketList = document.getElementById('bucketList');
-        bucketList.innerHTML = buckets.map(bucket => `
-            <a href="#" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center ${bucket === currentBucket ? 'active' : ''}"
-               onclick="selectBucket('${bucket}')">
-                <span><i class="fas fa-folder me-2"></i>${bucket}</span>
-                <button class="btn btn-sm btn-danger" onclick="event.stopPropagation(); deleteBucket('${bucket}')">
-                    <i class="fas fa-trash"></i>
-                </button>
-            </a>
-        `).join('');
+        bucketList.innerHTML = '';
+
+        buckets.forEach(bucket => {
+            const bucketName = bucket.Name || bucket.name; // Support both Name and name fields
+            const li = document.createElement('li');
+            li.className = 'list-group-item d-flex justify-content-between align-items-center';
+            li.innerHTML = `
+                <span class="bucket-name" onclick="selectBucket('${bucketName}')">${bucketName}</span>
+                <button class="btn btn-danger btn-sm" onclick="deleteBucket('${bucketName}')">Delete</button>
+            `;
+            bucketList.appendChild(li);
+        });
     } catch (error) {
-        alert('Error refreshing buckets: ' + error.message);
+        console.error('Error refreshing buckets:', error);
+        alert('Error loading buckets: ' + error.message);
     }
 }
 

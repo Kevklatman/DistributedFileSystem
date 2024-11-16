@@ -51,9 +51,9 @@ function displayBuckets(buckets) {
 
     const bucketsList = buckets.map(bucket => `
         <div class="bucket">
-            <h3>${bucket.name}</h3>
-            ${bucket.creation_date ? 
-                `<p>Created: ${new Date(bucket.creation_date).toLocaleString()}</p>` : 
+            <h3>${bucket.Name || bucket.name}</h3>
+            ${bucket.CreationDate || bucket.creation_date ? 
+                `<p>Created: ${new Date(bucket.CreationDate || bucket.creation_date).toLocaleString()}</p>` : 
                 ''}
         </div>
     `).join('');

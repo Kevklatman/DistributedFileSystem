@@ -145,12 +145,11 @@ class LocalStorageBackend(StorageBackend):
             return False, str(e)
             
     def list_buckets(self):
-        """List all buckets"""
         try:
             buckets = [
                 {
-                    'name': bucket_info['name'],
-                    'creation_date': bucket_info['creation_date']
+                    'Name': bucket_info['name'],
+                    'CreationDate': bucket_info['creation_date']
                 }
                 for bucket_info in self.buckets.values()
             ]
@@ -592,7 +591,7 @@ class AWSStorageBackend(StorageBackend):
                         current_config['access_key'][:8] + '...', self.region)
             response = self.s3.list_buckets()
             logger.debug("Raw S3 list_buckets response: %s", response)
-            buckets = [{'name': bucket['Name']} for bucket in response['Buckets']]
+            buckets = [{'Name': bucket['Name'], 'CreationDate': bucket['CreationDate']} for bucket in response['Buckets']]
             logger.debug("Processed bucket list: %s", buckets)
             return buckets, None
         except Exception as e:
