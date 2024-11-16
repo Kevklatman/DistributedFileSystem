@@ -11,26 +11,17 @@ from storage_backend import get_storage_backend
 from s3_api import S3ApiHandler
 from mock_fs_manager import FileSystemManager
 
-# Configure logging
-logging.basicConfig(
-    level=logging.DEBUG,
-    format='%(asctime)s %(levelname)s: %(message)s'
-)
-logger = logging.getLogger(__name__)
-
 # Configure Flask app
 app = Flask(__name__, 
            static_url_path='',
            static_folder='static')
-CORS(app, resources={
-    r"/*": {
-        "origins": ["http://localhost:3000", "http://localhost:5000", "http://localhost:5555"],
-        "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-        "allow_headers": ["Content-Type", "Accept", "Authorization", "X-Amz-Date", "X-Api-Key", "X-Amz-Security-Token"],
-        "expose_headers": ["ETag", "x-amz-request-id", "x-amz-id-2"],
-        "supports_credentials": True
-    }
-})
+
+# Enable CORS
+CORS(app)
+
+# Configure logging
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
 # Initialize Flask-RESTX with Swagger UI
 authorizations = {
@@ -127,15 +118,21 @@ def index():
         logger.error(f"Error in index route: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
+# Serve static files
+@app.route('/<path:path>')
+def serve_static(path):
+    try:
+        if path.startswith('swaggerui/'):
+            return send_from_directory('static/swaggerui', path[10:])
+        return send_from_directory('static', path)
+    except Exception as e:
+        logger.error(f"Error serving static file {path}: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
 # Serve Swagger UI files
 @app.route('/swaggerui/<path:path>')
 def swagger_ui(path):
     return send_from_directory('static/swaggerui', path)
-
-# Serve static files
-@app.route('/static/<path:path>')
-def send_static(path):
-    return send_from_directory('static', path)
 
 # Decorate existing routes with API documentation
 @s3_ns.route('/buckets/<string:bucket_name>')
@@ -219,4 +216,8 @@ class VersioningOperations(Resource):
 
 if __name__ == '__main__':
     from config import API_HOST, API_PORT, DEBUG
+    # Ensure the buckets directory exists
+    os.makedirs('buckets', exist_ok=True)
+    
+    # Start the Flask app
     app.run(host=API_HOST, port=API_PORT, debug=DEBUG)
