@@ -61,7 +61,7 @@ class S3ApiHandler:
     def list_objects(self, bucket_name):
         try:
             objects = self.storage.list_objects(bucket_name)
-            
+
             objects_list = [{
                 'Key': obj['Key'],
                 'LastModified': obj['LastModified'].isoformat() if isinstance(obj['LastModified'], datetime.datetime) else obj['LastModified'],
@@ -84,7 +84,7 @@ class S3ApiHandler:
             elif "NoSuchBucket" in error_message:
                 return self._generate_error_response('NoSuchBucket', f'The specified bucket {bucket_name} does not exist')
             elif "IllegalLocationConstraintException" in error_message:
-                return self._generate_error_response('IllegalLocationConstraintException', 
+                return self._generate_error_response('IllegalLocationConstraintException',
                     'The bucket is in a different region. The application will attempt to handle this automatically.')
             else:
                 return self._generate_error_response('ListObjectsError', f'Error listing objects: {error_message}')

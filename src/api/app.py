@@ -1,5 +1,6 @@
 from flask import Flask, request, jsonify, Response, make_response, render_template, send_from_directory
 from flask_cors import CORS
+from flask_restx import Api, Resource, fields
 from werkzeug.exceptions import BadRequest
 import xmltodict
 import datetime
@@ -28,6 +29,43 @@ CORS(app, resources={
     }
 })
 
+# Initialize Flask-RESTX
+authorizations = {
+    'apikey': {
+        'type': 'apiKey',
+        'in': 'header',
+        'name': 'X-Api-Key'
+    }
+}
+
+api = Api(app, version='1.0',
+          title='Distributed File System API',
+          description='S3-compatible API for distributed file storage',
+          doc='/docs',
+          authorizations=authorizations)
+
+# Define namespaces
+s3_ns = api.namespace('s3',
+                      description='S3-compatible operations',
+                      path='/')
+
+# Define models for request/response documentation
+bucket_model = api.model('Bucket', {
+    'Name': fields.String(required=True, description='Name of the bucket'),
+    'CreationDate': fields.DateTime(description='When the bucket was created')
+})
+
+object_model = api.model('Object', {
+    'Key': fields.String(required=True, description='Object key/path'),
+    'Size': fields.Integer(description='Size of object in bytes'),
+    'LastModified': fields.DateTime(description='Last modification timestamp')
+})
+
+error_model = api.model('Error', {
+    'Code': fields.String(required=True, description='Error code'),
+    'Message': fields.String(required=True, description='Error message')
+})
+
 # Add CORS preflight handler
 @app.before_request
 def handle_preflight():
@@ -53,12 +91,13 @@ def log_response_info(response):
 
 @app.errorhandler(Exception)
 def handle_error(error):
-    logger.exception('An error occurred: %s', str(error))
+    logger.error(f"Error: {str(error)}")
     return jsonify({'error': str(error)}), 500
 
 fs_manager = FileSystemManager()
 s3_handler = S3ApiHandler(fs_manager)
 
+# Add back the index route
 @app.route('/', methods=['GET'])
 def index():
     if request.headers.get('Accept') == 'application/json':
@@ -77,65 +116,85 @@ def index():
 def send_static(path):
     return send_from_directory('static', path)
 
-# S3-compatible API endpoints
-@app.route('/<bucket_name>', methods=['PUT'])
-def create_bucket(bucket_name):
-    return s3_handler.create_bucket(bucket_name)
+# Decorate existing routes with API documentation
+@s3_ns.route('/buckets/<string:bucket_name>')
+@s3_ns.param('bucket_name', 'The bucket name')
+class BucketOperations(Resource):
+    @s3_ns.doc('create_bucket')
+    @s3_ns.response(200, 'Success')
+    @s3_ns.response(400, 'Bad Request', error_model)
+    def put(self, bucket_name):
+        """Create a new bucket"""
+        return s3_handler.create_bucket(bucket_name)
 
-@app.route('/<bucket_name>', methods=['DELETE'])
-def delete_bucket(bucket_name):
-    return s3_handler.delete_bucket(bucket_name)
+    @s3_ns.doc('delete_bucket')
+    @s3_ns.response(204, 'Bucket deleted')
+    @s3_ns.response(404, 'Bucket not found', error_model)
+    def delete(self, bucket_name):
+        """Delete a bucket"""
+        return s3_handler.delete_bucket(bucket_name)
 
-@app.route('/<bucket_name>', methods=['GET'])
-def list_objects(bucket_name):
-    return s3_handler.list_objects(bucket_name)
+@s3_ns.route('/buckets/<string:bucket_name>/objects')
+@s3_ns.param('bucket_name', 'The bucket name')
+class ObjectList(Resource):
+    @s3_ns.doc('list_objects')
+    @s3_ns.response(200, 'Success', [object_model])
+    @s3_ns.response(404, 'Bucket not found', error_model)
+    def get(self, bucket_name):
+        """List objects in a bucket"""
+        return s3_handler.list_objects(bucket_name)
 
-@app.route('/<bucket_name>/<object_key>', methods=['PUT'])
-def put_object(bucket_name, object_key):
-    return s3_handler.put_object(bucket_name, object_key)
+@s3_ns.route('/buckets/<string:bucket_name>/objects/<path:object_key>')
+@s3_ns.param('bucket_name', 'The bucket name')
+@s3_ns.param('object_key', 'The object key/path')
+class ObjectOperations(Resource):
+    @s3_ns.doc('get_object')
+    @s3_ns.response(200, 'Success')
+    @s3_ns.response(404, 'Object not found', error_model)
+    def get(self, bucket_name, object_key):
+        """Get an object"""
+        return s3_handler.get_object(bucket_name, object_key)
 
-@app.route('/<bucket_name>/<object_key>', methods=['GET'])
-def get_object(bucket_name, object_key):
-    return s3_handler.get_object(bucket_name, object_key)
+    @s3_ns.doc('put_object')
+    @s3_ns.response(200, 'Success')
+    @s3_ns.response(400, 'Bad Request', error_model)
+    def put(self, bucket_name, object_key):
+        """Upload an object"""
+        return s3_handler.put_object(bucket_name, object_key)
 
-@app.route('/<bucket_name>/versioning', methods=['GET', 'PUT'])
-def handle_versioning(bucket_name):
-    if request.method == 'GET':
-        try:
-            return s3_handler.get_versioning_status(bucket_name)
-        except Exception as e:
-            return make_response({'error': str(e)}, 400)
-    elif request.method == 'PUT':
-        try:
-            data = request.get_json()
-            if data is None:
-                return make_response({'error': 'Missing request body'}, 400)
+    @s3_ns.doc('delete_object')
+    @s3_ns.response(204, 'Object deleted')
+    @s3_ns.response(404, 'Object not found', error_model)
+    def delete(self, bucket_name, object_key):
+        """Delete an object"""
+        return s3_handler.delete_object(bucket_name, object_key)
 
-            if 'VersioningEnabled' not in data:
-                return make_response({'error': 'Missing VersioningEnabled field'}, 400)
+@s3_ns.route('/buckets/<string:bucket_name>/versioning')
+@s3_ns.param('bucket_name', 'The bucket name')
+class VersioningOperations(Resource):
+    @s3_ns.doc('get_versioning_status')
+    @s3_ns.response(200, 'Success')
+    @s3_ns.response(404, 'Bucket not found', error_model)
+    def get(self, bucket_name):
+        """Get versioning status"""
+        return s3_handler.get_versioning_status(bucket_name)
 
-            if data['VersioningEnabled']:
-                return s3_handler.enable_versioning(bucket_name)
-            else:
-                return s3_handler.disable_versioning(bucket_name)
-        except Exception as e:
-            return make_response({'error': str(e)}, 400)
+    @s3_ns.doc('set_versioning_status')
+    @s3_ns.response(200, 'Success')
+    @s3_ns.response(400, 'Bad Request', error_model)
+    def put(self, bucket_name):
+        """Set versioning status"""
+        data = request.get_json()
+        if data is None:
+            return make_response({'error': 'Missing request body'}, 400)
 
-@app.route('/<bucket_name>/<object_key>', methods=['DELETE'])
-def delete_object(bucket_name, object_key):
-    try:
-        # Handle version-specific deletion
-        version_id = request.args.get('versionId')
-        if version_id:
-            success, error = s3_handler.delete_object_version(bucket_name, object_key, version_id)
+        if 'VersioningEnabled' not in data:
+            return make_response({'error': 'Missing VersioningEnabled field'}, 400)
+
+        if data['VersioningEnabled']:
+            return s3_handler.enable_versioning(bucket_name)
         else:
-            success, error = s3_handler.delete_object(bucket_name, object_key)
-
-        if not success:
-            return make_response({'error': error}, 404 if 'not exist' in error.lower() else 400)
-        return '', 204
-    except Exception as e:
-        return make_response({'error': str(e)}, 500)
+            return s3_handler.disable_versioning(bucket_name)
 
 if __name__ == '__main__':
     from config import API_HOST, API_PORT, DEBUG
