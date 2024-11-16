@@ -22,6 +22,7 @@ import {
   ListItemSecondary,
   Menu,
   MenuItem,
+  Snackbar
 } from '@mui/material';
 import {
   CloudUpload,
@@ -39,6 +40,35 @@ const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB chunks for multipart upload
 // Configure axios defaults
 axios.defaults.headers.common['Accept'] = 'application/json';
 
+const validateBucketName = (bucketName) => {
+  if (!bucketName) return "Bucket name cannot be empty";
+  if (bucketName.length < 3 || bucketName.length > 63)
+    return "Bucket name must be between 3 and 63 characters";
+  if (!/^[a-z0-9][a-z0-9.-]*[a-z0-9]$/.test(bucketName))
+    return "Bucket name can only contain lowercase letters, numbers, dots (.), and hyphens (-)";
+  if (/\.{2,}/.test(bucketName))
+    return "Bucket name cannot contain consecutive dots";
+  if (/^(?:\d+\.){3}\d+$/.test(bucketName))
+    return "Bucket name cannot be formatted as an IP address";
+  return null;
+};
+
+const createBucketIfNeeded = async (bucketName) => {
+  const validationError = validateBucketName(bucketName);
+  if (validationError) {
+    throw new Error(validationError);
+  }
+  try {
+    await axios.put(`${API_URL}/${bucketName}`);
+    return true;
+  } catch (error) {
+    if (error.response?.data?.error) {
+      throw new Error(error.response.data.error);
+    }
+    throw error;
+  }
+};
+
 function App() {
   const [buckets, setBuckets] = useState([]);
   const [selectedBucket, setSelectedBucket] = useState(null);
@@ -52,6 +82,11 @@ function App() {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [menuAnchorEl, setMenuAnchorEl] = useState(null);
   const [selectedFileMenu, setSelectedFileMenu] = useState(null);
+  const [snackbar, setSnackbar] = useState({
+    open: false,
+    message: '',
+    severity: 'info'
+  });
 
   useEffect(() => {
     fetchBuckets();
@@ -59,8 +94,8 @@ function App() {
 
   useEffect(() => {
     if (selectedBucket) {
-      fetchFiles(selectedBucket);
-      fetchVersioningStatus(selectedBucket);
+      fetchFiles();
+      fetchVersioningStatus();
     }
   }, [selectedBucket]);
 
@@ -81,6 +116,57 @@ function App() {
     }
   };
 
+  const fetchFiles = async () => {
+    if (!selectedBucket) return;
+    try {
+      const response = await axios.get(`${API_URL}/${selectedBucket}`);
+      setFiles(response.data.objects || []);
+    } catch (error) {
+      console.error('Error fetching files:', error);
+      setSnackbar({
+        open: true,
+        message: 'Failed to fetch files',
+        severity: 'error'
+      });
+    }
+  };
+
+  const fetchVersioningStatus = async () => {
+    if (!selectedBucket) return;
+    try {
+      const response = await axios.get(`${API_URL}/${selectedBucket}/versioning`);
+      setVersioningEnabled(response.data.Status === 'Enabled');
+    } catch (error) {
+      console.error('Error fetching versioning status:', error);
+      // If bucket doesn't exist, try to create it
+      if (error.response?.status === 400 && error.response?.data?.error === 'Bucket does not exist') {
+        try {
+          await createBucketIfNeeded(selectedBucket);
+          // After creating bucket, fetch versioning status again
+          const response = await axios.get(`${API_URL}/${selectedBucket}/versioning`);
+          setVersioningEnabled(response.data.Status === 'Enabled');
+          setSnackbar({
+            open: true,
+            message: 'Bucket created successfully',
+            severity: 'success'
+          });
+        } catch (createError) {
+          setSnackbar({
+            open: true,
+            message: `Failed to create bucket: ${createError.message}`,
+            severity: 'error'
+          });
+        }
+      } else {
+        setSnackbar({
+          open: true,
+          message: error.response?.data?.error || 'Failed to fetch versioning status',
+          severity: 'error'
+        });
+      }
+    }
+  };
+
   const handleCreateBucket = async () => {
     if (!newBucketName) {
       alert('Please enter a bucket name');
@@ -88,56 +174,80 @@ function App() {
     }
 
     try {
-      await axios.put(`${API_URL}/${newBucketName}`, null, {
-        headers: { 'Content-Type': 'application/xml' }
-      });
+      console.log(`Creating bucket: ${newBucketName}`);
+      await createBucketIfNeeded(newBucketName);
       setCreateBucketOpen(false);
       setNewBucketName('');
       fetchBuckets();
     } catch (error) {
-      if (error.response?.data) {
-        const parser = new DOMParser();
-        const xmlDoc = parser.parseFromString(error.response.data, "text/xml");
-        const errorMessage = xmlDoc.querySelector("Message")?.textContent;
-        alert(errorMessage || 'Failed to create bucket');
-      } else {
-        alert('Failed to create bucket');
+      console.error('Error creating bucket:', error.response?.data || error);
+      alert(error.response?.data?.error || 'Failed to create bucket');
+    }
+  };
+
+  const handleDeleteBucket = async (bucketName) => {
+    if (!window.confirm(`Are you sure you want to delete bucket "${bucketName}"?`)) {
+      return;
+    }
+
+    try {
+      console.log(`Deleting bucket: ${bucketName}`);
+      await axios.delete(`${API_URL}/${bucketName}`);
+      if (selectedBucket === bucketName) {
+        setSelectedBucket(null);
+        setFiles([]);
       }
+      fetchBuckets();
+    } catch (error) {
+      console.error('Error deleting bucket:', error.response?.data || error);
+      alert(error.response?.data?.error || 'Failed to delete bucket');
     }
   };
 
   const handleFileUpload = async (event) => {
-    if (!selectedBucket) return;
+    const files = event.target.files;
+    if (!files.length || !selectedBucket) return;
 
-    const file = event.target.files[0];
-    if (!file) return;
+    const file = files[0];
+    setUploadProgress(0);
 
-    // Use multipart upload for files larger than 5MB
-    if (file.size > CHUNK_SIZE) {
-      await handleMultipartUpload(file);
-    } else {
-      await handleSimpleUpload(file);
+    try {
+      if (file.size > CHUNK_SIZE) {
+        await handleMultipartUpload(file);
+      } else {
+        await handleSimpleUpload(file);
+      }
+      fetchFiles();
+    } catch (error) {
+      console.error('Error uploading file:', error);
+      alert('Failed to upload file');
+    } finally {
+      setUploadProgress(0);
     }
   };
 
   const handleSimpleUpload = async (file) => {
-    try {
-      const formData = new FormData();
-      formData.append('file', file);
-      await axios.put(`${API_URL}/${selectedBucket}/${file.name}`, formData);
-      fetchFiles(selectedBucket);
-    } catch (error) {
-      console.error('Error uploading file:', error);
-      alert('Failed to upload file');
-    }
+    const formData = new FormData();
+    formData.append('file', file);
+
+    await axios.put(
+      `${API_URL}/${selectedBucket}/${file.name}`,
+      formData,
+      {
+        headers: {
+          'Content-Type': 'multipart/form-data'
+        }
+      }
+    );
   };
 
   const handleMultipartUpload = async (file) => {
-    try {
-      // Initialize multipart upload
-      const initResponse = await axios.post(`${API_URL}/${selectedBucket}/${file.name}?uploads`);
-      const uploadId = initResponse.data.UploadId;
+    // Initialize multipart upload
+    console.log('Initializing multipart upload...');
+    const initResponse = await axios.post(`${API_URL}/${selectedBucket}/${file.name}?uploads`);
+    const uploadId = initResponse.data.UploadId;
 
+    try {
       // Split file into chunks and upload parts
       const chunks = Math.ceil(file.size / CHUNK_SIZE);
       const parts = [];
@@ -147,9 +257,15 @@ function App() {
         const end = Math.min(start + CHUNK_SIZE, file.size);
         const chunk = file.slice(start, end);
 
+        console.log(`Uploading part ${i + 1}/${chunks}...`);
         const partResponse = await axios.put(
           `${API_URL}/${selectedBucket}/${file.name}?partNumber=${i + 1}&uploadId=${uploadId}`,
-          chunk
+          chunk,
+          {
+            headers: {
+              'Content-Type': 'application/octet-stream'
+            }
+          }
         );
 
         parts.push({
@@ -161,86 +277,18 @@ function App() {
       }
 
       // Complete multipart upload
+      console.log('Completing multipart upload...');
       await axios.post(
         `${API_URL}/${selectedBucket}/${file.name}?uploadId=${uploadId}`,
         { parts }
       );
-
-      setUploadProgress(0);
-      fetchFiles(selectedBucket);
     } catch (error) {
+      // Abort the multipart upload on error
       console.error('Error in multipart upload:', error);
-      alert('Failed to upload file');
-      setUploadProgress(0);
-    }
-  };
-
-  const fetchFiles = async (bucketName) => {
-    try {
-      console.log(`Fetching files for bucket ${bucketName}...`);
-      const response = await axios.get(`${API_URL}/${bucketName}`);
-      console.log('Files response:', response.data);
-      const parser = new DOMParser();
-      const xmlDoc = parser.parseFromString(response.data, "text/xml");
-      const objects = Array.from(xmlDoc.querySelectorAll("Contents")).map(obj => ({
-        key: obj.querySelector("Key").textContent,
-        lastModified: obj.querySelector("LastModified").textContent,
-        size: parseInt(obj.querySelector("Size").textContent),
-      }));
-      console.log('Parsed files:', objects);
-      setFiles(objects);
-    } catch (error) {
-      console.error('Error fetching files:', error.response || error);
-    }
-  };
-
-  const fetchVersioningStatus = async (bucketName) => {
-    try {
-      const response = await axios.get(`${API_URL}/${bucketName}?versioning`);
-      const parser = new DOMParser();
-      const xmlDoc = parser.parseFromString(response.data, "text/xml");
-      const status = xmlDoc.querySelector("Status")?.textContent;
-      setVersioningEnabled(status === "Enabled");
-    } catch (error) {
-      console.error('Error fetching versioning status:', error);
-    }
-  };
-
-  const toggleVersioning = async () => {
-    try {
-      const status = versioningEnabled ? "Suspended" : "Enabled";
-      await axios.put(`${API_URL}/${selectedBucket}?versioning`, {
-        VersioningConfiguration: { Status: status }
-      });
-      setVersioningEnabled(!versioningEnabled);
-    } catch (error) {
-      console.error('Error toggling versioning:', error);
-    }
-  };
-
-  const fetchVersions = async (fileName) => {
-    try {
-      const response = await axios.get(`${API_URL}/${selectedBucket}?versions`);
-      const parser = new DOMParser();
-      const xmlDoc = parser.parseFromString(response.data, "text/xml");
-      const versions = Array.from(xmlDoc.querySelectorAll("Version")).map(ver => ({
-        versionId: ver.querySelector("VersionId").textContent,
-        lastModified: ver.querySelector("LastModified").textContent,
-        size: parseInt(ver.querySelector("Size").textContent),
-      }));
-      setVersions(versions.filter(v => v.key === fileName));
-      setVersionDialogOpen(true);
-    } catch (error) {
-      console.error('Error fetching versions:', error);
-    }
-  };
-
-  const handleDeleteFile = async (fileName) => {
-    try {
-      await axios.delete(`${API_URL}/${selectedBucket}/${fileName}`);
-      fetchFiles(selectedBucket);
-    } catch (error) {
-      console.error('Error deleting file:', error);
+      await axios.delete(
+        `${API_URL}/${selectedBucket}/${file.name}?uploadId=${uploadId}`
+      );
+      throw error;
     }
   };
 
@@ -262,6 +310,78 @@ function App() {
       window.URL.revokeObjectURL(downloadUrl);
     } catch (error) {
       console.error('Error downloading file:', error);
+      alert('Failed to download file');
+    }
+  };
+
+  const handleDeleteFile = async (fileName) => {
+    if (!window.confirm(`Are you sure you want to delete "${fileName}"?`)) {
+      return;
+    }
+
+    try {
+      await axios.delete(`${API_URL}/${selectedBucket}/${fileName}`);
+      fetchFiles();
+    } catch (error) {
+      console.error('Error deleting file:', error);
+      alert('Failed to delete file');
+    }
+  };
+
+  const toggleVersioning = async () => {
+    if (!selectedBucket) return;
+    try {
+      await axios.put(`${API_URL}/${selectedBucket}/versioning`, {
+        Status: versioningEnabled ? 'Suspended' : 'Enabled'
+      });
+      setVersioningEnabled(!versioningEnabled);
+      setSnackbar({
+        open: true,
+        message: `Versioning ${!versioningEnabled ? 'enabled' : 'disabled'} successfully`,
+        severity: 'success'
+      });
+    } catch (error) {
+      console.error('Error toggling versioning:', error);
+      // If bucket doesn't exist, try to create it
+      if (error.response?.status === 400 && error.response?.data?.error === 'Bucket does not exist') {
+        try {
+          await createBucketIfNeeded(selectedBucket);
+          // After creating bucket, try toggling versioning again
+          await axios.put(`${API_URL}/${selectedBucket}/versioning`, {
+            Status: versioningEnabled ? 'Suspended' : 'Enabled'
+          });
+          setVersioningEnabled(!versioningEnabled);
+          setSnackbar({
+            open: true,
+            message: `Bucket created and versioning ${!versioningEnabled ? 'enabled' : 'disabled'} successfully`,
+            severity: 'success'
+          });
+        } catch (createError) {
+          setSnackbar({
+            open: true,
+            message: `Failed to create bucket: ${createError.message}`,
+            severity: 'error'
+          });
+        }
+      } else {
+        setSnackbar({
+          open: true,
+          message: error.response?.data?.error || 'Failed to toggle versioning',
+          severity: 'error'
+        });
+      }
+    }
+  };
+
+  const fetchVersions = async (fileName) => {
+    try {
+      const response = await axios.get(`${API_URL}/${selectedBucket}/${fileName}?versions`);
+      const versions = response.data.Versions || [];
+      setVersions(versions);
+      setVersionDialogOpen(true);
+    } catch (error) {
+      console.error('Error fetching versions:', error);
+      alert('Failed to fetch versions');
     }
   };
 
@@ -313,21 +433,38 @@ function App() {
           <Paper sx={{ width: 240, p: 2 }}>
             <Box display="flex" alignItems="center" justifyContent="space-between" mb={2}>
               <Typography variant="h6">Buckets</Typography>
-              <IconButton onClick={() => setCreateBucketOpen(true)}>
+              <IconButton onClick={() => setCreateBucketOpen(true)} title="Create new bucket">
                 <CreateNewFolder />
               </IconButton>
             </Box>
             <List>
               {buckets.map((bucket) => (
-                <Button
+                <ListItem
                   key={bucket.name}
-                  fullWidth
-                  variant={selectedBucket === bucket.name ? "contained" : "text"}
-                  onClick={() => setSelectedBucket(bucket.name)}
-                  sx={{ justifyContent: "flex-start", mb: 1 }}
+                  secondaryAction={
+                    <IconButton
+                      edge="end"
+                      aria-label="delete"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteBucket(bucket.name);
+                      }}
+                    >
+                      <Delete />
+                    </IconButton>
+                  }
                 >
-                  {bucket.name}
-                </Button>
+                  <ListItemText
+                    primary={bucket.name}
+                    sx={{
+                      cursor: 'pointer',
+                      bgcolor: selectedBucket === bucket.name ? 'action.selected' : 'transparent',
+                      borderRadius: 1,
+                      p: 1
+                    }}
+                    onClick={() => setSelectedBucket(bucket.name)}
+                  />
+                </ListItem>
               ))}
             </List>
           </Paper>
@@ -345,6 +482,7 @@ function App() {
                       <Switch
                         checked={versioningEnabled}
                         onChange={toggleVersioning}
+                        color="primary"
                       />
                     }
                     label="Versioning"
@@ -404,6 +542,7 @@ function App() {
             fullWidth
             value={newBucketName}
             onChange={(e) => setNewBucketName(e.target.value)}
+            helperText="Bucket names must be between 3 and 63 characters long and can contain only lowercase letters, numbers, and hyphens"
           />
         </DialogContent>
         <DialogActions>
@@ -413,23 +552,35 @@ function App() {
       </Dialog>
 
       {/* Version History Dialog */}
-      <Dialog open={versionDialogOpen} onClose={() => setVersionDialogOpen(false)}>
+      <Dialog
+        open={versionDialogOpen}
+        onClose={() => setVersionDialogOpen(false)}
+        maxWidth="md"
+        fullWidth
+      >
         <DialogTitle>Version History</DialogTitle>
         <DialogContent>
           <List>
             {versions.map((version) => (
-              <ListItem key={version.versionId}>
+              <ListItem
+                key={version.versionId}
+                secondaryAction={
+                  <IconButton onClick={() => handleDownloadFile(selectedFile?.key, version.versionId)}>
+                    <Download />
+                  </IconButton>
+                }
+              >
                 <ListItemText
                   primary={`Version: ${version.versionId}`}
                   secondary={`Modified: ${new Date(version.lastModified).toLocaleString()}`}
                 />
-                <IconButton onClick={() => handleDownloadFile(selectedFile.key, version.versionId)}>
-                  <Download />
-                </IconButton>
               </ListItem>
             ))}
           </List>
         </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setVersionDialogOpen(false)}>Close</Button>
+        </DialogActions>
       </Dialog>
 
       {/* File Menu */}
@@ -442,27 +593,35 @@ function App() {
           autoFocusItem: false
         }}
       >
-        <MenuItem 
+        <MenuItem
           key="download"
           onClick={() => handleMenuItemClick('download')}
         >
           <Download sx={{ mr: 1 }} /> Download
         </MenuItem>
         {versioningEnabled && (
-          <MenuItem 
+          <MenuItem
             key="version-history"
             onClick={() => handleMenuItemClick('version-history')}
           >
             <History sx={{ mr: 1 }} /> Version History
           </MenuItem>
         )}
-        <MenuItem 
+        <MenuItem
           key="delete"
           onClick={() => handleMenuItemClick('delete')}
         >
           <Delete sx={{ mr: 1 }} /> Delete
         </MenuItem>
       </Menu>
+
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={6000}
+        onClose={() => setSnackbar({ ...snackbar, open: false })}
+        message={snackbar.message}
+        severity={snackbar.severity}
+      />
     </Box>
   );
 }
