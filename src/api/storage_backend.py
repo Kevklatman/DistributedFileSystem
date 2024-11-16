@@ -405,8 +405,13 @@ class AWSStorageBackend(StorageBackend):
                 'environment variables when using AWS storage.'
             )
 
-        # Initialize S3 client with optional endpoint
+        # Initialize S3 client with explicit region configuration
         self.region = current_config['region']
+        if not self.region:
+            self.region = 'us-east-2'  # Fallback to us-east-2 if not set
+
+        print(f"Initializing S3 client with region: {self.region}")  # Debug print
+
         kwargs = {
             'aws_access_key_id': current_config['access_key'],
             'aws_secret_access_key': current_config['secret_key'],
@@ -416,12 +421,13 @@ class AWSStorageBackend(StorageBackend):
                 s3={'addressing_style': 'path'}
             )
         }
-        
+
         # Only add endpoint_url if it's explicitly set and not None or a comment
         endpoint = current_config.get('endpoint')
         if endpoint and isinstance(endpoint, str) and not endpoint.startswith('#'):
             kwargs['endpoint_url'] = endpoint
 
+        print(f"S3 client configuration: {kwargs}")  # Debug print (credentials will be hidden)
         self.s3 = boto3.client('s3', **kwargs)
 
     def create_bucket(self, bucket_name):
