@@ -28,22 +28,22 @@ class StorageClusterManager:
         self.namespace = namespace
         self.node_id = os.environ.get('NODE_ID')
         self.pod_ip = os.environ.get('POD_IP')
-        
+
         if not self.node_id or not self.pod_ip:
             raise ValueError("NODE_ID and POD_IP environment variables must be set")
-        
+
         self.nodes: Dict[str, StorageNodeInfo] = {}
         self.leader = False
         self.current_leader = None
         self._lock = Lock()
         self.start_time = None
-        
+
         # Initialize kubernetes client
         try:
             config.load_incluster_config()
         except config.ConfigException:
             config.load_kube_config()
-        
+
         self.k8s_api = client.CoreV1Api()
         self.custom_api = client.CustomObjectsApi()
         self.coordination_api = client.CoordinationV1Api()
@@ -69,13 +69,13 @@ class StorageClusterManager:
             pods=[],
             zone=self._get_zone()
         )
-        
+
         self._update_node_status(node_info)
 
     async def _start_leader_election(self):
         """Implement leader election using K8s lease objects"""
         lease_name = "storage-cluster-leader"
-        
+
         try:
             logging.info("Starting leader election")
             # Try to acquire the lease
@@ -86,7 +86,7 @@ class StorageClusterManager:
                     lease_duration_seconds=15
                 )
             )
-            
+
             logging.info(f"Attempting to create lease with holder_identity={self.node_id}")
             self.coordination_api.create_namespaced_lease(
                 namespace=self.namespace,
@@ -127,10 +127,10 @@ class StorageClusterManager:
                     name=lease_name,
                     namespace=self.namespace
                 )
-                
+
                 # Update lease timestamp
                 lease.spec.renew_time = client.V1MicroTime(timestamp=time.time())
-                
+
                 # Update the lease
                 self.coordination_api.replace_namespaced_lease(
                     name=lease_name,
@@ -152,17 +152,17 @@ class StorageClusterManager:
                 # Update own heartbeat
                 if self.node_id in self.nodes:
                     self.nodes[self.node_id].last_heartbeat = current_time
-                
+
                 # Check other nodes' heartbeats
                 dead_nodes = []
                 for node_id, node in self.nodes.items():
                     if current_time - node.last_heartbeat > 30:  # 30 seconds timeout
                         dead_nodes.append(node_id)
-                
+
                 # Remove dead nodes
                 for node_id in dead_nodes:
                     self._handle_node_failure(node_id)
-            
+
             await asyncio.sleep(5)
 
     def _handle_node_failure(self, node_id: str):
@@ -171,22 +171,22 @@ class StorageClusterManager:
             if node_id in self.nodes:
                 failed_node = self.nodes[node_id]
                 del self.nodes[node_id]
-                
+
                 if self.leader:
                     self._redistribute_data(failed_node)
 
     def _redistribute_data(self, failed_node: StorageNodeInfo):
         """Redistribute data from failed node to healthy nodes"""
         # Get list of healthy nodes
-        healthy_nodes = [node for node in self.nodes.values() 
+        healthy_nodes = [node for node in self.nodes.values()
                         if node.status == "READY" and node.node_id != failed_node.node_id]
-        
+
         if not healthy_nodes:
             return
-        
+
         # Get data locations from failed node
         data_locations = self._get_node_data_locations(failed_node.node_id)
-        
+
         # Redistribute each piece of data
         for data_id, data_info in data_locations.items():
             target_node = self._select_target_node(healthy_nodes)
@@ -194,7 +194,7 @@ class StorageClusterManager:
 
     def _select_target_node(self, healthy_nodes: List[StorageNodeInfo]) -> StorageNodeInfo:
         """Select the best node for data placement based on capacity and load"""
-        return min(healthy_nodes, 
+        return min(healthy_nodes,
                   key=lambda n: n.used_bytes / n.capacity_bytes if n.capacity_bytes > 0 else float('inf'))
 
     def _replicate_data(self, data_id: str, data_info: dict, target_node: StorageNodeInfo):
@@ -219,11 +219,11 @@ class StorageClusterManager:
         try:
             # Get current nodes
             nodes = await asyncio.to_thread(self._get_current_nodes)
-            
+
             # Count healthy nodes (nodes with recent heartbeat)
-            healthy_nodes = sum(1 for node in nodes.values() 
+            healthy_nodes = sum(1 for node in nodes.values()
                              if (time.time() - node.last_heartbeat) < 15)
-            
+
             # Get current leader
             try:
                 lease = await asyncio.to_thread(
@@ -237,7 +237,7 @@ class StorageClusterManager:
                     leader_node = None
                 else:
                     raise
-            
+
             return {
                 "total_nodes": len(nodes),
                 "healthy_nodes": healthy_nodes,
@@ -276,7 +276,7 @@ class StorageClusterManager:
         """Update node status in the cluster"""
         with self._lock:
             self.nodes[node_info.node_id] = node_info
-            
+
             # Update K8s custom resource
             node_status = {
                 "apiVersion": "storage.dfs.io/v1",
@@ -296,7 +296,7 @@ class StorageClusterManager:
                     "zone": node_info.zone
                 }
             }
-            
+
             try:
                 self.custom_api.create_namespaced_custom_object(
                     group="storage.dfs.io",

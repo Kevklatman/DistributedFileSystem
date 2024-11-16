@@ -100,16 +100,21 @@ s3_handler = S3ApiHandler(fs_manager)
 # Add back the index route
 @app.route('/', methods=['GET'])
 def index():
-    if request.headers.get('Accept') == 'application/json':
-        # API request for listing buckets
-        storage = get_storage_backend(fs_manager)
-        buckets, error = storage.list_buckets()
-        if error:
-            return make_response({'error': error}, 400)
-        return make_response({'buckets': buckets}, 200)
-    else:
-        # Web UI request
-        return render_template('index.html')
+    try:
+        if request.headers.get('Accept') == 'application/json':
+            # API request for listing buckets
+            storage = get_storage_backend(fs_manager)
+            buckets, error = storage.list_buckets()
+            if error:
+                logger.error(f"Error listing buckets: {error}")
+                return make_response({'error': str(error)}, 400)
+            return make_response({'buckets': buckets}, 200)
+        else:
+            # Web UI request - serve the static index.html
+            return send_from_directory('static', 'index.html')
+    except Exception as e:
+        logger.error(f"Error in index route: {str(e)}")
+        return make_response({'error': str(e)}, 500)
 
 # Serve static files
 @app.route('/static/<path:path>')
