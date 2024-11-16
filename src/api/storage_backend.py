@@ -226,34 +226,45 @@ class LocalStorageBackend(StorageBackend):
         if object_key not in self.buckets[bucket_name]['objects']:
             return False, "Object does not exist"
 
-        # Handle versioning
-        if self.versioning.get(bucket_name):
-            # If versioning is enabled, add a delete marker
-            version_id = self._generate_version_id()
-            if bucket_name not in self.versions:
-                self.versions[bucket_name] = {}
-            if object_key not in self.versions[bucket_name]:
-                self.versions[bucket_name][object_key] = []
+        try:
+            # Handle versioning
+            if self.versioning.get(bucket_name):
+                # If versioning is enabled, add a delete marker
+                version_id = self._generate_version_id()
+                if bucket_name not in self.versions:
+                    self.versions[bucket_name] = {}
+                if object_key not in self.versions[bucket_name]:
+                    self.versions[bucket_name][object_key] = []
 
-            # Add delete marker
-            self.versions[bucket_name][object_key].append({
-                'version_id': version_id,
-                'is_delete_marker': True,
-                'last_modified': datetime.datetime.now(datetime.timezone.utc)
-            })
+                # Add delete marker
+                self.versions[bucket_name][object_key].append({
+                    'version_id': version_id,
+                    'is_delete_marker': True,
+                    'last_modified': datetime.datetime.now(datetime.timezone.utc)
+                })
 
-            # Remove from current objects but keep versions
-            del self.buckets[bucket_name]['objects'][object_key]
-        else:
-            # If versioning is not enabled, remove everything
-            del self.buckets[bucket_name]['objects'][object_key]
-            self._cleanup_orphaned_data(bucket_name, object_key)
+                # Remove from current objects but keep versions
+                del self.buckets[bucket_name]['objects'][object_key]
+            else:
+                # If versioning is not enabled, remove everything
+                del self.buckets[bucket_name]['objects'][object_key]
+                if bucket_name in self.versions and object_key in self.versions[bucket_name]:
+                    del self.versions[bucket_name][object_key]
 
             # Delete the file from filesystem
             if not self.fs_manager.deleteFile(file_path):
-                return False, "Failed to delete file from filesystem"
+                logger.error(f"Failed to delete file from filesystem: {file_path}")
+                # Even if file deletion fails, we've already removed it from our records
+                # This is consistent with S3's behavior where delete operations are idempotent
 
-        return True, None
+            # Clean up any orphaned data
+            self._cleanup_orphaned_data(bucket_name, object_key)
+
+            return True, None
+
+        except Exception as e:
+            logger.error(f"Error deleting object {object_key} from bucket {bucket_name}: {str(e)}")
+            return False, f"Internal error: {str(e)}"
 
     def list_objects(self, bucket_name):
         if bucket_name not in self.buckets:

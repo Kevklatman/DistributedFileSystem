@@ -509,6 +509,17 @@ function App() {
   };
 
   const handleDeleteFile = async (fileName, versionId = null) => {
+    // Guard against undefined filename
+    if (!fileName) {
+      console.error('Cannot delete file: filename is undefined');
+      setSnackbar({
+        open: true,
+        message: 'Cannot delete file: filename is undefined',
+        severity: 'error'
+      });
+      return;
+    }
+
     if (!window.confirm(`Are you sure you want to delete ${fileName}${versionId ? ' (version ' + versionId + ')' : ''}?`)) {
       return;
     }
@@ -525,14 +536,15 @@ function App() {
         versionId
       });
 
-      const response = await axios.delete(url, {
-        headers: {
-          'Accept': 'application/xml, text/xml, */*'
-        }
-      });
-
+      const response = await axios.delete(url);
       console.log('Delete response:', response);
-      fetchFiles();
+      
+      // Close the menu after successful deletion
+      handleFileMenuClose();
+      
+      // Refresh the file list
+      await fetchFiles();
+      
       setSnackbar({
         open: true,
         message: 'File deleted successfully',
@@ -587,34 +599,14 @@ function App() {
 
   const handleFileMenuClick = (event, file) => {
     event.preventDefault();
+    event.stopPropagation(); // Prevent event bubbling
     setMenuAnchorEl(event.currentTarget);
     setSelectedFileMenu(file);
   };
 
   const handleFileMenuClose = () => {
-    // Ensure we remove focus from menu items before closing
-    if (document.activeElement instanceof HTMLElement) {
-      document.activeElement.blur();
-    }
     setMenuAnchorEl(null);
     setSelectedFileMenu(null);
-  };
-
-  const handleMenuItemClick = (action) => {
-    // Execute the action
-    switch (action) {
-      case 'download':
-        handleDownloadFile(selectedFileMenu?.key);
-        break;
-      case 'version-history':
-        fetchVersionHistory(selectedFileMenu?.key);
-        break;
-      case 'delete':
-        handleDeleteFile(selectedFileMenu?.key);
-        break;
-    }
-    // Close menu after action
-    handleFileMenuClose();
   };
 
   const handleBucketSelect = (bucketName) => {
@@ -766,14 +758,20 @@ function App() {
                 <ListItem
                   key={file.Key}
                   secondaryAction={
-                    <IconButton onClick={(e) => handleFileMenuClick(e, file)}>
-                      <MoreVert />
-                    </IconButton>
+                    <>
+                      <IconButton
+                        edge="end"
+                        aria-label="actions"
+                        onClick={(event) => handleFileMenuClick(event, file)}
+                      >
+                        <MoreVert />
+                      </IconButton>
+                    </>
                   }
                 >
                   <ListItemText
                     primary={file.Name}
-                    secondary={`Last modified: ${new Date(file.LastModified).toLocaleString()}`}
+                    secondary={`Size: ${file.Size} bytes, Modified: ${new Date(file.LastModified).toLocaleString()}`}
                   />
                 </ListItem>
               ))}
@@ -845,25 +843,31 @@ function App() {
         open={Boolean(menuAnchorEl)}
         onClose={handleFileMenuClose}
       >
-        <MenuItem onClick={() => handleMenuItemClick('download')}>
+        <MenuItem onClick={() => {
+          handleDownloadFile(selectedFileMenu?.Key);
+          handleFileMenuClose();
+        }}>
           <ListItemIcon>
             <Download fontSize="small" />
           </ListItemIcon>
-          <ListItemText>Download</ListItemText>
+          Download
         </MenuItem>
         {versioningEnabled && (
-          <MenuItem onClick={() => handleMenuItemClick('version-history')}>
+          <MenuItem onClick={() => {
+            fetchVersionHistory(selectedFileMenu?.Key);
+            handleFileMenuClose();
+          }}>
             <ListItemIcon>
               <History fontSize="small" />
             </ListItemIcon>
-            <ListItemText>Version History</ListItemText>
+            Version History
           </MenuItem>
         )}
-        <MenuItem onClick={() => handleMenuItemClick('delete')}>
+        <MenuItem onClick={() => handleDeleteFile(selectedFileMenu?.Key)}>
           <ListItemIcon>
             <Delete fontSize="small" />
           </ListItemIcon>
-          <ListItemText>Delete</ListItemText>
+          Delete
         </MenuItem>
       </Menu>
 
