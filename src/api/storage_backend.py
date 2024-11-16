@@ -483,9 +483,16 @@ class AWSStorageBackend(StorageBackend):
 
     def list_objects(self, bucket_name):
         try:
-            # First, get the bucket's location
-            location = self.s3.get_bucket_location(Bucket=bucket_name)
-            bucket_region = location['LocationConstraint']
+            # Try to get bucket location, but handle access denied gracefully
+            try:
+                location = self.s3.get_bucket_location(Bucket=bucket_name)
+                bucket_region = location.get('LocationConstraint')
+            except self.s3.exceptions.ClientError as e:
+                if e.response['Error']['Code'] == 'AccessDenied':
+                    print("Warning: Unable to get bucket location due to permissions. Defaulting to configured region.")
+                    bucket_region = self.region
+                else:
+                    raise
 
             # If bucket is in a different region, create a new client for that region
             if bucket_region and bucket_region != self.region:
@@ -500,7 +507,11 @@ class AWSStorageBackend(StorageBackend):
                         s3={'addressing_style': 'path'}
                     )
                 )
-                response = temp_client.list_objects_v2(Bucket=bucket_name)
+                try:
+                    response = temp_client.list_objects_v2(Bucket=bucket_name)
+                except Exception as e:
+                    print(f"Error with temp client: {str(e)}. Falling back to default client.")
+                    response = self.s3.list_objects_v2(Bucket=bucket_name)
             else:
                 response = self.s3.list_objects_v2(Bucket=bucket_name)
 

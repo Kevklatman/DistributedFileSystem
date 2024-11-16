@@ -59,24 +59,35 @@ class S3ApiHandler:
         return '', 204
 
     def list_objects(self, bucket_name):
-        objects, error = self.storage.list_objects(bucket_name)
-        if error:
-            return self._generate_error_response('ListObjectsError', error)
+        try:
+            objects = self.storage.list_objects(bucket_name)
+            
+            objects_list = [{
+                'Key': obj['Key'],
+                'LastModified': obj['LastModified'].isoformat() if isinstance(obj['LastModified'], datetime.datetime) else obj['LastModified'],
+                'Size': obj['Size'],
+                'StorageClass': 'STANDARD'
+            } for obj in objects]
 
-        objects_list = [{
-            'Key': key,
-            'LastModified': datetime.datetime.now(datetime.timezone.utc).isoformat(),
-            'Size': 0,  # Size information might not be available
-            'StorageClass': 'STANDARD'
-        } for key in objects]
-
-        response = {
-            'ListBucketResult': {
-                'Name': bucket_name,
-                'Contents': objects_list
+            response = {
+                'ListBucketResult': {
+                    'Name': bucket_name,
+                    'Contents': objects_list if objects_list else None,
+                    'IsTruncated': False
+                }
             }
-        }
-        return self._success_response(response)
+            return self._success_response(response)
+        except Exception as e:
+            error_message = str(e)
+            if "AccessDenied" in error_message:
+                return self._generate_error_response('AccessDenied', 'Access Denied - check your IAM permissions')
+            elif "NoSuchBucket" in error_message:
+                return self._generate_error_response('NoSuchBucket', f'The specified bucket {bucket_name} does not exist')
+            elif "IllegalLocationConstraintException" in error_message:
+                return self._generate_error_response('IllegalLocationConstraintException', 
+                    'The bucket is in a different region. The application will attempt to handle this automatically.')
+            else:
+                return self._generate_error_response('ListObjectsError', f'Error listing objects: {error_message}')
 
     def put_object(self, bucket_name, object_key):
         content = request.get_data()
