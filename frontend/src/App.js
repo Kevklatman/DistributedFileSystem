@@ -60,7 +60,7 @@ const createBucketIfNeeded = async (bucketName) => {
     throw new Error(validationError);
   }
   try {
-    await axios.put(`${API_URL}/${bucketName}`);
+    await axios.put(`${API_URL}/api/v1/s3/buckets/${bucketName}`);
     return true;
   } catch (error) {
     if (error.response?.data?.error) {
@@ -129,17 +129,40 @@ function App() {
   const fetchBuckets = async () => {
     try {
       console.log('Fetching buckets...');
-      const response = await axios.get(`${API_URL}/`);
+      const response = await axios.get(`${API_URL}/api/v1/s3/buckets`, {
+        headers: {
+          'Accept': 'application/json'
+        }
+      });
       console.log('Buckets response:', response.data);
+      
+      // Handle both response formats
+      let bucketList = [];
       if (response.data.buckets) {
-        setBuckets(response.data.buckets);
+        // Format from root endpoint
+        bucketList = response.data.buckets;
+      } else if (Array.isArray(response.data)) {
+        // Format directly from /api/v1/s3/buckets
+        bucketList = response.data.map(bucket => {
+          if (typeof bucket === 'string') {
+            return { Name: bucket };
+          }
+          return bucket;
+        });
       } else {
         console.error('Unexpected response format:', response.data);
-        setBuckets([]);
+        bucketList = [];
       }
+      
+      setBuckets(bucketList);
     } catch (error) {
       console.error('Error fetching buckets:', error.response || error);
       setBuckets([]);
+      setSnackbar({
+        open: true,
+        message: `Failed to fetch buckets: ${error.response?.data?.error || error.message}`,
+        severity: 'error'
+      });
     }
   };
 
@@ -147,7 +170,7 @@ function App() {
     if (!selectedBucket) return;
     try {
       console.log(`Fetching files for bucket: ${selectedBucket}`);
-      const response = await axios.get(`${API_URL}/${selectedBucket}`, {
+      const response = await axios.get(`${API_URL}/api/v1/s3/buckets/${selectedBucket}/objects`, {
         headers: {
           'Accept': 'application/xml, text/xml, */*'
         },
@@ -186,7 +209,7 @@ function App() {
   const fetchVersioningStatus = async () => {
     if (!selectedBucket) return;
     try {
-      const response = await axios.get(`${API_URL}/${selectedBucket}/versioning`);
+      const response = await axios.get(`${API_URL}/api/v1/s3/buckets/${selectedBucket}/versioning`);
       setVersioningEnabled(response.data.Status === 'Enabled');
     } catch (error) {
       console.error('Error fetching versioning status:', error);
@@ -195,7 +218,7 @@ function App() {
         try {
           await createBucketIfNeeded(selectedBucket);
           // After creating bucket, fetch versioning status again
-          const response = await axios.get(`${API_URL}/${selectedBucket}/versioning`);
+          const response = await axios.get(`${API_URL}/api/v1/s3/buckets/${selectedBucket}/versioning`);
           setVersioningEnabled(response.data.Status === 'Enabled');
           setSnackbar({
             open: true,
@@ -226,39 +249,59 @@ function App() {
     }
 
     try {
-      console.log(`Creating bucket: ${newBucketName}`);
-      await createBucketIfNeeded(newBucketName);
+      await axios.put(`${API_URL}/api/v1/s3/buckets/${newBucketName}`);
+      setSnackbar({
+        open: true,
+        message: 'Bucket created successfully',
+        severity: 'success'
+      });
+      fetchBuckets();
       setCreateBucketOpen(false);
       setNewBucketName('');
-      fetchBuckets();
     } catch (error) {
-      console.error('Error creating bucket:', error.response?.data || error);
-      alert(error.response?.data?.error || 'Failed to create bucket');
+      setSnackbar({
+        open: true,
+        message: `Failed to create bucket: ${error.response?.data?.error || error.message}`,
+        severity: 'error'
+      });
     }
   };
 
   const handleDeleteBucket = async (bucketName) => {
+    if (!bucketName) {
+      console.error('No bucket name provided');
+      return;
+    }
+
     if (!window.confirm(`Are you sure you want to delete bucket "${bucketName}"?`)) {
       return;
     }
 
     try {
       console.log(`Deleting bucket: ${bucketName}`);
-      await axios.delete(`${API_URL}/${bucketName}`);
+      await axios.delete(`${API_URL}/api/v1/s3/buckets/${bucketName}`);
       if (selectedBucket === bucketName) {
         setSelectedBucket(null);
         setFiles([]);
       }
       fetchBuckets();
+      setSnackbar({
+        open: true,
+        message: 'Bucket deleted successfully',
+        severity: 'success'
+      });
     } catch (error) {
-      console.error('Error deleting bucket:', error.response?.data || error);
-      alert(error.response?.data?.error || 'Failed to delete bucket');
+      setSnackbar({
+        open: true,
+        message: `Failed to delete bucket: ${error.response?.data?.error || error.message}`,
+        severity: 'error'
+      });
     }
   };
 
   const initiateMultipartUpload = async (file, bucketName) => {
     try {
-      const response = await axios.post(`${API_URL}/${bucketName}/${file.name}?uploads`);
+      const response = await axios.post(`${API_URL}/api/v1/s3/buckets/${bucketName}/objects/${file.name}?uploads`);
       const uploadId = response.data.UploadId;
       setCurrentUpload({ file, uploadId, bucketName });
       return uploadId;
@@ -271,7 +314,7 @@ function App() {
   const uploadPart = async (part, partNumber, uploadId, bucketName, key) => {
     try {
       const response = await axios.put(
-        `${API_URL}/${bucketName}/${key}?partNumber=${partNumber}&uploadId=${uploadId}`,
+        `${API_URL}/api/v1/s3/buckets/${bucketName}/objects/${key}?partNumber=${partNumber}&uploadId=${uploadId}`,
         part,
         {
           headers: {
@@ -295,7 +338,7 @@ function App() {
 
   const completeMultipartUpload = async (uploadId, parts, bucketName, key) => {
     try {
-      await axios.post(`${API_URL}/${bucketName}/${key}?uploadId=${uploadId}`, {
+      await axios.post(`${API_URL}/api/v1/s3/buckets/${bucketName}/objects/${key}?uploadId=${uploadId}`, {
         Parts: parts,
       });
       setCurrentUpload(null);
@@ -335,7 +378,7 @@ function App() {
         // Regular upload for small files
         const formData = new FormData();
         formData.append('file', file);
-        await axios.put(`${API_URL}/${selectedBucket}/${file.name}`, file, {
+        await axios.put(`${API_URL}/api/v1/s3/buckets/${selectedBucket}/objects/${file.name}`, file, {
           headers: { 'Content-Type': 'application/octet-stream' },
           onUploadProgress: (progressEvent) => {
             const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
@@ -368,8 +411,8 @@ function App() {
   const handleDownloadFile = async (fileName, versionId = null) => {
     try {
       const url = versionId
-        ? `${API_URL}/${selectedBucket}/${fileName}?versionId=${versionId}`
-        : `${API_URL}/${selectedBucket}/${fileName}`;
+        ? `${API_URL}/api/v1/s3/buckets/${selectedBucket}/objects/${fileName}?versionId=${versionId}`
+        : `${API_URL}/api/v1/s3/buckets/${selectedBucket}/objects/${fileName}`;
 
       const response = await axios.get(url, {
         responseType: 'blob'
@@ -407,8 +450,8 @@ function App() {
 
     try {
       const url = versionId
-        ? `${API_URL}/${selectedBucket}/${fileName}?versionId=${versionId}`
-        : `${API_URL}/${selectedBucket}/${fileName}`;
+        ? `${API_URL}/api/v1/s3/buckets/${selectedBucket}/objects/${fileName}?versionId=${versionId}`
+        : `${API_URL}/api/v1/s3/buckets/${selectedBucket}/objects/${fileName}`;
 
       console.log('Attempting to delete file:', {
         url,
@@ -447,7 +490,7 @@ function App() {
 
   const fetchVersionHistory = async (fileName) => {
     try {
-      const response = await axios.get(`${API_URL}/${selectedBucket}/${fileName}?versions`);
+      const response = await axios.get(`${API_URL}/api/v1/s3/buckets/${selectedBucket}/objects/${fileName}?versions`);
       let versions = [];
 
       if (typeof response.data === 'string' && response.data.includes('<?xml')) {
@@ -517,7 +560,7 @@ function App() {
   const toggleVersioning = async () => {
     if (!selectedBucket) return;
     try {
-      await axios.put(`${API_URL}/${selectedBucket}/versioning`, {
+      await axios.put(`${API_URL}/api/v1/s3/buckets/${selectedBucket}/versioning`, {
         VersioningEnabled: !versioningEnabled
       });
       setVersioningEnabled(!versioningEnabled);
@@ -533,7 +576,7 @@ function App() {
         try {
           await createBucketIfNeeded(selectedBucket);
           // After creating bucket, try toggling versioning again
-          await axios.put(`${API_URL}/${selectedBucket}/versioning`, {
+          await axios.put(`${API_URL}/api/v1/s3/buckets/${selectedBucket}/versioning`, {
             VersioningEnabled: !versioningEnabled
           });
           setVersioningEnabled(!versioningEnabled);

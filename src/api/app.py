@@ -8,6 +8,7 @@ import hashlib
 import os
 import logging
 import sys
+import json
 
 # Add the current directory to Python path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -139,6 +140,14 @@ def index():
     # Otherwise serve the web UI
     return send_from_directory('static', 'index.html')
 
+class JSONEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, datetime.datetime):
+            return obj.isoformat()
+        return super().default(obj)
+
+app.json_encoder = JSONEncoder
+
 # Decorate existing routes with API documentation
 @s3_ns.route('/buckets')
 class BucketList(Resource):
@@ -166,13 +175,20 @@ class BucketList(Resource):
             bucket_list = []
             for bucket in buckets:
                 if isinstance(bucket, dict):
-                    bucket_list.append(bucket)
+                    # Convert any datetime objects to ISO format strings
+                    bucket_dict = {}
+                    for key, value in bucket.items():
+                        if isinstance(value, datetime.datetime):
+                            bucket_dict[key] = value.isoformat()
+                        else:
+                            bucket_dict[key] = value
+                    bucket_list.append(bucket_dict)
                 else:
                     # Handle case where bucket might be a string or other object
                     bucket_list.append({'Name': str(bucket)})
 
             logger.debug("Found buckets: %s", bucket_list)
-            return {'buckets': bucket_list}, 200
+            return bucket_list, 200
         except Exception as e:
             logger.error("Unexpected error listing buckets: %s", str(e))
             return {'error': 'Internal server error'}, 500
