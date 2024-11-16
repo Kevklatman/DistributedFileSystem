@@ -9,7 +9,7 @@ STORAGE_ENV = os.getenv('STORAGE_ENV', 'local')
 
 # API Configuration
 API_HOST = os.getenv('API_HOST', '0.0.0.0')
-API_PORT = int(os.getenv('API_PORT', 5555))
+API_PORT = int(os.getenv('API_PORT', 5003))
 DEBUG = os.getenv('DEBUG', 'True').lower() == 'true'
 
 # AWS Configuration
