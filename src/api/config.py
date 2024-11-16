@@ -16,8 +16,8 @@ DEBUG = os.getenv('DEBUG', 'True').lower() == 'true'
 AWS_CONFIG = {
     'access_key': os.environ.get('AWS_ACCESS_KEY'),
     'secret_key': os.environ.get('AWS_SECRET_KEY'),
-    'region': os.environ.get('AWS_REGION', 'us-east-2'),  
-    'endpoint': os.environ.get('AWS_ENDPOINT_URL', None)  
+    'region': os.environ.get('AWS_REGION', 'eu-south-1'),  # Updated default region
+    'endpoint': os.environ.get('AWS_ENDPOINT_URL', None)
 }
 
 # Storage configuration

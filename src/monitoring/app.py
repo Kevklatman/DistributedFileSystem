@@ -108,21 +108,22 @@ def metrics():
     })
 
 # Proxy routes for other services
+@app.route('/web-ui')
 @app.route('/web-ui/<path:path>')
-def web_ui_proxy(path):
+def web_ui_proxy(path=''):
     try:
-        resp = requests.get(f'http://localhost:3000/{path}')
-        return Response(resp.content, resp.status_code, resp.headers.items())
-    except:
-        return "Web UI service unavailable", 503
+        response = requests.get(f'http://localhost:3000/{path}', verify=False)
+        return Response(response.content, status=response.status_code, content_type=response.headers.get('content-type'))
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/<path:path>')
 def api_proxy(path):
     try:
-        resp = requests.get(f'http://localhost:5555/{path}')
-        return Response(resp.content, resp.status_code, resp.headers.items())
-    except:
-        return "API service unavailable", 503
+        response = requests.get(f'http://localhost:5555/{path}', verify=False)
+        return Response(response.content, status=response.status_code, content_type=response.headers.get('content-type'))
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
