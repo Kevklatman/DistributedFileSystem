@@ -2,13 +2,20 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: dfs-api
+  name: dfs-storage-service
   namespace: distributed-fs
+  labels:
+    app: dfs-storage-node
 spec:
   selector:
-    app: dfs-api
+    app: dfs-storage-node
   ports:
-    - protocol: TCP
-      port: 80
-      targetPort: 5000
+    - name: http
+      protocol: TCP
+      port: 8080
+      targetPort: 8080
+    - name: metrics
+      protocol: TCP
+      port: 9090
+      targetPort: 9090
   type: LoadBalancer

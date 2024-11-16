@@ -5,9 +5,17 @@ import xmltodict
 import datetime
 import hashlib
 import os
+import logging
 from storage_backend import get_storage_backend
 from s3_api import S3ApiHandler
 from mock_fs_manager import FileSystemManager
+
+# Configure logging
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s %(levelname)s: %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 CORS(app, resources={
@@ -30,6 +38,21 @@ def handle_preflight():
         response.headers.add("Access-Control-Allow-Headers", "Content-Type, Accept, Authorization")
         response.headers.add("Access-Control-Max-Age", "3600")
         return response
+
+@app.before_request
+def log_request_info():
+    logger.debug('Headers: %s', request.headers)
+    logger.debug('Body: %s', request.get_data())
+
+@app.after_request
+def log_response_info(response):
+    logger.debug('Response: %s', response.get_data())
+    return response
+
+@app.errorhandler(Exception)
+def handle_error(error):
+    logger.exception('An error occurred: %s', str(error))
+    return jsonify({'error': str(error)}), 500
 
 fs_manager = FileSystemManager()
 s3_handler = S3ApiHandler(fs_manager)

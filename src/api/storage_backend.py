@@ -405,13 +405,19 @@ class AWSStorageBackend(StorageBackend):
                 'environment variables when using AWS storage.'
             )
 
-        self.s3 = boto3.client(
-            's3',
-            endpoint_url=current_config.get('endpoint'),
-            aws_access_key_id=current_config['access_key'],
-            aws_secret_access_key=current_config['secret_key'],
-            region_name=current_config['region']
-        )
+        # Initialize S3 client with optional endpoint
+        kwargs = {
+            'aws_access_key_id': current_config['access_key'],
+            'aws_secret_access_key': current_config['secret_key'],
+            'region_name': current_config['region']
+        }
+        
+        # Only add endpoint_url if it's explicitly set and not None
+        endpoint = current_config.get('endpoint')
+        if endpoint and endpoint != 'None' and endpoint != 'null':
+            kwargs['endpoint_url'] = endpoint
+
+        self.s3 = boto3.client('s3', **kwargs)
 
     def create_bucket(self, bucket_name):
         try:
