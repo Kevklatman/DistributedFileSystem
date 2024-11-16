@@ -406,10 +406,15 @@ class AWSStorageBackend(StorageBackend):
             )
 
         # Initialize S3 client with optional endpoint
+        self.region = current_config['region']
         kwargs = {
             'aws_access_key_id': current_config['access_key'],
             'aws_secret_access_key': current_config['secret_key'],
-            'region_name': current_config['region']
+            'region_name': self.region,
+            'config': Config(
+                signature_version='s3v4',
+                s3={'addressing_style': 'path'}
+            )
         }
         
         # Only add endpoint_url if it's explicitly set and not None or a comment
@@ -421,11 +426,16 @@ class AWSStorageBackend(StorageBackend):
 
     def create_bucket(self, bucket_name):
         try:
-            location = {'LocationConstraint': current_config['region']}
-            self.s3.create_bucket(
-                Bucket=bucket_name,
-                CreateBucketConfiguration=location
-            )
+            # Only include LocationConstraint if not us-east-1
+            if self.region != 'us-east-1':
+                location = {'LocationConstraint': self.region}
+                self.s3.create_bucket(
+                    Bucket=bucket_name,
+                    CreateBucketConfiguration=location
+                )
+            else:
+                # us-east-1 doesn't accept a LocationConstraint
+                self.s3.create_bucket(Bucket=bucket_name)
             return True, None
         except Exception as e:
             return False, str(e)

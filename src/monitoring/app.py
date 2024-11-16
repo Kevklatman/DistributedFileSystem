@@ -1,15 +1,37 @@
-from flask import Flask, render_template, jsonify, Response
+from flask import Flask, render_template, jsonify, Response, request
 from kubernetes import client, config, utils
 from datetime import datetime
 import os
 import ssl
 import urllib3
 import requests
+from flask_cors import CORS
 
 # Disable SSL warnings
 urllib3.disable_warnings()
 
 app = Flask(__name__)
+CORS(app, resources={
+    r"/*": {
+        "origins": ["http://localhost:3000", "http://localhost:5000", "http://localhost:5555"],
+        "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        "allow_headers": ["Content-Type", "Accept", "Authorization", "X-Amz-Date", "X-Api-Key", "X-Amz-Security-Token"],
+        "expose_headers": ["ETag", "x-amz-request-id", "x-amz-id-2"],
+        "supports_credentials": True
+    }
+})
+
+@app.before_request
+def handle_preflight():
+    if request.method == "OPTIONS":
+        response = Response()
+        response.headers.add("Access-Control-Allow-Origin", request.headers.get("Origin", "*"))
+        response.headers.add("Access-Control-Allow-Methods", "DELETE, GET, POST, PUT, OPTIONS")
+        response.headers.add("Access-Control-Allow-Headers", "Content-Type, Accept, Authorization, X-Amz-Date, X-Api-Key, X-Amz-Security-Token")
+        response.headers.add("Access-Control-Expose-Headers", "ETag, x-amz-request-id, x-amz-id-2")
+        response.headers.add("Access-Control-Allow-Credentials", "true")
+        response.headers.add("Access-Control-Max-Age", "3600")
+        return response
 
 # Configure Kubernetes client
 try:
@@ -112,16 +134,40 @@ def metrics():
 @app.route('/web-ui/<path:path>')
 def web_ui_proxy(path=''):
     try:
-        response = requests.get(f'http://localhost:3000/{path}', verify=False)
-        return Response(response.content, status=response.status_code, content_type=response.headers.get('content-type'))
+        headers = {key: value for key, value in request.headers if key != 'Host'}
+        response = requests.request(
+            method=request.method,
+            url=f'http://localhost:3000/{path}',
+            headers=headers,
+            data=request.get_data(),
+            cookies=request.cookies,
+            verify=False
+        )
+        proxy_response = Response(response.content, response.status_code)
+        for key, value in response.headers.items():
+            if key.lower() not in ['content-length', 'connection', 'content-encoding']:
+                proxy_response.headers[key] = value
+        return proxy_response
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/<path:path>')
 def api_proxy(path):
     try:
-        response = requests.get(f'http://localhost:5555/{path}', verify=False)
-        return Response(response.content, status=response.status_code, content_type=response.headers.get('content-type'))
+        headers = {key: value for key, value in request.headers if key != 'Host'}
+        response = requests.request(
+            method=request.method,
+            url=f'http://localhost:5555/{path}',
+            headers=headers,
+            data=request.get_data(),
+            cookies=request.cookies,
+            verify=False
+        )
+        proxy_response = Response(response.content, response.status_code)
+        for key, value in response.headers.items():
+            if key.lower() not in ['content-length', 'connection', 'content-encoding']:
+                proxy_response.headers[key] = value
+        return proxy_response
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 

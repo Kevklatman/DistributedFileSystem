@@ -20,10 +20,10 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 CORS(app, resources={
     r"/*": {
-        "origins": ["http://localhost:3000", "http://localhost:5173"],  # Add both development server URLs
+        "origins": ["http://localhost:3000", "http://localhost:5000", "http://localhost:5555"],
         "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-        "allow_headers": ["Content-Type", "Accept", "Authorization"],
-        "expose_headers": ["ETag"],
+        "allow_headers": ["Content-Type", "Accept", "Authorization", "X-Amz-Date", "X-Api-Key", "X-Amz-Security-Token"],
+        "expose_headers": ["ETag", "x-amz-request-id", "x-amz-id-2"],
         "supports_credentials": True
     }
 })
@@ -35,7 +35,9 @@ def handle_preflight():
         response = make_response()
         response.headers.add("Access-Control-Allow-Origin", request.headers.get("Origin", "*"))
         response.headers.add("Access-Control-Allow-Methods", "DELETE, GET, POST, PUT, OPTIONS")
-        response.headers.add("Access-Control-Allow-Headers", "Content-Type, Accept, Authorization")
+        response.headers.add("Access-Control-Allow-Headers", "Content-Type, Accept, Authorization, X-Amz-Date, X-Api-Key, X-Amz-Security-Token")
+        response.headers.add("Access-Control-Expose-Headers", "ETag, x-amz-request-id, x-amz-id-2")
+        response.headers.add("Access-Control-Allow-Credentials", "true")
         response.headers.add("Access-Control-Max-Age", "3600")
         return response
 
