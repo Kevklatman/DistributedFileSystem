@@ -95,7 +95,7 @@ class ReplicationManager:
             
             async with aiohttp.ClientSession() as session:
                 async with session.post(
-                    f"http://{target_node.hostname}:8080/storage/replicate",
+                    f"http://{target_node.pod_ip}:8080/storage/replicate",
                     json={
                         "data_id": data_id,
                         "data": data.hex(),
@@ -146,6 +146,45 @@ class ReplicationManager:
                 # Need to create more replicas
                 await self._repair_replication(data_id, locations)
 
+    async def _get_all_data_locations(self) -> Dict[str, List[str]]:
+        """Get mapping of data_id to list of node IDs containing that data"""
+        data_locations = {}
+        
+        # Query each node for its data
+        tasks = []
+        for node in self.cluster_manager.nodes.values():
+            if node.status == "READY":
+                tasks.append(self._get_node_data_list(node))
+        
+        # Wait for all queries to complete
+        node_data_lists = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # Process results
+        for node, data_list in zip(self.cluster_manager.nodes.values(), node_data_lists):
+            if isinstance(data_list, Exception):
+                self.logger.error(f"Failed to get data list from node {node.node_id}: {str(data_list)}")
+                continue
+                
+            for data_id in data_list:
+                if data_id not in data_locations:
+                    data_locations[data_id] = []
+                data_locations[data_id].append(node.node_id)
+        
+        return data_locations
+
+    async def _get_node_data_list(self, node) -> List[str]:
+        """Get list of data IDs stored on a specific node"""
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    f"http://{node.pod_ip}:8080/storage/list"
+                ) as response:
+                    if response.status != 200:
+                        raise Exception(f"Failed to get data list: {await response.text()}")
+                    return await response.json()
+        except Exception as e:
+            raise Exception(f"Failed to get data list from node {node.node_id}: {str(e)}")
+
     async def _repair_replication(self, data_id: str, current_locations: List[str]):
         """Repair replication for under-replicated data"""
         needed_copies = self.policy.min_copies - len(current_locations)
@@ -167,7 +206,7 @@ class ReplicationManager:
 
         async with aiohttp.ClientSession() as session:
             async with session.get(
-                f"http://{node.hostname}:8080/storage/data/{data_id}"
+                f"http://{node.pod_ip}:8080/storage/data/{data_id}"
             ) as response:
                 if response.status != 200:
                     raise Exception(f"Failed to fetch data: {await response.text()}")

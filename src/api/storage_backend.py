@@ -110,7 +110,7 @@ class LocalStorageBackend(StorageBackend):
             # Remove bucket from versions if empty
             if not self.versions[bucket_name]:
                 del self.versions[bucket_name]
-        
+
         # Clean up multipart uploads
         upload_key = f"{bucket_name}/{object_key}"
         if upload_key in self.multipart_uploads:
@@ -128,7 +128,7 @@ class LocalStorageBackend(StorageBackend):
             return False, "Bucket name can only contain lowercase letters, numbers, and hyphens"
         if bucket_name.startswith('-') or bucket_name.endswith('-'):
             return False, "Bucket name cannot start or end with a hyphen"
-        
+
         if bucket_name in self.buckets:
             return False, "Bucket already exists"
 
@@ -201,7 +201,7 @@ class LocalStorageBackend(StorageBackend):
     def delete_object(self, bucket_name, object_key):
         if bucket_name not in self.buckets:
             return False, "Bucket does not exist"
-        
+
         # Normalize the object key and create file path
         object_key = object_key.lstrip('/')
         file_path = f'/{bucket_name}/{object_key}'
@@ -218,21 +218,21 @@ class LocalStorageBackend(StorageBackend):
                 self.versions[bucket_name] = {}
             if object_key not in self.versions[bucket_name]:
                 self.versions[bucket_name][object_key] = []
-            
+
             # Add delete marker
             self.versions[bucket_name][object_key].append({
                 'version_id': version_id,
                 'is_delete_marker': True,
                 'last_modified': datetime.datetime.now(datetime.timezone.utc)
             })
-            
+
             # Remove from current objects but keep versions
             del self.buckets[bucket_name]['objects'][object_key]
         else:
             # If versioning is not enabled, remove everything
             del self.buckets[bucket_name]['objects'][object_key]
             self._cleanup_orphaned_data(bucket_name, object_key)
-            
+
             # Delete the file from filesystem
             if not self.fs_manager.deleteFile(file_path):
                 return False, "Failed to delete file from filesystem"
@@ -347,35 +347,35 @@ class LocalStorageBackend(StorageBackend):
         """Delete a specific version of an object."""
         if bucket_name not in self.buckets:
             return False, "Bucket does not exist"
-        
+
         # Normalize the object key
         object_key = object_key.lstrip('/')
-        
+
         # Check if versioning is enabled and versions exist
         if not self.versioning.get(bucket_name):
             return False, "Versioning not enabled for this bucket"
-        
+
         if bucket_name not in self.versions or object_key not in self.versions[bucket_name]:
             return False, "No versions found for this object"
-        
+
         # Find and remove the specific version
         versions = self.versions[bucket_name][object_key]
         for i, version in enumerate(versions):
             if version.get('version_id') == version_id:
                 versions.pop(i)
-                
+
                 # If this was the last version, clean up the object
                 if not versions:
                     del self.versions[bucket_name][object_key]
                     if object_key in self.buckets[bucket_name]['objects']:
                         del self.buckets[bucket_name]['objects'][object_key]
-                    
+
                     # Clean up the file if no versions remain
                     file_path = f'/{bucket_name}/{object_key}'
                     self.fs_manager.deleteFile(file_path)
-                
+
                 return True, None
-        
+
         return False, "Version not found"
 
     def list_object_versions(self, bucket_name, prefix=None):
@@ -404,7 +404,7 @@ class AWSStorageBackend(StorageBackend):
                 'AWS credentials not found. Please set AWS_ACCESS_KEY and AWS_SECRET_KEY '
                 'environment variables when using AWS storage.'
             )
-            
+
         self.s3 = boto3.client(
             's3',
             endpoint_url=current_config.get('endpoint'),
@@ -555,7 +555,7 @@ class AWSStorageBackend(StorageBackend):
             if prefix:
                 params['Prefix'] = prefix
             response = self.s3.list_object_versions(**params)
-            
+
             versions = []
             for version in response.get('Versions', []):
                 versions.append({
