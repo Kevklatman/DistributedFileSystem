@@ -19,6 +19,7 @@ import {
   CircularProgress,
   ListItem,
   ListItemText,
+  ListItemIcon,
   ListItemSecondary,
   Menu,
   MenuItem,
@@ -104,6 +105,12 @@ function App() {
     message: '',
     severity: 'info'
   });
+  const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
+  const [currentUpload, setCurrentUpload] = useState(null);
+  const [uploadParts, setUploadParts] = useState([]);
+  const fileInputRef = React.createRef(null);
+  const [versionHistoryOpen, setVersionHistoryOpen] = useState(false);
+  const [selectedFileVersions, setSelectedFileVersions] = useState([]);
 
   useEffect(() => {
     fetchBuckets();
@@ -249,91 +256,112 @@ function App() {
     }
   };
 
-  const handleFileUpload = async (event) => {
-    const files = event.target.files;
-    if (!files.length || !selectedBucket) return;
-
-    const file = files[0];
-    setUploadProgress(0);
-
+  const initiateMultipartUpload = async (file, bucketName) => {
     try {
-      if (file.size > CHUNK_SIZE) {
-        await handleMultipartUpload(file);
-      } else {
-        await handleSimpleUpload(file);
-      }
-      fetchFiles();
+      const response = await axios.post(`${API_URL}/${bucketName}/${file.name}?uploads`);
+      const uploadId = response.data.UploadId;
+      setCurrentUpload({ file, uploadId, bucketName });
+      return uploadId;
     } catch (error) {
-      console.error('Error uploading file:', error);
-      alert('Failed to upload file');
-    } finally {
-      setUploadProgress(0);
+      console.error('Error initiating multipart upload:', error);
+      throw error;
     }
   };
 
-  const handleSimpleUpload = async (file) => {
-    const formData = new FormData();
-    formData.append('file', file);
-
-    await axios.put(
-      `${API_URL}/${selectedBucket}/${file.name}`,
-      formData,
-      {
-        headers: {
-          'Content-Type': 'multipart/form-data'
+  const uploadPart = async (part, partNumber, uploadId, bucketName, key) => {
+    try {
+      const response = await axios.put(
+        `${API_URL}/${bucketName}/${key}?partNumber=${partNumber}&uploadId=${uploadId}`,
+        part,
+        {
+          headers: {
+            'Content-Type': 'application/octet-stream',
+          },
+          onUploadProgress: (progressEvent) => {
+            const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+            console.log(`Part ${partNumber} progress: ${percentCompleted}%`);
+          },
         }
-      }
-    );
+      );
+      return {
+        PartNumber: partNumber,
+        ETag: response.headers.etag,
+      };
+    } catch (error) {
+      console.error(`Error uploading part ${partNumber}:`, error);
+      throw error;
+    }
   };
 
-  const handleMultipartUpload = async (file) => {
-    // Initialize multipart upload
-    console.log('Initializing multipart upload...');
-    const initResponse = await axios.post(`${API_URL}/${selectedBucket}/${file.name}?uploads`);
-    const uploadId = initResponse.data.UploadId;
+  const completeMultipartUpload = async (uploadId, parts, bucketName, key) => {
+    try {
+      await axios.post(`${API_URL}/${bucketName}/${key}?uploadId=${uploadId}`, {
+        Parts: parts,
+      });
+      setCurrentUpload(null);
+      setUploadParts([]);
+      fetchFiles();
+    } catch (error) {
+      console.error('Error completing multipart upload:', error);
+      throw error;
+    }
+  };
+
+  const handleFileUpload = async (event) => {
+    const file = event.target.files[0];
+    if (!file || !selectedBucket) return;
 
     try {
-      // Split file into chunks and upload parts
-      const chunks = Math.ceil(file.size / CHUNK_SIZE);
-      const parts = [];
+      setUploadProgress(0);
+      if (file.size > CHUNK_SIZE) {
+        // Use multipart upload for large files
+        const uploadId = await initiateMultipartUpload(file, selectedBucket);
+        const parts = [];
+        const totalParts = Math.ceil(file.size / CHUNK_SIZE);
 
-      for (let i = 0; i < chunks; i++) {
-        const start = i * CHUNK_SIZE;
-        const end = Math.min(start + CHUNK_SIZE, file.size);
-        const chunk = file.slice(start, end);
+        for (let partNumber = 1; partNumber <= totalParts; partNumber++) {
+          const start = (partNumber - 1) * CHUNK_SIZE;
+          const end = Math.min(start + CHUNK_SIZE, file.size);
+          const chunk = file.slice(start, end);
 
-        console.log(`Uploading part ${i + 1}/${chunks}...`);
-        const partResponse = await axios.put(
-          `${API_URL}/${selectedBucket}/${file.name}?partNumber=${i + 1}&uploadId=${uploadId}`,
-          chunk,
-          {
-            headers: {
-              'Content-Type': 'application/octet-stream'
-            }
-          }
-        );
+          const part = await uploadPart(chunk, partNumber, uploadId, selectedBucket, file.name);
+          parts.push(part);
+          setUploadProgress((partNumber / totalParts) * 100);
+          setUploadParts([...parts]);
+        }
 
-        parts.push({
-          PartNumber: i + 1,
-          ETag: partResponse.headers.etag
+        await completeMultipartUpload(uploadId, parts, selectedBucket, file.name);
+      } else {
+        // Regular upload for small files
+        const formData = new FormData();
+        formData.append('file', file);
+        await axios.put(`${API_URL}/${selectedBucket}/${file.name}`, file, {
+          headers: { 'Content-Type': 'application/octet-stream' },
+          onUploadProgress: (progressEvent) => {
+            const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+            setUploadProgress(percentCompleted);
+          },
         });
-
-        setUploadProgress(Math.round((i + 1) * 100 / chunks));
       }
 
-      // Complete multipart upload
-      console.log('Completing multipart upload...');
-      await axios.post(
-        `${API_URL}/${selectedBucket}/${file.name}?uploadId=${uploadId}`,
-        { parts }
-      );
+      setSnackbar({
+        open: true,
+        message: 'File uploaded successfully',
+        severity: 'success'
+      });
+      fetchFiles();
     } catch (error) {
-      // Abort the multipart upload on error
-      console.error('Error in multipart upload:', error);
-      await axios.delete(
-        `${API_URL}/${selectedBucket}/${file.name}?uploadId=${uploadId}`
-      );
-      throw error;
+      console.error('Upload error:', error);
+      setSnackbar({
+        open: true,
+        message: error.response?.data?.error || 'Failed to upload file',
+        severity: 'error'
+      });
+    } finally {
+      setUploadProgress(0);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
     }
   };
 
@@ -343,34 +371,147 @@ function App() {
         ? `${API_URL}/${selectedBucket}/${fileName}?versionId=${versionId}`
         : `${API_URL}/${selectedBucket}/${fileName}`;
 
-      const response = await axios.get(url, { responseType: 'blob' });
-      const blob = new Blob([response.data]);
-      const downloadUrl = window.URL.createObjectURL(blob);
+      const response = await axios.get(url, {
+        responseType: 'blob'
+      });
+
+      // Create a download link
+      const downloadUrl = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement('a');
       link.href = downloadUrl;
-      link.download = fileName;
+      link.setAttribute('download', fileName);
       document.body.appendChild(link);
       link.click();
       link.remove();
       window.URL.revokeObjectURL(downloadUrl);
+
+      setSnackbar({
+        open: true,
+        message: 'File downloaded successfully',
+        severity: 'success'
+      });
     } catch (error) {
-      console.error('Error downloading file:', error);
-      alert('Failed to download file');
+      console.error('Download error:', error);
+      setSnackbar({
+        open: true,
+        message: error.response?.data?.error || 'Failed to download file',
+        severity: 'error'
+      });
     }
   };
 
-  const handleDeleteFile = async (fileName) => {
-    if (!window.confirm(`Are you sure you want to delete "${fileName}"?`)) {
+  const handleDeleteFile = async (fileName, versionId = null) => {
+    if (!window.confirm(`Are you sure you want to delete ${fileName}${versionId ? ' (version ' + versionId + ')' : ''}?`)) {
       return;
     }
 
     try {
-      await axios.delete(`${API_URL}/${selectedBucket}/${fileName}`);
+      const url = versionId
+        ? `${API_URL}/${selectedBucket}/${fileName}?versionId=${versionId}`
+        : `${API_URL}/${selectedBucket}/${fileName}`;
+
+      console.log('Attempting to delete file:', {
+        url,
+        bucket: selectedBucket,
+        fileName,
+        versionId
+      });
+
+      const response = await axios.delete(url, {
+        headers: {
+          'Accept': 'application/xml, text/xml, */*'
+        }
+      });
+
+      console.log('Delete response:', response);
       fetchFiles();
+      setSnackbar({
+        open: true,
+        message: 'File deleted successfully',
+        severity: 'success'
+      });
     } catch (error) {
-      console.error('Error deleting file:', error);
-      alert('Failed to delete file');
+      console.error('Delete error details:', {
+        error,
+        response: error.response,
+        request: error.request,
+        config: error.config
+      });
+      setSnackbar({
+        open: true,
+        message: error.response?.data?.error || 'Failed to delete file',
+        severity: 'error'
+      });
     }
+  };
+
+  const fetchVersionHistory = async (fileName) => {
+    try {
+      const response = await axios.get(`${API_URL}/${selectedBucket}/${fileName}?versions`);
+      let versions = [];
+
+      if (typeof response.data === 'string' && response.data.includes('<?xml')) {
+        const parser = new DOMParser();
+        const xmlDoc = parser.parseFromString(response.data, "text/xml");
+        const versionElements = xmlDoc.getElementsByTagName('Version');
+
+        versions = Array.from(versionElements).map(version => ({
+          versionId: version.getElementsByTagName('VersionId')[0]?.textContent || '',
+          lastModified: version.getElementsByTagName('LastModified')[0]?.textContent || '',
+          size: parseInt(version.getElementsByTagName('Size')[0]?.textContent || '0'),
+          isLatest: version.getElementsByTagName('IsLatest')[0]?.textContent === 'true'
+        }));
+      } else if (response.data.versions) {
+        versions = response.data.versions;
+      }
+
+      setSelectedFileVersions(versions);
+      setVersionHistoryOpen(true);
+    } catch (error) {
+      console.error('Error fetching version history:', error);
+      setSnackbar({
+        open: true,
+        message: error.response?.data?.error || 'Failed to fetch version history',
+        severity: 'error'
+      });
+    }
+  };
+
+  const handleFileMenuClick = (event, file) => {
+    event.preventDefault();
+    setMenuAnchorEl(event.currentTarget);
+    setSelectedFileMenu(file);
+  };
+
+  const handleFileMenuClose = () => {
+    // Ensure we remove focus from menu items before closing
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+    setMenuAnchorEl(null);
+    setSelectedFileMenu(null);
+  };
+
+  const handleMenuItemClick = (action) => {
+    // Execute the action
+    switch (action) {
+      case 'download':
+        handleDownloadFile(selectedFileMenu?.key);
+        break;
+      case 'version-history':
+        fetchVersionHistory(selectedFileMenu?.key);
+        break;
+      case 'delete':
+        handleDeleteFile(selectedFileMenu?.key);
+        break;
+    }
+    // Close menu after action
+    handleFileMenuClose();
+  };
+
+  const handleBucketSelect = (bucketName) => {
+    console.log('Selecting bucket:', bucketName);
+    setSelectedBucket(bucketName);
   };
 
   const toggleVersioning = async () => {
@@ -416,55 +557,6 @@ function App() {
         });
       }
     }
-  };
-
-  const fetchVersions = async (fileName) => {
-    try {
-      const response = await axios.get(`${API_URL}/${selectedBucket}/${fileName}?versions`);
-      const versions = response.data.Versions || [];
-      setVersions(versions);
-      setVersionDialogOpen(true);
-    } catch (error) {
-      console.error('Error fetching versions:', error);
-      alert('Failed to fetch versions');
-    }
-  };
-
-  const handleFileMenuClick = (event, file) => {
-    event.preventDefault();
-    setMenuAnchorEl(event.currentTarget);
-    setSelectedFileMenu(file);
-  };
-
-  const handleFileMenuClose = () => {
-    // Ensure we remove focus from menu items before closing
-    if (document.activeElement instanceof HTMLElement) {
-      document.activeElement.blur();
-    }
-    setMenuAnchorEl(null);
-    setSelectedFileMenu(null);
-  };
-
-  const handleMenuItemClick = (action) => {
-    // Execute the action
-    switch (action) {
-      case 'download':
-        handleDownloadFile(selectedFileMenu?.key);
-        break;
-      case 'version-history':
-        fetchVersions(selectedFileMenu?.key);
-        break;
-      case 'delete':
-        handleDeleteFile(selectedFileMenu?.key);
-        break;
-    }
-    // Close menu after action
-    handleFileMenuClose();
-  };
-
-  const handleBucketSelect = (bucketName) => {
-    console.log('Selecting bucket:', bucketName);
-    setSelectedBucket(bucketName);
   };
 
   return (
@@ -547,6 +639,7 @@ function App() {
                       type="file"
                       hidden
                       onChange={handleFileUpload}
+                      ref={fileInputRef}
                     />
                   </Button>
                 </Box>
@@ -603,33 +696,38 @@ function App() {
 
       {/* Version History Dialog */}
       <Dialog
-        open={versionDialogOpen}
-        onClose={() => setVersionDialogOpen(false)}
+        open={versionHistoryOpen}
+        onClose={() => setVersionHistoryOpen(false)}
         maxWidth="md"
         fullWidth
       >
         <DialogTitle>Version History</DialogTitle>
         <DialogContent>
           <List>
-            {versions.map((version) => (
+            {selectedFileVersions.map((version) => (
               <ListItem
                 key={version.versionId}
                 secondaryAction={
-                  <IconButton onClick={() => handleDownloadFile(selectedFile?.key, version.versionId)}>
-                    <Download />
-                  </IconButton>
+                  <Box>
+                    <IconButton onClick={() => handleDownloadFile(selectedFileMenu?.key, version.versionId)}>
+                      <Download />
+                    </IconButton>
+                    <IconButton onClick={() => handleDeleteFile(selectedFileMenu?.key, version.versionId)}>
+                      <Delete />
+                    </IconButton>
+                  </Box>
                 }
               >
                 <ListItemText
                   primary={`Version: ${version.versionId}`}
-                  secondary={`Modified: ${new Date(version.lastModified).toLocaleString()}`}
+                  secondary={`Last Modified: ${new Date(version.lastModified).toLocaleString()} | Size: ${version.size} bytes${version.isLatest ? ' (Latest)' : ''}`}
                 />
               </ListItem>
             ))}
           </List>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setVersionDialogOpen(false)}>Close</Button>
+          <Button onClick={() => setVersionHistoryOpen(false)}>Close</Button>
         </DialogActions>
       </Dialog>
 
@@ -638,30 +736,26 @@ function App() {
         anchorEl={menuAnchorEl}
         open={Boolean(menuAnchorEl)}
         onClose={handleFileMenuClose}
-        MenuListProps={{
-          'aria-label': 'File actions',
-          autoFocusItem: false
-        }}
       >
-        <MenuItem
-          key="download"
-          onClick={() => handleMenuItemClick('download')}
-        >
-          <Download sx={{ mr: 1 }} /> Download
+        <MenuItem onClick={() => handleMenuItemClick('download')}>
+          <ListItemIcon>
+            <Download fontSize="small" />
+          </ListItemIcon>
+          <ListItemText>Download</ListItemText>
         </MenuItem>
         {versioningEnabled && (
-          <MenuItem
-            key="version-history"
-            onClick={() => handleMenuItemClick('version-history')}
-          >
-            <History sx={{ mr: 1 }} /> Version History
+          <MenuItem onClick={() => handleMenuItemClick('version-history')}>
+            <ListItemIcon>
+              <History fontSize="small" />
+            </ListItemIcon>
+            <ListItemText>Version History</ListItemText>
           </MenuItem>
         )}
-        <MenuItem
-          key="delete"
-          onClick={() => handleMenuItemClick('delete')}
-        >
-          <Delete sx={{ mr: 1 }} /> Delete
+        <MenuItem onClick={() => handleMenuItemClick('delete')}>
+          <ListItemIcon>
+            <Delete fontSize="small" />
+          </ListItemIcon>
+          <ListItemText>Delete</ListItemText>
         </MenuItem>
       </Menu>
 

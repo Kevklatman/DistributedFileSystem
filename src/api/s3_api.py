@@ -104,7 +104,9 @@ class S3ApiHandler:
         success, error = self.storage.delete_object(bucket_name, object_key)
         if not success:
             return self._generate_error_response('DeleteObjectError', error)
-        return '', 204
+        
+        # Return empty response with 204 status code
+        return '', 204, {'Content-Type': 'application/xml'}
 
 @app.route('/<bucket>/<key>', methods=['POST'])
 def handle_multipart(bucket, key):

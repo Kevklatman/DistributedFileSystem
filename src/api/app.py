@@ -10,7 +10,27 @@ from s3_api import S3ApiHandler
 from mock_fs_manager import FileSystemManager
 
 app = Flask(__name__)
-CORS(app)  # Enable CORS for all routes
+CORS(app, resources={
+    r"/*": {
+        "origins": ["http://localhost:3000", "http://localhost:5173"],  # Add both development server URLs
+        "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        "allow_headers": ["Content-Type", "Accept", "Authorization"],
+        "expose_headers": ["ETag"],
+        "supports_credentials": True
+    }
+})
+
+# Add CORS preflight handler
+@app.before_request
+def handle_preflight():
+    if request.method == "OPTIONS":
+        response = make_response()
+        response.headers.add("Access-Control-Allow-Origin", request.headers.get("Origin", "*"))
+        response.headers.add("Access-Control-Allow-Methods", "DELETE, GET, POST, PUT, OPTIONS")
+        response.headers.add("Access-Control-Allow-Headers", "Content-Type, Accept, Authorization")
+        response.headers.add("Access-Control-Max-Age", "3600")
+        return response
+
 fs_manager = FileSystemManager()
 s3_handler = S3ApiHandler(fs_manager)
 
@@ -55,7 +75,11 @@ def get_object(bucket_name, object_key):
 
 @app.route('/<bucket_name>/<object_key>', methods=['DELETE'])
 def delete_object(bucket_name, object_key):
-    return s3_handler.delete_object(bucket_name, object_key)
+    try:
+        response = s3_handler.delete_object(bucket_name, object_key)
+        return response
+    except Exception as e:
+        return make_response({'error': str(e)}, 400)
 
 if __name__ == '__main__':
     from config import API_HOST, API_PORT, DEBUG

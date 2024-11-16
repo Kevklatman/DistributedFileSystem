@@ -186,6 +186,11 @@ class LocalStorageBackend(StorageBackend):
     def delete_object(self, bucket_name, object_key):
         if bucket_name not in self.buckets:
             return False, "Bucket does not exist"
+        
+        # Normalize the object key
+        object_key = object_key.lstrip('/')
+        file_path = f'/{bucket_name}/{object_key}'
+
         if object_key not in self.buckets[bucket_name]['objects']:
             return False, "Object does not exist"
 
@@ -202,11 +207,13 @@ class LocalStorageBackend(StorageBackend):
                 'last_modified': datetime.datetime.now(datetime.timezone.utc)
             })
         else:
-            # If versioning is disabled, actually delete the object
+            # If versioning is not enabled, remove the object completely
             del self.buckets[bucket_name]['objects'][object_key]
             if bucket_name in self.versions and object_key in self.versions[bucket_name]:
                 del self.versions[bucket_name][object_key]
 
+        # Delete the file from the filesystem
+        self.fs_manager.deleteFile(file_path)
         return True, None
 
     def list_objects(self, bucket_name):
