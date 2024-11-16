@@ -588,10 +588,15 @@ class AWSStorageBackend(StorageBackend):
 
     def list_buckets(self):
         try:
+            logger.debug("Attempting to list buckets with AWS credentials: access_key=%s, region=%s", 
+                        current_config['access_key'][:8] + '...', self.region)
             response = self.s3.list_buckets()
+            logger.debug("Raw S3 list_buckets response: %s", response)
             buckets = [{'name': bucket['Name']} for bucket in response['Buckets']]
+            logger.debug("Processed bucket list: %s", buckets)
             return buckets, None
         except Exception as e:
+            logger.error("Error listing buckets: %s", str(e), exc_info=True)
             return None, str(e)
 
     def put_object(self, bucket_name, object_key, data):

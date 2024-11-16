@@ -36,6 +36,7 @@ api = Api(app, version='1.0',
           title='Distributed File System API',
           description='S3-compatible API for distributed file storage',
           doc='/docs',
+          prefix='/api',  
           authorizations=authorizations)
 
 # Define namespaces
@@ -92,16 +93,18 @@ fs_manager = FileSystemManager()
 s3_handler = S3ApiHandler(fs_manager)
 
 # Add back the index route
-@app.route('/', methods=['GET'])
+@app.route('/', methods=['GET', 'OPTIONS'])
 def index():
     try:
         if request.headers.get('Accept') == 'application/json':
             # API request for listing buckets
             storage = get_storage_backend(fs_manager)
+            logger.debug("Using storage backend: %s", storage.__class__.__name__)
+
             buckets, error = storage.list_buckets()
 
             if error:
-                logger.error(f"Error listing buckets: {error}")
+                logger.error("Error listing buckets: %s", error)
                 return jsonify({'error': str(error)}), 500
 
             # Ensure buckets is a list
@@ -110,12 +113,13 @@ def index():
             elif not isinstance(buckets, list):
                 buckets = list(buckets)
 
+            logger.debug("Found buckets: %s", buckets)
             return jsonify({'buckets': buckets}), 200
         else:
             # Web UI request - serve the static index.html
             return send_from_directory('static', 'index.html')
     except Exception as e:
-        logger.error(f"Error in index route: {str(e)}")
+        logger.error("Error in index route: %s", str(e), exc_info=True)
         return jsonify({'error': str(e)}), 500
 
 # Serve static files
