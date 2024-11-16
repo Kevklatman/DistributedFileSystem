@@ -5,6 +5,9 @@ from config import current_config, STORAGE_ENV
 import uuid
 import datetime
 import hashlib
+import logging
+
+logger = logging.getLogger(__name__)
 
 class StorageBackend(ABC):
     @abstractmethod
@@ -97,46 +100,64 @@ class LocalStorageBackend(StorageBackend):
         self.multipart_uploads = {}  # Store multipart upload data
         self.versioning = {}  # Store versioning configuration
         self.versions = {}  # Store object versions
-
-    def _generate_version_id(self):
-        return str(uuid.uuid4())
-
-    def _cleanup_orphaned_data(self, bucket_name, object_key):
-        """Clean up any orphaned data for an object"""
-        # Clean up versions
-        if bucket_name in self.versions:
-            if object_key in self.versions[bucket_name]:
-                del self.versions[bucket_name][object_key]
-            # Remove bucket from versions if empty
-            if not self.versions[bucket_name]:
-                del self.versions[bucket_name]
-
-        # Clean up multipart uploads
-        upload_key = f"{bucket_name}/{object_key}"
-        if upload_key in self.multipart_uploads:
-            del self.multipart_uploads[upload_key]
-
+        
+        # Create root directory for buckets if it doesn't exist
+        self.fs_manager.createDirectory('/buckets')
+        
+        # Initialize buckets from filesystem
+        self._init_buckets_from_fs()
+        
+    def _init_buckets_from_fs(self):
+        """Initialize buckets from the filesystem"""
+        try:
+            # List all directories under /buckets
+            all_files = self.fs_manager.listAllFiles()
+            for path in all_files:
+                if path.startswith('/buckets/'):
+                    bucket_name = path.split('/')[2]  # /buckets/name/...
+                    if bucket_name and bucket_name not in self.buckets:
+                        self.buckets[bucket_name] = {
+                            'name': bucket_name,
+                            'creation_date': datetime.datetime.now().isoformat()
+                        }
+        except Exception as e:
+            logger.error(f"Error initializing buckets from filesystem: {e}")
+            
     def create_bucket(self, bucket_name):
-        # Validate bucket name according to S3 rules
-        if not bucket_name:
-            return False, "Bucket name cannot be empty"
-        if len(bucket_name) < 3 or len(bucket_name) > 63:
-            return False, "Bucket name must be between 3 and 63 characters long"
-        if not bucket_name.islower():
-            return False, "Bucket name must be lowercase"
-        if not all(c.isalnum() or c == '-' for c in bucket_name):
-            return False, "Bucket name can only contain lowercase letters, numbers, and hyphens"
-        if bucket_name.startswith('-') or bucket_name.endswith('-'):
-            return False, "Bucket name cannot start or end with a hyphen"
-
+        """Create a new bucket"""
         if bucket_name in self.buckets:
             return False, "Bucket already exists"
-
-        self.buckets[bucket_name] = {
-            'objects': {}
-        }
-        self.fs_manager.createDirectory(f'/{bucket_name}')
-        return True, None
+            
+        try:
+            # Create bucket directory
+            bucket_path = f'/buckets/{bucket_name}'
+            if not self.fs_manager.createDirectory(bucket_path):
+                return False, "Failed to create bucket directory"
+                
+            # Add bucket to memory
+            self.buckets[bucket_name] = {
+                'name': bucket_name,
+                'creation_date': datetime.datetime.now().isoformat()
+            }
+            return True, None
+        except Exception as e:
+            logger.error(f"Error creating bucket: {e}")
+            return False, str(e)
+            
+    def list_buckets(self):
+        """List all buckets"""
+        try:
+            buckets = [
+                {
+                    'name': bucket_info['name'],
+                    'creation_date': bucket_info['creation_date']
+                }
+                for bucket_info in self.buckets.values()
+            ]
+            return buckets, None
+        except Exception as e:
+            logger.error(f"Error listing buckets: {e}")
+            return None, str(e)
 
     def delete_bucket(self, bucket_name):
         if bucket_name not in self.buckets:
@@ -145,12 +166,8 @@ class LocalStorageBackend(StorageBackend):
             return False, "Bucket not empty"
 
         del self.buckets[bucket_name]
-        self.fs_manager.deleteDirectory(f'/{bucket_name}')
+        self.fs_manager.deleteDirectory(f'/buckets/{bucket_name}')
         return True, None
-
-    def list_buckets(self):
-        buckets = [{'name': name} for name in self.buckets.keys()]
-        return buckets, None
 
     def put_object(self, bucket_name, object_key, data):
         if bucket_name not in self.buckets:
@@ -204,7 +221,7 @@ class LocalStorageBackend(StorageBackend):
 
         # Normalize the object key and create file path
         object_key = object_key.lstrip('/')
-        file_path = f'/{bucket_name}/{object_key}'
+        file_path = f'/buckets/{bucket_name}/{object_key}'
 
         # Check if object exists
         if object_key not in self.buckets[bucket_name]['objects']:
@@ -290,7 +307,7 @@ class LocalStorageBackend(StorageBackend):
             combined_data += upload['parts'][part_num]['data']
 
         # Write the complete file
-        success = self.fs_manager.writeFile(f'/{bucket_name}/{object_key}', combined_data)
+        success = self.fs_manager.writeFile(f'/buckets/{bucket_name}/{object_key}', combined_data)
         if success:
             self.buckets[bucket_name]['objects'][object_key] = len(combined_data)
             del self.multipart_uploads[upload_key]
@@ -371,7 +388,7 @@ class LocalStorageBackend(StorageBackend):
                         del self.buckets[bucket_name]['objects'][object_key]
 
                     # Clean up the file if no versions remain
-                    file_path = f'/{bucket_name}/{object_key}'
+                    file_path = f'/buckets/{bucket_name}/{object_key}'
                     self.fs_manager.deleteFile(file_path)
 
                 return True, None
@@ -396,6 +413,46 @@ class LocalStorageBackend(StorageBackend):
                         'IsDeleteMarker': version.get('is_delete_marker', False)
                     })
         return versions, None
+
+    def get_object_version(self, bucket_name, object_key, version_id):
+        if bucket_name not in self.buckets:
+            return None, "Bucket does not exist"
+
+        # Normalize the object key
+        object_key = object_key.lstrip('/')
+
+        # Check if versioning is enabled and versions exist
+        if not self.versioning.get(bucket_name):
+            return None, "Versioning not enabled for this bucket"
+
+        if bucket_name not in self.versions or object_key not in self.versions[bucket_name]:
+            return None, "No versions found for this object"
+
+        # Find and return the specific version
+        versions = self.versions[bucket_name][object_key]
+        for version in versions:
+            if version.get('version_id') == version_id:
+                return version['data'], None
+
+        return None, "Version not found"
+
+    def _generate_version_id(self):
+        return str(uuid.uuid4())
+
+    def _cleanup_orphaned_data(self, bucket_name, object_key):
+        """Clean up any orphaned data for an object"""
+        # Clean up versions
+        if bucket_name in self.versions:
+            if object_key in self.versions[bucket_name]:
+                del self.versions[bucket_name][object_key]
+            # Remove bucket from versions if empty
+            if not self.versions[bucket_name]:
+                del self.versions[bucket_name]
+
+        # Clean up multipart uploads
+        upload_key = f"{bucket_name}/{object_key}"
+        if upload_key in self.multipart_uploads:
+            del self.multipart_uploads[upload_key]
 
 class AWSStorageBackend(StorageBackend):
     def __init__(self):

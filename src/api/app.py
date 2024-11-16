@@ -108,9 +108,17 @@ def index():
             # API request for listing buckets
             storage = get_storage_backend(fs_manager)
             buckets, error = storage.list_buckets()
+            
             if error:
                 logger.error(f"Error listing buckets: {error}")
-                return jsonify({'error': str(error)}), 400
+                return jsonify({'error': str(error)}), 500
+                
+            # Ensure buckets is a list
+            if buckets is None:
+                buckets = []
+            elif not isinstance(buckets, list):
+                buckets = list(buckets)
+                
             return jsonify({'buckets': buckets}), 200
         else:
             # Web UI request - serve the static index.html
