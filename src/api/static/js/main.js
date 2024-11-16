@@ -17,7 +17,7 @@ function formatDate(dateString) {
 
 // API functions
 async function listBuckets() {
-    const response = await fetch('/');
+    const response = await fetch('/api/s3/buckets');
     const data = await response.json();
     return data.buckets || [];
 }
@@ -27,7 +27,7 @@ async function createBucket() {
     if (!bucketName) return;
 
     try {
-        const response = await fetch(`/${bucketName}`, {
+        const response = await fetch(`/api/s3/buckets/${bucketName}`, {
             method: 'PUT'
         });
         if (!response.ok) throw new Error('Failed to create bucket');
@@ -42,7 +42,7 @@ async function deleteBucket(bucketName) {
     if (!confirm(`Are you sure you want to delete bucket "${bucketName}"?`)) return;
 
     try {
-        const response = await fetch(`/${bucketName}`, {
+        const response = await fetch(`/api/s3/buckets/${bucketName}`, {
             method: 'DELETE'
         });
         if (!response.ok) throw new Error('Failed to delete bucket');
@@ -57,13 +57,13 @@ async function deleteBucket(bucketName) {
 }
 
 async function listObjects(bucketName) {
-    const response = await fetch(`/${bucketName}`);
+    const response = await fetch(`/api/s3/buckets/${bucketName}/objects`);
     const data = await response.json();
     return data.objects || [];
 }
 
 async function uploadFile(file, bucketName) {
-    const response = await fetch(`/${bucketName}/${file.name}`, {
+    const response = await fetch(`/api/s3/buckets/${bucketName}/objects/${file.name}`, {
         method: 'PUT',
         body: file
     });
@@ -71,45 +71,45 @@ async function uploadFile(file, bucketName) {
 }
 
 async function deleteObject(bucketName, objectKey) {
-    const response = await fetch(`/${bucketName}/${objectKey}`, {
+    const response = await fetch(`/api/s3/buckets/${bucketName}/objects/${objectKey}`, {
         method: 'DELETE'
     });
     if (!response.ok) throw new Error('Failed to delete object');
 }
 
 async function getVersioning(bucketName) {
-    const response = await fetch(`/${bucketName}/versioning`);
+    const response = await fetch(`/api/s3/buckets/${bucketName}/versioning`);
     const data = await response.json();
     return data.Status === 'Enabled';
 }
 
 async function setVersioning(bucketName, enabled) {
-    const response = await fetch(`/${bucketName}/versioning`, {
+    const response = await fetch(`/api/s3/buckets/${bucketName}/versioning`, {
         method: 'PUT',
         headers: {
             'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-            Status: enabled ? 'Enabled' : 'Suspended'
+            VersioningEnabled: enabled
         })
     });
     if (!response.ok) throw new Error('Failed to update versioning');
 }
 
 async function listVersions(bucketName, objectKey) {
-    const response = await fetch(`/${bucketName}?versions&prefix=${objectKey}`);
+    const response = await fetch(`/api/s3/buckets/${bucketName}/objects/${objectKey}/versions`);
     const data = await response.json();
     return data.Versions || [];
 }
 
 async function getObjectVersion(bucketName, objectKey, versionId) {
-    const response = await fetch(`/${bucketName}/${objectKey}?versionId=${versionId}`);
+    const response = await fetch(`/api/s3/buckets/${bucketName}/objects/${objectKey}?versionId=${versionId}`);
     if (!response.ok) throw new Error('Failed to get version');
     return response.blob();
 }
 
 async function deleteObjectVersion(bucketName, objectKey, versionId) {
-    const response = await fetch(`/${bucketName}/${objectKey}?versionId=${versionId}`, {
+    const response = await fetch(`/api/s3/buckets/${bucketName}/objects/${objectKey}?versionId=${versionId}`, {
         method: 'DELETE'
     });
     if (!response.ok) throw new Error('Failed to delete version');
@@ -274,7 +274,7 @@ async function handleFiles(files) {
 
 async function downloadObject(objectKey) {
     try {
-        const response = await fetch(`/${currentBucket}/${objectKey}`);
+        const response = await fetch(`/api/s3/buckets/${currentBucket}/objects/${objectKey}`);
         if (!response.ok) throw new Error('Failed to download object');
 
         const blob = await response.blob();

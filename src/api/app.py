@@ -36,7 +36,7 @@ api = Api(app, version='1.0',
           title='Distributed File System API',
           description='S3-compatible API for distributed file storage',
           doc='/docs',
-          prefix='/api',  
+          prefix='/api',
           authorizations=authorizations)
 
 # Define namespaces
@@ -81,7 +81,14 @@ def log_request_info():
 
 @app.after_request
 def log_response_info(response):
-    logger.debug('Response: %s', response.get_data())
+    try:
+        logger.debug('Response Status: %s', response.status)
+        if response.is_json:
+            logger.debug('Response Data: %s', response.get_json())
+        else:
+            logger.debug('Response Type: %s', response.content_type)
+    except Exception as e:
+        logger.debug('Could not log response: %s', str(e))
     return response
 
 @app.errorhandler(Exception)
@@ -95,48 +102,8 @@ s3_handler = S3ApiHandler(fs_manager)
 # Add back the index route
 @app.route('/', methods=['GET', 'OPTIONS'])
 def index():
-    try:
-        if request.headers.get('Accept') == 'application/json':
-            # API request for listing buckets
-            storage = get_storage_backend(fs_manager)
-            logger.debug("Using storage backend: %s", storage.__class__.__name__)
-
-            buckets, error = storage.list_buckets()
-
-            if error:
-                logger.error("Error listing buckets: %s", error)
-                return jsonify({'error': str(error)}), 500
-
-            # Ensure buckets is a list
-            if buckets is None:
-                buckets = []
-            elif not isinstance(buckets, list):
-                buckets = list(buckets)
-
-            logger.debug("Found buckets: %s", buckets)
-            return jsonify({'buckets': buckets}), 200
-        else:
-            # Web UI request - serve the static index.html
-            return send_from_directory('static', 'index.html')
-    except Exception as e:
-        logger.error("Error in index route: %s", str(e), exc_info=True)
-        return jsonify({'error': str(e)}), 500
-
-# Serve static files
-@app.route('/<path:path>')
-def serve_static(path):
-    try:
-        if path.startswith('swaggerui/'):
-            return send_from_directory('static/swaggerui', path[10:])
-        return send_from_directory('static', path)
-    except Exception as e:
-        logger.error(f"Error serving static file {path}: {str(e)}")
-        return jsonify({'error': str(e)}), 500
-
-# Serve Swagger UI files
-@app.route('/swaggerui/<path:path>')
-def swagger_ui(path):
-    return send_from_directory('static/swaggerui', path)
+    """Serve the web UI"""
+    return send_from_directory('static', 'index.html')
 
 # Decorate existing routes with API documentation
 @s3_ns.route('/buckets')
@@ -145,7 +112,36 @@ class BucketList(Resource):
     @s3_ns.response(200, 'Success')
     def get(self):
         """List all buckets"""
-        return s3_handler.list_buckets()
+        try:
+            storage = get_storage_backend(fs_manager)
+            logger.debug("Using storage backend: %s", storage.__class__.__name__)
+
+            buckets, error = storage.list_buckets()
+
+            if error:
+                logger.error("Error listing buckets: %s", error)
+                return {'error': str(error)}, 500
+
+            # Ensure buckets is a list and contains valid data
+            if buckets is None:
+                buckets = []
+            elif not isinstance(buckets, list):
+                buckets = list(buckets)
+
+            # Convert bucket objects to dictionaries
+            bucket_list = []
+            for bucket in buckets:
+                if isinstance(bucket, dict):
+                    bucket_list.append(bucket)
+                else:
+                    # Handle case where bucket might be a string or other object
+                    bucket_list.append({'Name': str(bucket)})
+
+            logger.debug("Found buckets: %s", bucket_list)
+            return {'buckets': bucket_list}, 200
+        except Exception as e:
+            logger.error("Unexpected error listing buckets: %s", str(e))
+            return {'error': 'Internal server error'}, 500
 
 @s3_ns.route('/buckets/<string:bucket_name>')
 @s3_ns.param('bucket_name', 'The bucket name')
@@ -155,14 +151,22 @@ class BucketOperations(Resource):
     @s3_ns.response(400, 'Bad Request', error_model)
     def put(self, bucket_name):
         """Create a new bucket"""
-        return s3_handler.create_bucket(bucket_name)
+        storage = get_storage_backend(fs_manager)
+        result, error = storage.create_bucket(bucket_name)
+        if error:
+            return {'error': str(error)}, 400
+        return {'message': 'Bucket created successfully'}, 200
 
     @s3_ns.doc('delete_bucket')
     @s3_ns.response(204, 'Bucket deleted')
     @s3_ns.response(404, 'Bucket not found', error_model)
     def delete(self, bucket_name):
         """Delete a bucket"""
-        return s3_handler.delete_bucket(bucket_name)
+        storage = get_storage_backend(fs_manager)
+        result, error = storage.delete_bucket(bucket_name)
+        if error:
+            return {'error': str(error)}, 404
+        return '', 204
 
 @s3_ns.route('/buckets/<string:bucket_name>/objects')
 @s3_ns.param('bucket_name', 'The bucket name')
@@ -225,6 +229,22 @@ class VersioningOperations(Resource):
             return s3_handler.enable_versioning(bucket_name)
         else:
             return s3_handler.disable_versioning(bucket_name)
+
+# Serve static files
+@app.route('/<path:path>')
+def serve_static(path):
+    try:
+        if path.startswith('swaggerui/'):
+            return send_from_directory('static/swaggerui', path[10:])
+        return send_from_directory('static', path)
+    except Exception as e:
+        logger.error(f"Error serving static file {path}: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+# Serve Swagger UI files
+@app.route('/swaggerui/<path:path>')
+def swagger_ui(path):
+    return send_from_directory('static/swaggerui', path)
 
 if __name__ == '__main__':
     from config import API_HOST, API_PORT, DEBUG
