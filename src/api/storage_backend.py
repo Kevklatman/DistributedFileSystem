@@ -372,7 +372,11 @@ class AWSStorageBackend(StorageBackend):
 
     def create_bucket(self, bucket_name):
         try:
-            self.s3.create_bucket(Bucket=bucket_name)
+            location = {'LocationConstraint': current_config['region']}
+            self.s3.create_bucket(
+                Bucket=bucket_name,
+                CreateBucketConfiguration=location
+            )
             return True, None
         except Exception as e:
             return False, str(e)
