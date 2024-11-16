@@ -23,7 +23,7 @@ import {
 } from '@mui/icons-material';
 import axios from 'axios';
 
-const API_URL = 'http://localhost:5555';
+const API_URL = 'http://localhost:8000';
 
 function App() {
   const [buckets, setBuckets] = useState([]);
@@ -49,19 +49,37 @@ function App() {
   };
 
   const handleCreateBucket = async () => {
+    if (!newBucketName) {
+      alert('Please enter a bucket name');
+      return;
+    }
+
     try {
-      await axios.put(`${API_URL}/${newBucketName}`);
+      const response = await axios.put(`${API_URL}/${newBucketName}`, null, {
+        headers: {
+          'Content-Type': 'application/xml'
+        }
+      });
       setCreateBucketOpen(false);
       setNewBucketName('');
       fetchBuckets();
     } catch (error) {
       console.error('Error creating bucket:', error);
+      // Parse XML error message if available
+      if (error.response?.data) {
+        const parser = new DOMParser();
+        const xmlDoc = parser.parseFromString(error.response.data, "text/xml");
+        const errorMessage = xmlDoc.querySelector("Message")?.textContent;
+        alert(errorMessage || 'Failed to create bucket. Please ensure the bucket name follows S3 naming rules:\n- Between 3 and 63 characters\n- Lowercase letters, numbers, and hyphens only\n- Cannot start or end with hyphen');
+      } else {
+        alert('Failed to create bucket. Please try again.');
+      }
     }
   };
 
   const handleFileUpload = async (event) => {
     if (!selectedBucket) return;
-    
+
     const file = event.target.files[0];
     if (!file) return;
 

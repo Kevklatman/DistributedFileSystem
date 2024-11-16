@@ -102,6 +102,18 @@ class LocalStorageBackend(StorageBackend):
         return str(uuid.uuid4())
 
     def create_bucket(self, bucket_name):
+        # Validate bucket name according to S3 rules
+        if not bucket_name:
+            return False, "Bucket name cannot be empty"
+        if len(bucket_name) < 3 or len(bucket_name) > 63:
+            return False, "Bucket name must be between 3 and 63 characters long"
+        if not bucket_name.islower():
+            return False, "Bucket name must be lowercase"
+        if not all(c.isalnum() or c == '-' for c in bucket_name):
+            return False, "Bucket name can only contain lowercase letters, numbers, and hyphens"
+        if bucket_name.startswith('-') or bucket_name.endswith('-'):
+            return False, "Bucket name cannot start or end with a hyphen"
+        
         if bucket_name in self.buckets:
             return False, "Bucket already exists"
 
