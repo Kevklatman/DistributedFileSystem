@@ -18,7 +18,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-app = Flask(__name__)
+# Configure Flask app
+app = Flask(__name__, 
+           static_url_path='',
+           static_folder='static')
 CORS(app, resources={
     r"/*": {
         "origins": ["http://localhost:3000", "http://localhost:5000", "http://localhost:5555"],
@@ -29,7 +32,7 @@ CORS(app, resources={
     }
 })
 
-# Initialize Flask-RESTX
+# Initialize Flask-RESTX with Swagger UI
 authorizations = {
     'apikey': {
         'type': 'apiKey',
@@ -107,14 +110,19 @@ def index():
             buckets, error = storage.list_buckets()
             if error:
                 logger.error(f"Error listing buckets: {error}")
-                return make_response({'error': str(error)}, 400)
-            return make_response({'buckets': buckets}, 200)
+                return jsonify({'error': str(error)}), 400
+            return jsonify({'buckets': buckets}), 200
         else:
             # Web UI request - serve the static index.html
             return send_from_directory('static', 'index.html')
     except Exception as e:
         logger.error(f"Error in index route: {str(e)}")
-        return make_response({'error': str(e)}, 500)
+        return jsonify({'error': str(e)}), 500
+
+# Serve Swagger UI files
+@app.route('/swaggerui/<path:path>')
+def swagger_ui(path):
+    return send_from_directory('static/swaggerui', path)
 
 # Serve static files
 @app.route('/static/<path:path>')
