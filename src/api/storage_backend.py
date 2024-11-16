@@ -491,6 +491,10 @@ class AWSStorageBackend(StorageBackend):
             )
         }
 
+        # Add session token if available
+        if current_config.get('session_token'):
+            kwargs['aws_session_token'] = current_config['session_token']
+
         # Only add endpoint_url if it's explicitly set and not None or a comment
         endpoint = current_config.get('endpoint')
         if endpoint and isinstance(endpoint, str) and not endpoint.startswith('#'):

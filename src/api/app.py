@@ -12,7 +12,7 @@ from s3_api import S3ApiHandler
 from mock_fs_manager import FileSystemManager
 
 # Configure Flask app
-app = Flask(__name__, 
+app = Flask(__name__,
            static_url_path='',
            static_folder='static')
 
@@ -99,17 +99,17 @@ def index():
             # API request for listing buckets
             storage = get_storage_backend(fs_manager)
             buckets, error = storage.list_buckets()
-            
+
             if error:
                 logger.error(f"Error listing buckets: {error}")
                 return jsonify({'error': str(error)}), 500
-                
+
             # Ensure buckets is a list
             if buckets is None:
                 buckets = []
             elif not isinstance(buckets, list):
                 buckets = list(buckets)
-                
+
             return jsonify({'buckets': buckets}), 200
         else:
             # Web UI request - serve the static index.html
@@ -135,6 +135,14 @@ def swagger_ui(path):
     return send_from_directory('static/swaggerui', path)
 
 # Decorate existing routes with API documentation
+@s3_ns.route('/buckets')
+class BucketList(Resource):
+    @s3_ns.doc('list_buckets')
+    @s3_ns.response(200, 'Success')
+    def get(self):
+        """List all buckets"""
+        return s3_handler.list_buckets()
+
 @s3_ns.route('/buckets/<string:bucket_name>')
 @s3_ns.param('bucket_name', 'The bucket name')
 class BucketOperations(Resource):
@@ -218,6 +226,6 @@ if __name__ == '__main__':
     from config import API_HOST, API_PORT, DEBUG
     # Ensure the buckets directory exists
     os.makedirs('buckets', exist_ok=True)
-    
+
     # Start the Flask app
     app.run(host=API_HOST, port=API_PORT, debug=DEBUG)
