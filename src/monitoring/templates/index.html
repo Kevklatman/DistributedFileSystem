@@ -1,151 +1,284 @@
 <!DOCTYPE html>
-<html lang="en">
-
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DFS Monitoring Dashboard</title>
+    <title>DFS Dashboard</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
-        .status-card {
-            box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
         }
-
-        .refresh-time {
-            font-size: 0.9rem;
-            color: #6c757d;
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
         }
-
-        .storage-metric {
-            font-size: 1.5rem;
+        .header {
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .section {
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        h1 {
+            color: #333;
+            margin: 0;
+        }
+        h2 {
+            color: #666;
+            margin-top: 0;
+        }
+        .metrics {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        .metric-card {
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 6px;
+            text-align: center;
+        }
+        .metric-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #007bff;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        th {
+            background-color: #f8f9fa;
+            font-weight: bold;
+            color: #666;
+        }
+        tr:hover {
+            background-color: #f8f9fa;
+        }
+        .timestamp {
+            color: #666;
+            font-size: 0.9em;
+            margin-top: 10px;
+        }
+        .nav-tabs {
+            display: flex;
+            margin-bottom: 20px;
+            border-bottom: 1px solid #ddd;
+            background-color: #fff;
+            padding: 10px 20px 0;
+            border-radius: 8px 8px 0 0;
+        }
+        .nav-tab {
+            padding: 10px 20px;
+            cursor: pointer;
+            border: 1px solid transparent;
+            border-bottom: none;
+            margin-right: 5px;
+            border-radius: 4px 4px 0 0;
+            background-color: #f8f9fa;
+        }
+        .nav-tab:hover {
+            background-color: #e9ecef;
+        }
+        .nav-tab.active {
+            background-color: #fff;
+            border-color: #ddd;
+            border-bottom-color: #fff;
+            margin-bottom: -1px;
             font-weight: bold;
         }
-
-        .pod-status-running {
-            color: #198754;
+        .tab-content {
+            display: none;
         }
-
-        .pod-status-error {
-            color: #dc3545;
+        .tab-content.active {
+            display: block;
+        }
+        iframe {
+            width: 100%;
+            height: 700px;
+            border: none;
+            border-radius: 8px;
+            background-color: #fff;
+        }
+        .service-status {
+            padding: 20px;
+            margin-bottom: 20px;
+            border-radius: 8px;
+            background-color: #fff;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .status-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+        .status-up {
+            background-color: #28a745;
+        }
+        .status-down {
+            background-color: #dc3545;
         }
     </style>
 </head>
-
 <body>
-    <nav class="navbar navbar-dark bg-dark">
-        <div class="container-fluid">
-            <span class="navbar-brand mb-0 h1">DFS Monitoring Dashboard</span>
-            <span id="lastUpdated" class="navbar-text refresh-time">Last updated: Never</span>
+    <div class="container">
+        <div class="header">
+            <h1>DFS Dashboard</h1>
+            <div class="timestamp">Last updated: <span id="timestamp"></span></div>
         </div>
-    </nav>
 
-    <div class="container mt-4">
-        <div class="row">
-            <!-- Storage Overview Card -->
-            <div class="col-md-4 mb-4">
-                <div class="card status-card h-100">
-                    <div class="card-header bg-primary text-white">
-                        Storage Overview
+        <div class="nav-tabs">
+            <div class="nav-tab active" onclick="showTab('monitoring')">Monitoring</div>
+            <div class="nav-tab" onclick="showTab('web-ui')">Web UI</div>
+            <div class="nav-tab" onclick="showTab('api')">API</div>
+        </div>
+
+        <div id="monitoring" class="tab-content active">
+            <div class="section">
+                <h2>Storage Overview</h2>
+                <div class="metrics">
+                    <div class="metric-card">
+                        <div>Total Storage</div>
+                        <div class="metric-value" id="total-storage">-</div>
                     </div>
-                    <div id="storageMetrics" class="card-body">
-                        <div class="text-center">
-                            <div class="spinner-border text-primary" role="status">
-                                <span class="visually-hidden">Loading...</span>
-                            </div>
-                        </div>
+                    <div class="metric-card">
+                        <div>Used Storage</div>
+                        <div class="metric-value" id="used-storage">-</div>
+                    </div>
+                    <div class="metric-card">
+                        <div>Available</div>
+                        <div class="metric-value" id="available-storage">-</div>
                     </div>
                 </div>
             </div>
 
-            <!-- Pod Status Card -->
-            <div class="col-md-8 mb-4">
-                <div class="card status-card h-100">
-                    <div class="card-header bg-success text-white">
-                        Pod Status
-                    </div>
-                    <div class="card-body">
-                        <div class="table-responsive">
-                            <table class="table table-hover">
-                                <thead>
-                                    <tr>
-                                        <th>Pod Name</th>
-                                        <th>Status</th>
-                                        <th>IP</th>
-                                        <th>Node</th>
-                                        <th>Start Time</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="podStatus">
-                                    <tr>
-                                        <td colspan="5" class="text-center">
-                                            <div class="spinner-border text-primary" role="status">
-                                                <span class="visually-hidden">Loading...</span>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
+            <div class="section">
+                <h2>Pod Status</h2>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Pod Name</th>
+                            <th>Status</th>
+                            <th>IP</th>
+                            <th>Node</th>
+                            <th>Start Time</th>
+                        </tr>
+                    </thead>
+                    <tbody id="pods-table">
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div id="web-ui" class="tab-content">
+            <div class="section">
+                <div class="service-status" id="web-ui-status">
+                    <span class="status-indicator" id="web-ui-indicator"></span>
+                    Web UI Service Status: <span id="web-ui-status-text">Checking...</span>
                 </div>
+                <iframe src="http://localhost:3000" id="web-ui-frame"></iframe>
+            </div>
+        </div>
+
+        <div id="api" class="tab-content">
+            <div class="section">
+                <div class="service-status" id="api-status">
+                    <span class="status-indicator" id="api-indicator"></span>
+                    API Service Status: <span id="api-status-text">Checking...</span>
+                </div>
+                <iframe src="http://localhost:5555/docs" id="api-frame"></iframe>
             </div>
         </div>
     </div>
 
     <script>
-        function updateDashboard() {
+        function updateMetrics() {
             fetch('/api/metrics')
                 .then(response => response.json())
                 .then(data => {
-                    // Update storage metrics
-                    const storageHtml = `
-                        <div class="row text-center">
-                            <div class="col-md-4">
-                                <div class="mb-3">
-                                    <div class="text-muted">Total Storage</div>
-                                    <div class="storage-metric">${data.storage.total_storage}</div>
-                                </div>
-                            </div>
-                            <div class="col-md-4">
-                                <div class="mb-3">
-                                    <div class="text-muted">Used Storage</div>
-                                    <div class="storage-metric">${data.storage.used_storage}</div>
-                                </div>
-                            </div>
-                            <div class="col-md-4">
-                                <div class="mb-3">
-                                    <div class="text-muted">Available</div>
-                                    <div class="storage-metric">${data.storage.available_storage}</div>
-                                </div>
-                            </div>
-                        </div>
-                    `;
-                    document.getElementById('storageMetrics').innerHTML = storageHtml;
+                    document.getElementById('timestamp').textContent = data.timestamp;
+                    document.getElementById('total-storage').textContent = data.storage.total_storage;
+                    document.getElementById('used-storage').textContent = data.storage.used_storage;
+                    document.getElementById('available-storage').textContent = data.storage.available_storage;
 
-                    // Update pod status
-                    const podStatusHtml = data.pods.map(pod => `
-                        <tr>
+                    const podsTable = document.getElementById('pods-table');
+                    podsTable.innerHTML = '';
+                    data.pods.forEach(pod => {
+                        const row = document.createElement('tr');
+                        row.innerHTML = `
                             <td>${pod.name}</td>
-                            <td class="${pod.status === 'Running' ? 'pod-status-running' : 'pod-status-error'}">
-                                ${pod.status}
-                            </td>
-                            <td>${pod.ip || 'N/A'}</td>
-                            <td>${pod.node || 'N/A'}</td>
+                            <td>${pod.status}</td>
+                            <td>${pod.ip}</td>
+                            <td>${pod.node}</td>
                             <td>${pod.start_time}</td>
-                        </tr>
-                    `).join('');
-                    document.getElementById('podStatus').innerHTML = podStatusHtml;
-
-                    // Update last refresh time
-                    document.getElementById('lastUpdated').textContent = `Last updated: ${data.timestamp}`;
+                        `;
+                        podsTable.appendChild(row);
+                    });
                 })
                 .catch(error => console.error('Error fetching metrics:', error));
         }
 
-        // Update dashboard immediately and every 10 seconds
-        updateDashboard();
-        setInterval(updateDashboard, 10000);
+        function checkServiceStatus(service, port) {
+            const indicator = document.getElementById(`${service}-indicator`);
+            const statusText = document.getElementById(`${service}-status-text`);
+
+            fetch(`http://localhost:${port}`)
+                .then(() => {
+                    indicator.className = 'status-indicator status-up';
+                    statusText.textContent = 'Running';
+                })
+                .catch(() => {
+                    indicator.className = 'status-indicator status-down';
+                    statusText.textContent = 'Not Available';
+                });
+        }
+
+        function showTab(tabId) {
+            // Hide all tabs
+            document.querySelectorAll('.tab-content').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            document.querySelectorAll('.nav-tab').forEach(tab => {
+                tab.classList.remove('active');
+            });
+
+            // Show selected tab
+            document.getElementById(tabId).classList.add('active');
+            event.target.classList.add('active');
+
+            // Check service status when switching to respective tabs
+            if (tabId === 'web-ui') {
+                checkServiceStatus('web-ui', 3000);
+            } else if (tabId === 'api') {
+                checkServiceStatus('api', 5555);
+            }
+        }
+
+        // Update metrics every 10 seconds
+        updateMetrics();
+        setInterval(updateMetrics, 10000);
+
+        // Initial service status check
+        checkServiceStatus('web-ui', 3000);
+        checkServiceStatus('api', 5555);
     </script>
 </body>
-
 </html>
