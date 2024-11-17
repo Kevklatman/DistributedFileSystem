@@ -306,11 +306,17 @@ class TestAzureBlobProvider(unittest.TestCase):
         
     def test_list_objects_success(self):
         """Test successful object listing."""
-        mock_blobs = [
-            MagicMock(name='test1.txt', size=100, last_modified='2023-01-01'),
-            MagicMock(name='test2.txt', size=200, last_modified='2023-01-02')
-        ]
-        self.mock_container.list_blobs.return_value = mock_blobs
+        mock_blob1 = MagicMock()
+        mock_blob1.name = 'test1.txt'
+        mock_blob1.size = 100
+        mock_blob1.last_modified = '2023-01-01'
+        
+        mock_blob2 = MagicMock()
+        mock_blob2.name = 'test2.txt'
+        mock_blob2.size = 200
+        mock_blob2.last_modified = '2023-01-02'
+        
+        self.mock_container.list_blobs.return_value = [mock_blob1, mock_blob2]
         result = self.provider.list_objects(TEST_CONFIG['azure']['container'])
         
         expected = [
@@ -437,7 +443,7 @@ class TestGCPStorageProvider(unittest.TestCase):
         self.mock_client.create_bucket.return_value = mock_bucket
         result = self.provider.create_bucket(TEST_CONFIG['gcp']['bucket'])
         self.assertTrue(result)
-        self.mock_client.create_bucket.assert_called_once_with(TEST_CONFIG['gcp']['bucket'])
+        self.mock_client.create_bucket.assert_called_once_with(TEST_CONFIG['gcp']['bucket'], location=None)
         
     def test_create_bucket_failure(self):
         """Test bucket creation failure."""
@@ -447,14 +453,22 @@ class TestGCPStorageProvider(unittest.TestCase):
         
     def test_list_objects_success(self):
         """Test successful object listing."""
-        mock_blob1 = MagicMock(name='test1.txt', size=100)
-        mock_blob2 = MagicMock(name='test2.txt', size=200)
+        mock_blob1 = MagicMock()
+        mock_blob1.name = 'test1.txt'
+        mock_blob1.size = 100
+        mock_blob1.time_created = '2023-01-01'
+        
+        mock_blob2 = MagicMock()
+        mock_blob2.name = 'test2.txt'
+        mock_blob2.size = 200
+        mock_blob2.time_created = '2023-01-02'
+        
         self.mock_bucket.list_blobs.return_value = [mock_blob1, mock_blob2]
         
         result = self.provider.list_objects(TEST_CONFIG['gcp']['bucket'])
         expected = [
-            {'Key': 'test1.txt', 'Size': 100},
-            {'Key': 'test2.txt', 'Size': 200}
+            {'Key': 'test1.txt', 'Size': 100, 'LastModified': '2023-01-01'},
+            {'Key': 'test2.txt', 'Size': 200, 'LastModified': '2023-01-02'}
         ]
         self.assertEqual(result, expected)
         self.mock_client.bucket.assert_called_once_with(TEST_CONFIG['gcp']['bucket'])
