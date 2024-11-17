@@ -204,76 +204,64 @@ def get_policy_metrics():
         }
 
 # Dashboard metrics endpoint
-@app.route('/dashboard/metrics', methods=['GET'])
+@app.route('/api/v1/dashboard/metrics', methods=['GET'])
 def get_dashboard_metrics():
     """Get all dashboard metrics"""
     try:
-        logger.debug('Fetching dashboard metrics')
+        # Get storage backend metrics
+        storage = get_storage_backend(fs_manager)
+        storage_stats = storage.get_storage_stats()
         
         # Get policy metrics
         policy_metrics = get_policy_metrics()
         
+        # Calculate real I/O metrics from storage backend
+        io_metrics = storage.get_io_metrics()
+        
         metrics = {
             'health': {
-                'cpu_usage': 45.2,
-                'memory_usage': 62.8,
-                'io_latency_ms': 2.5,
-                'network_bandwidth_mbps': 850.0,
+                'cpu_usage': 45.5,  # TODO: Get from system
+                'memory_usage': 62.3,  # TODO: Get from system
+                'io_latency_ms': io_metrics.get('latency_ms', 0),
+                'network_bandwidth_mbps': io_metrics.get('bandwidth_mbps', 0),
                 'error_count': 0,
-                'warning_count': 2,
+                'warning_count': 0,
                 'status': 'healthy',
                 'last_updated': datetime.datetime.now().isoformat()
             },
             'storage': {
-                'total_capacity_gb': 1000.0,
-                'used_capacity_gb': 450.0,
-                'available_capacity_gb': 550.0,
-                'usage_percent': 45.0,
-                'dedup_ratio': 2.5,
-                'compression_ratio': 3.0,
-                'iops': 15000,
-                'throughput_mbps': 750.0,
+                'total_capacity_gb': storage_stats.get('total_gb', 0),
+                'used_capacity_gb': storage_stats.get('used_gb', 0),
+                'available_capacity_gb': storage_stats.get('available_gb', 0),
+                'usage_percent': storage_stats.get('usage_percent', 0),
+                'dedup_ratio': storage_stats.get('dedup_ratio', 1.0),
+                'compression_ratio': storage_stats.get('compression_ratio', 1.0),
+                'iops': io_metrics.get('iops', 0),
+                'throughput_mbps': io_metrics.get('throughput_mbps', 0),
                 'last_updated': datetime.datetime.now().isoformat()
             },
             'cost': {
-                'total_cost_month': 1250.0,
+                'total_cost_month': 1250.0,  # TODO: Calculate from actual usage
                 'savings_from_tiering': 450.0,
-                'savings_from_dedup': 300.0,
-                'savings_from_compression': 200.0,
-                'total_savings': 950.0,
+                'savings_from_dedup': 280.0,
+                'savings_from_compression': 180.0,
+                'total_savings': 910.0,
+                'projected_cost_next_month': 1500.0,
+                'cost_trend_percent': 20.0,
+                'cost_per_gb': {
+                    'performance': 0.15,
+                    'capacity': 0.05,
+                    'cold': 0.01,
+                    'archive': 0.004
+                },
                 'last_updated': datetime.datetime.now().isoformat()
             },
-            'policy': policy_metrics,
-            'recommendations': [
-                {
-                    'category': 'performance',
-                    'severity': 'warning',
-                    'title': 'High I/O Latency',
-                    'description': 'Storage tier showing increased latency',
-                    'suggestions': [
-                        'Consider moving frequently accessed data to SSD tier',
-                        'Review application I/O patterns'
-                    ],
-                    'created_at': datetime.datetime.now().isoformat()
-                },
-                {
-                    'category': 'policy',
-                    'severity': 'info',
-                    'title': 'Policy Distribution',
-                    'description': f'Current policy distribution: {policy_metrics["policy_distribution"]}',
-                    'suggestions': [
-                        'Review policy patterns for optimal data placement',
-                        'Consider consolidating similar policies'
-                    ],
-                    'created_at': datetime.datetime.now().isoformat()
-                }
-            ]
+            'policy': policy_metrics
         }
-        logger.debug(f'Returning metrics: {metrics}')
+        
         return jsonify(metrics)
     except Exception as e:
-        logger.error(f"Error getting metrics: {str(e)}")
-        logger.exception(e)
+        logger.error(f"Error getting dashboard metrics: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 # Decorate existing routes with API documentation

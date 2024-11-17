@@ -170,15 +170,22 @@ async function deleteObjectVersion(bucketName, objectKey, versionId) {
 async function fetchDashboardMetrics() {
     try {
         console.log('Fetching dashboard metrics...');
-        const response = await fetch('/dashboard/metrics');
+        const response = await fetch('/api/v1/dashboard/metrics');
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
         const metrics = await response.json();
         console.log('Received metrics:', metrics);
+        if (metrics.error) {
+            throw new Error(metrics.error);
+        }
         updateDashboardUI(metrics);
     } catch (error) {
         console.error('Error fetching metrics:', error);
+        // Update UI to show error state
+        document.getElementById('io-latency').textContent = 'Error';
+        document.getElementById('iops').textContent = 'Error';
+        document.getElementById('network-bandwidth').textContent = 'Error';
     }
 }
 
