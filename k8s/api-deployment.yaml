@@ -1,0 +1,56 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-service
+  namespace: distributed-fs
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: api-service
+  template:
+    metadata:
+      labels:
+        app: api-service
+    spec:
+      containers:
+      - name: api-service
+        image: python:3.8.13-slim
+        workingDir: /app
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            pip install -r requirements.txt
+            python src/api/app.py
+        ports:
+        - containerPort: 5555
+        env:
+        - name: STORAGE_ENV
+          value: "local"
+        - name: API_HOST
+          value: "0.0.0.0"
+        - name: API_PORT
+          value: "5555"
+        - name: DEBUG
+          value: "true"
+        volumeMounts:
+        - name: app-code
+          mountPath: /app
+      volumes:
+      - name: app-code
+        hostPath:
+          path: /Users/kevinklatman/Development/Code/DistributedFileSystem
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-service
+  namespace: distributed-fs
+spec:
+  type: NodePort
+  ports:
+  - port: 5555
+    targetPort: 5555
+    nodePort: 30555
+  selector:
+    app: api-service
