@@ -50,8 +50,32 @@
                 </div>
             </div>
         </div>
-        
+
         <div class="row mt-4">
+            <!-- System Metrics -->
+            <div class="col-md-6">
+                <div class="card metric-card">
+                    <div class="card-header">
+                        <h5>System Metrics</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <h6>CPU Usage</h6>
+                                <p id="cpu-usage">Loading...</p>
+                            </div>
+                            <div class="col-md-6">
+                                <h6>Memory Usage</h6>
+                                <p id="memory-usage">Loading...</p>
+                            </div>
+                        </div>
+                        <div class="chart-container">
+                            <canvas id="system-chart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <!-- Storage Overview -->
             <div class="col-md-6">
                 <div class="card metric-card">
@@ -79,9 +103,11 @@
                     </div>
                 </div>
             </div>
+        </div>
 
+        <div class="row mt-4">
             <!-- Network I/O -->
-            <div class="col-md-6">
+            <div class="col-md-12">
                 <div class="card metric-card">
                     <div class="card-header">
                         <h5>Network I/O</h5>
@@ -103,22 +129,6 @@
                         </div>
                         <div class="chart-container">
                             <canvas id="network-chart"></canvas>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Request Latency -->
-        <div class="row mt-4">
-            <div class="col-12">
-                <div class="card metric-card">
-                    <div class="card-header">
-                        <h5>Request Latency</h5>
-                    </div>
-                    <div class="card-body">
-                        <div class="chart-container">
-                            <canvas id="latency-chart"></canvas>
                         </div>
                     </div>
                 </div>
@@ -158,9 +168,42 @@
     <script>
         let storageChart = null;
         let networkChart = null;
-        let latencyChart = null;
+        let systemChart = null;
+
+        function formatBytes(bytes) {
+            const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+            if (bytes === 0) return '0 Bytes';
+            const i = parseInt(Math.floor(Math.log(bytes) / Math.log(1024)));
+            return Math.round(bytes / Math.pow(1024, i) * 100) / 100 + ' ' + sizes[i];
+        }
 
         function initCharts() {
+            // System Chart
+            const systemCtx = document.getElementById('system-chart').getContext('2d');
+            systemChart = new Chart(systemCtx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'CPU Usage %',
+                        data: [],
+                        borderColor: '#dc3545'
+                    }, {
+                        label: 'Memory Usage %',
+                        data: [],
+                        borderColor: '#007bff'
+                    }]
+                },
+                options: {
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            max: 100
+                        }
+                    }
+                }
+            });
+
             // Storage Chart
             const storageCtx = document.getElementById('storage-chart').getContext('2d');
             storageChart = new Chart(storageCtx, {
@@ -198,65 +241,53 @@
                     }
                 }
             });
-
-            // Latency Chart
-            const latencyCtx = document.getElementById('latency-chart').getContext('2d');
-            latencyChart = new Chart(latencyCtx, {
-                type: 'bar',
-                data: {
-                    labels: [],
-                    datasets: [{
-                        label: 'Request Latency (ms)',
-                        data: [],
-                        backgroundColor: '#17a2b8'
-                    }]
-                },
-                options: {
-                    scales: {
-                        y: {
-                            beginAtZero: true
-                        }
-                    }
-                }
-            });
         }
 
         function updateMetrics() {
             fetch('/api/metrics')
                 .then(response => response.json())
                 .then(data => {
+                    // Update System Metrics
+                    document.getElementById('cpu-usage').textContent = `${data.system.cpu_percent.toFixed(1)}%`;
+                    document.getElementById('memory-usage').textContent = 
+                        `${(data.system.memory.used / data.system.memory.total * 100).toFixed(1)}% (${formatBytes(data.system.memory.used)} / ${formatBytes(data.system.memory.total)})`;
+
+                    // Update System Chart
+                    const timestamp = new Date().toLocaleTimeString();
+                    systemChart.data.labels.push(timestamp);
+                    systemChart.data.datasets[0].data.push(data.system.cpu_percent);
+                    systemChart.data.datasets[1].data.push((data.system.memory.used / data.system.memory.total * 100));
+                    if (systemChart.data.labels.length > 10) {
+                        systemChart.data.labels.shift();
+                        systemChart.data.datasets[0].data.shift();
+                        systemChart.data.datasets[1].data.shift();
+                    }
+                    systemChart.update();
+
                     // Update Storage
-                    document.getElementById('total-storage').textContent = data.storage.total_storage;
-                    document.getElementById('used-storage').textContent = data.storage.used_storage;
-                    document.getElementById('available-storage').textContent = data.storage.available_storage;
+                    document.getElementById('total-storage').textContent = formatBytes(data.storage.total);
+                    document.getElementById('used-storage').textContent = formatBytes(data.storage.used);
+                    document.getElementById('available-storage').textContent = formatBytes(data.storage.available);
 
                     // Update Storage Chart
-                    const used = parseFloat(data.storage.used_storage);
-                    const available = parseFloat(data.storage.available_storage);
-                    storageChart.data.datasets[0].data = [used, available];
+                    storageChart.data.datasets[0].data = [data.storage.used, data.storage.available];
                     storageChart.update();
 
                     // Update Network I/O
-                    document.getElementById('bytes-in').textContent = data.network.bytes_in;
-                    document.getElementById('bytes-out').textContent = data.network.bytes_out;
-                    document.getElementById('total-bytes').textContent = data.network.total_bytes;
+                    document.getElementById('bytes-in').textContent = formatBytes(data.network.bytes_in);
+                    document.getElementById('bytes-out').textContent = formatBytes(data.network.bytes_out);
+                    document.getElementById('total-bytes').textContent = formatBytes(data.network.total);
 
                     // Update Network Chart
-                    const timestamp = new Date().toLocaleTimeString();
                     networkChart.data.labels.push(timestamp);
-                    networkChart.data.datasets[0].data.push(parseFloat(data.network.bytes_in));
-                    networkChart.data.datasets[1].data.push(parseFloat(data.network.bytes_out));
+                    networkChart.data.datasets[0].data.push(data.network.bytes_in);
+                    networkChart.data.datasets[1].data.push(data.network.bytes_out);
                     if (networkChart.data.labels.length > 10) {
                         networkChart.data.labels.shift();
                         networkChart.data.datasets[0].data.shift();
                         networkChart.data.datasets[1].data.shift();
                     }
                     networkChart.update();
-
-                    // Update Latency Chart
-                    latencyChart.data.labels = data.latency.map(l => `${l.method} ${l.endpoint}`);
-                    latencyChart.data.datasets[0].data = data.latency.map(l => parseFloat(l.latency));
-                    latencyChart.update();
 
                     // Update Pod Status
                     const podStatus = document.getElementById('pod-status');
