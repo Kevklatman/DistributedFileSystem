@@ -5,7 +5,7 @@ metadata:
 spec:
   accessModes:
     - ReadWriteOnce
-  storageClassName: dfs-ebs-sc
+  storageClassName: dfs-hybrid-storage
   resources:
     requests:
       storage: 100Gi
