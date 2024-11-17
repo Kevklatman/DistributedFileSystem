@@ -4,13 +4,17 @@ kind: Kustomization
 
 resources:
   - namespace.yaml
+  - service.yaml
+  - deployment.yaml
   - configmap.yaml
   - secret.yaml
-  - pv.yaml
-  - pvc.yaml
-  - deployment.yaml
-  - service.yaml
-  - hpa.yaml
+  - storage-node-crd.yaml
+  - storage-node-rbac.yaml
+  - storage-node-deployment.yaml
+  - csi-driver.yaml
+  - test-pvc.yaml
+  - monitoring/service-monitor.yaml
+  - monitoring/grafana-dashboard-cm.yaml
 
 commonLabels:
   app: dfs-node
