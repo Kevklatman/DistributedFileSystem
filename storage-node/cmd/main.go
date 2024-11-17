@@ -106,7 +106,11 @@ func main() {
 	flag.Parse()
 
 	if *nodeID == "" {
-		log.Fatal("node ID is required")
+		// Try to get node ID from environment variable if not provided as flag
+		*nodeID = os.Getenv("NODE_ID")
+		if *nodeID == "" {
+			log.Fatal("node ID is required (provide via -nodeid flag or NODE_ID environment variable)")
+		}
 	}
 
 	node, err := NewStorageNode(*nodeID, *dataDir)

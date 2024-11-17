@@ -1,7 +1,7 @@
 FROM golang:1.21-alpine AS builder
 
-WORKDIR /app
-COPY . .
+WORKDIR /app/storage-node
+COPY storage-node/ .
 
 RUN go mod tidy && \
     CGO_ENABLED=0 GOOS=linux go build -o /storage-node cmd/main.go
