@@ -5,6 +5,7 @@ from typing import Dict, List, Optional, Tuple
 from pathlib import Path
 import shutil
 import dataclasses
+from .cloud.providers import get_cloud_provider, CloudStorageProvider
 
 from .models import (
     StorageLocation,
@@ -40,6 +41,14 @@ class HybridStorageManager:
         self.metadata_path = self.root_path / "metadata"
         self.data_path = self.root_path / "data"
         self.system = self._load_or_create_system()
+        
+        # Initialize cloud provider if environment is set to AWS
+        self.cloud_provider = None
+        if os.getenv('STORAGE_ENV') == 'aws':
+            try:
+                self.cloud_provider = get_cloud_provider('aws_s3')
+            except Exception as e:
+                print(f"Warning: Failed to initialize cloud provider: {e}")
         
         # Ensure required directories exist
         self.metadata_path.mkdir(parents=True, exist_ok=True)
@@ -140,9 +149,16 @@ class HybridStorageManager:
         volume_path = pool_path / volume.id
         volume_path.mkdir(parents=True, exist_ok=True)
         
-        if cloud_backup or cloud_tiering:
-            # TODO: Implement cloud configuration
-            pass
+        if (cloud_backup or cloud_tiering) and self.cloud_provider:
+            # Create a bucket for this volume
+            bucket_name = f"hybrid-storage-{volume.id.lower()}"
+            if self.cloud_provider.create_bucket(bucket_name):
+                volume.cloud_backup_enabled = cloud_backup
+                volume.cloud_tiering_enabled = cloud_tiering
+                volume.cloud_location = StorageLocation(
+                    type='aws_s3',
+                    path=bucket_name
+                )
         
         self._save_system_state()
         return volume
@@ -159,8 +175,17 @@ class HybridStorageManager:
         full_path = self.data_path / pool_id / volume_id / path
         full_path.parent.mkdir(parents=True, exist_ok=True)
         
+        # Write locally
         with open(full_path, 'wb') as f:
             f.write(data)
+            
+        # If cloud backup is enabled, write to cloud immediately
+        if volume.cloud_backup_enabled and self.cloud_provider and volume.cloud_location:
+            self.cloud_provider.upload_file(
+                data,
+                path,
+                volume.cloud_location.path
+            )
             
         # Check if we need to tier this data
         if volume.cloud_tiering_enabled:
@@ -177,16 +202,32 @@ class HybridStorageManager:
         # Try local first
         local_path = self.data_path / pool_id / volume_id / path
         if local_path.exists():
+            # Check if it's a stub file
+            with open(local_path, 'r') as f:
+                first_line = f.readline().strip()
+                if first_line.startswith('TIERED_TO_CLOUD:'):
+                    return self._read_from_cloud(volume, path)
+            
+            # Regular local file
             with open(local_path, 'rb') as f:
                 return f.read()
                 
-        # If not found locally and tiering is enabled, check cloud
-        if volume.cloud_tiering_enabled:
-            # TODO: Implement cloud data retrieval
-            pass
+        # If not found locally and cloud is enabled, check cloud
+        if volume.cloud_tiering_enabled and self.cloud_provider and volume.cloud_location:
+            return self._read_from_cloud(volume, path)
             
         raise FileNotFoundError(f"File {path} not found in volume {volume_id}")
     
+    def _read_from_cloud(self, volume: Volume, path: str) -> bytes:
+        """Read data from cloud storage"""
+        if not self.cloud_provider or not volume.cloud_location:
+            raise RuntimeError("Cloud provider not configured")
+            
+        data = self.cloud_provider.download_file(path, volume.cloud_location.path)
+        if data is None:
+            raise FileNotFoundError(f"File {path} not found in cloud storage")
+        return data
+
     def _check_tiering_policy(self, volume_id: str, path: str) -> None:
         """Check if data should be tiered to cloud"""
         if volume_id not in self.system.tiering_policies:
@@ -206,17 +247,18 @@ class HybridStorageManager:
     
     def _tier_to_cloud(self, volume_id: str, path: str) -> None:
         """Move data to cloud tier"""
-        # TODO: Implement actual cloud tiering
-        # For now, just simulate by moving to a "cloud" directory
         volume = self.system.volumes[volume_id]
+        if not self.cloud_provider or not volume.cloud_location:
+            return
+            
         source = self.data_path / volume.primary_pool_id / volume_id / path
-        cloud_dir = self.data_path / "cloud_tier" / volume_id
-        cloud_dir.mkdir(parents=True, exist_ok=True)
-        target = cloud_dir / path
         
-        # Move file to cloud tier
-        shutil.move(str(source), str(target))
-        
-        # Create stub file pointing to cloud location
-        with open(source, 'w') as f:
-            f.write(f"TIERED_TO_CLOUD:{target}")
+        # Read the file
+        with open(source, 'rb') as f:
+            data = f.read()
+            
+        # Upload to cloud
+        if self.cloud_provider.upload_file(data, path, volume.cloud_location.path):
+            # Create stub file pointing to cloud location
+            with open(source, 'w') as f:
+                f.write(f"TIERED_TO_CLOUD:{volume.cloud_location.path}/{path}")
