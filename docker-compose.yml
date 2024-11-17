@@ -1,0 +1,116 @@
+version: '3.8'
+
+services:
+  # Core nodes
+  node1:
+    build: .
+    environment:
+      - NODE_ID=node1
+      - NODE_TYPE=core
+      - QUORUM_SIZE=2
+    ports:
+      - "8001:8000"
+    volumes:
+      - node1_data:/app/data
+    networks:
+      - dfs_network
+
+  node2:
+    build: .
+    environment:
+      - NODE_ID=node2
+      - NODE_TYPE=core
+      - QUORUM_SIZE=2
+    ports:
+      - "8002:8000"
+    volumes:
+      - node2_data:/app/data
+    networks:
+      - dfs_network
+
+  node3:
+    build: .
+    environment:
+      - NODE_ID=node3
+      - NODE_TYPE=core
+      - QUORUM_SIZE=2
+    ports:
+      - "8003:8000"
+    volumes:
+      - node3_data:/app/data
+    networks:
+      - dfs_network
+
+  # Edge nodes
+  edge1:
+    build: .
+    environment:
+      - NODE_ID=edge1
+      - NODE_TYPE=edge
+      - DEVICE_TYPE=mobile
+      - PROCESSING_POWER=0.7
+      - BATTERY_LEVEL=80
+      - BANDWIDTH_LIMIT=1000
+    ports:
+      - "8011:8000"
+    volumes:
+      - edge1_data:/app/data
+    networks:
+      - dfs_network
+
+  edge2:
+    build: .
+    environment:
+      - NODE_ID=edge2
+      - NODE_TYPE=edge
+      - DEVICE_TYPE=iot
+      - PROCESSING_POWER=0.4
+      - BATTERY_LEVEL=60
+      - BANDWIDTH_LIMIT=500
+    ports:
+      - "8012:8000"
+    volumes:
+      - edge2_data:/app/data
+    networks:
+      - dfs_network
+
+  # Load testing and monitoring
+  prometheus:
+    image: prom/prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    networks:
+      - dfs_network
+
+  grafana:
+    image: grafana/grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+    networks:
+      - dfs_network
+
+  locust:
+    build: ./tests/load
+    ports:
+      - "8089:8089"
+    environment:
+      - TARGET_HOST=http://node1:8000
+    volumes:
+      - ./tests/load:/mnt/locust
+    networks:
+      - dfs_network
+
+networks:
+  dfs_network:
+    driver: bridge
+
+volumes:
+  node1_data:
+  node2_data:
+  node3_data:
+  edge1_data:
+  edge2_data:

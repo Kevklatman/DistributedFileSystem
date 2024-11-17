@@ -1,0 +1,18 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: 'dfs_nodes'
+    static_configs:
+      - targets: ['node1:8000', 'node2:8000', 'node3:8000']
+        labels:
+          type: 'core'
+      
+      - targets: ['edge1:8000', 'edge2:8000']
+        labels:
+          type: 'edge'
+
+  - job_name: 'load_testing'
+    static_configs:
+      - targets: ['locust:8089']
