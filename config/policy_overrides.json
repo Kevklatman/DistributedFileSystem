@@ -131,6 +131,33 @@
       "min_copies": 1,
       "max_cost_per_gb": 0.05,
       "reason": "Cost optimization for archived data"
+    },
+    {
+      "pattern": "**/high-priority/**",
+      "tier": "performance",
+      "min_copies": 3,
+      "required_regions": [
+        "us-east-1",
+        "us-west-1"
+      ],
+      "reason": "High-priority data requirements"
+    },
+    {
+      "pattern": "**/time-sensitive/**",
+      "tier": "performance",
+      "max_latency_ms": 10,
+      "required_regions": [
+        "us-east-1",
+        "us-west-1"
+      ],
+      "reason": "Low-latency access requirements"
+    },
+    {
+      "pattern": "**/archive/**",
+      "tier": "cold",
+      "min_copies": 1,
+      "max_cost_per_gb": 0.05,
+      "reason": "Cost optimization for archived data"
     }
   ],
   "volume_overrides": [
