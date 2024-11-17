@@ -16,6 +16,7 @@ from .models import (
     TieringPolicy,
     DataTemperature
 )
+from .policy_engine import HybridPolicyEngine, PolicyMode
 
 class TierType(Enum):
     PERFORMANCE = "performance"  # NVMe/SSD
@@ -36,6 +37,9 @@ class TieringManager:
         self.data_path = data_path
         self.logger = logging.getLogger(__name__)
         
+        # Initialize policy engine
+        self.policy_engine = HybridPolicyEngine(data_path)
+        
         # Define tier costs (example values)
         self.tier_costs = {
             TierType.PERFORMANCE: TierCost(0.15, 0.0, 0),
@@ -54,8 +58,18 @@ class TieringManager:
             temp_data = self._calculate_temperature(volume, file_path)
             self.temperature_cache[file_path] = temp_data
             
-            if self._should_change_tier(temp_data, volume.tiering_policy):
-                self._initiate_tier_movement(volume, file_path, temp_data)
+            # Use policy engine for decision
+            decision = self.policy_engine.evaluate_tiering_decision(
+                volume, file_path, temp_data
+            )
+            
+            if decision.action == "move_tier":
+                target_tier = decision.parameters["target_tier"]
+                if target_tier != temp_data.recommended_tier:
+                    self.logger.info(
+                        f"Moving {file_path} to {target_tier}. Reason: {decision.reason}"
+                    )
+                    self._initiate_tier_movement(volume, file_path, temp_data)
                 
     def _scan_volume_files(self, volume: Volume) -> List[str]:
         """Scan volume for files to analyze"""

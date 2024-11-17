@@ -9,7 +9,6 @@ import json
 from pathlib import Path
 import hashlib
 from dataclasses import dataclass
-
 from .models import (
     Volume,
     ReplicationPolicy,
@@ -17,6 +16,7 @@ from .models import (
     StorageLocation,
     SnapshotState
 )
+from .policy_engine import HybridPolicyEngine, PolicyMode
 
 @dataclass
 class ChunkMetadata:
@@ -36,18 +36,33 @@ class ReplicationManager:
         self.active_replications: Dict[str, ReplicationState] = {}
         self.chunk_cache: Dict[str, bytes] = {}  # Checksum -> chunk data
         
+        # Initialize policy engine
+        self.policy_engine = HybridPolicyEngine(data_path)
+        
     async def setup_replication(self, volume: Volume, target_location: StorageLocation,
                               policy: ReplicationPolicy) -> None:
         """Initialize replication for a volume"""
         if volume.id in self.active_replications:
             return
             
+        # Use policy engine for decision
+        decision = self.policy_engine.evaluate_replication_decision(
+            volume, target_location
+        )
+        
+        if decision.action != "replicate":
+            self.logger.info(
+                f"Skipping replication for {volume.id}. Reason: {decision.reason}"
+            )
+            return
+            
         state = ReplicationState(
             source_volume=volume,
-            target_location=target_location,
+            target_location=decision.parameters["target_location"],
             policy=policy,
             last_sync=None,
-            in_progress=False
+            in_progress=False,
+            priority=decision.parameters.get("priority", "normal")
         )
         self.active_replications[volume.id] = state
         
