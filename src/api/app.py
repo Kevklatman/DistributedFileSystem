@@ -161,12 +161,58 @@ def health_check():
         'timestamp': datetime.datetime.now().isoformat()
     })
 
+def get_policy_metrics():
+    """Get policy engine metrics including policy overrides analysis"""
+    try:
+        with open('config/policy_overrides.json', 'r') as f:
+            policy_data = json.load(f)
+            
+        # Analyze policy patterns
+        pattern_types = {
+            'high-priority': 0,
+            'time-sensitive': 0,
+            'archive': 0,
+            'other': 0
+        }
+        
+        for policy in policy_data.get('path_overrides', []):
+            pattern = policy.get('pattern', '')
+            if 'high-priority' in pattern:
+                pattern_types['high-priority'] += 1
+            elif 'time-sensitive' in pattern:
+                pattern_types['time-sensitive'] += 1
+            elif 'archive' in pattern:
+                pattern_types['archive'] += 1
+            else:
+                pattern_types['other'] += 1
+        
+        return {
+            'policy_distribution': pattern_types,
+            'total_policies': len(policy_data.get('path_overrides', [])),
+            'ml_policy_accuracy': 0.92,  # Sample value
+            'policy_changes_24h': 156,   # Sample value
+            'data_moved_24h_gb': 250.5   # Sample value
+        }
+    except Exception as e:
+        logger.error(f"Error getting policy metrics: {str(e)}")
+        return {
+            'policy_distribution': {'error': 'Failed to load policy data'},
+            'total_policies': 0,
+            'ml_policy_accuracy': 0,
+            'policy_changes_24h': 0,
+            'data_moved_24h_gb': 0
+        }
+
 # Dashboard metrics endpoint
 @app.route('/dashboard/metrics', methods=['GET'])
 def get_dashboard_metrics():
     """Get all dashboard metrics"""
     try:
         logger.debug('Fetching dashboard metrics')
+        
+        # Get policy metrics
+        policy_metrics = get_policy_metrics()
+        
         metrics = {
             'health': {
                 'cpu_usage': 45.2,
@@ -197,14 +243,7 @@ def get_dashboard_metrics():
                 'total_savings': 950.0,
                 'last_updated': datetime.datetime.now().isoformat()
             },
-            'policy': {
-                'policy_distribution': {'hot': 40, 'warm': 35, 'cold': 25},
-                'tier_distribution': {'ssd': 30, 'hdd': 50, 'cloud': 20},
-                'ml_policy_accuracy': 0.92,
-                'policy_changes_24h': 156,
-                'data_moved_24h_gb': 250.5,
-                'last_updated': datetime.datetime.now().isoformat()
-            },
+            'policy': policy_metrics,
             'recommendations': [
                 {
                     'category': 'performance',
@@ -214,6 +253,17 @@ def get_dashboard_metrics():
                     'suggestions': [
                         'Consider moving frequently accessed data to SSD tier',
                         'Review application I/O patterns'
+                    ],
+                    'created_at': datetime.datetime.now().isoformat()
+                },
+                {
+                    'category': 'policy',
+                    'severity': 'info',
+                    'title': 'Policy Distribution',
+                    'description': f'Current policy distribution: {policy_metrics["policy_distribution"]}',
+                    'suggestions': [
+                        'Review policy patterns for optimal data placement',
+                        'Consider consolidating similar policies'
                     ],
                     'created_at': datetime.datetime.now().isoformat()
                 }
