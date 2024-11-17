@@ -1,0 +1,46 @@
+graph TB
+    subgraph Data Tiers
+        HotTier[Hot Tier<br/>High Performance]
+        WarmTier[Warm Tier<br/>Standard Storage]
+        ColdTier[Cold Tier<br/>Infrequent Access]
+        ArchiveTier[Archive Tier<br/>Long-term Storage]
+    end
+
+    subgraph Access Patterns
+        FreqAcc[Frequently Accessed]
+        ModAcc[Moderately Accessed]
+        RareAcc[Rarely Accessed]
+        ArchData[Archived Data]
+    end
+
+    subgraph Storage Locations
+        Local[Local Storage<br/>Fast Access]
+        S3Std[S3 Standard<br/>Regular Access]
+        S3IA[S3 IA<br/>Infrequent Access]
+        S3Glacier[S3 Glacier<br/>Archive]
+    end
+
+    FreqAcc --> HotTier
+    ModAcc --> WarmTier
+    RareAcc --> ColdTier
+    ArchData --> ArchiveTier
+
+    HotTier --> Local
+    WarmTier --> S3Std
+    ColdTier --> S3IA
+    ArchiveTier --> S3Glacier
+
+    style HotTier fill:#f94,stroke:#333,stroke-width:2px
+    style WarmTier fill:#9d4,stroke:#333,stroke-width:2px
+    style ColdTier fill:#49d,stroke:#333,stroke-width:2px
+    style ArchiveTier fill:#666,stroke:#333,stroke-width:2px
+    
+    style FreqAcc fill:#f94,stroke:#333,stroke-width:2px
+    style ModAcc fill:#9d4,stroke:#333,stroke-width:2px
+    style RareAcc fill:#49d,stroke:#333,stroke-width:2px
+    style ArchData fill:#666,stroke:#333,stroke-width:2px
+    
+    style Local fill:#fdb,stroke:#333,stroke-width:2px
+    style S3Std fill:#dfd,stroke:#333,stroke-width:2px
+    style S3IA fill:#bdf,stroke:#333,stroke-width:2px
+    style S3Glacier fill:#ddd,stroke:#333,stroke-width:2px

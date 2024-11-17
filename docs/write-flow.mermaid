@@ -1,0 +1,27 @@
+sequenceDiagram
+    participant C as Client
+    participant API as API Layer
+    participant CM as Cluster Manager
+    participant RM as Replication Manager
+    participant SN1 as Storage Node 1
+    participant SN2 as Storage Node 2
+    participant SN3 as Storage Node 3
+
+    C->>API: PUT /bucket/key
+    API->>CM: Request write operation
+    CM->>CM: Select primary node
+    CM->>RM: Initialize replication
+    
+    par Parallel Write
+        RM->>SN1: Write data chunk
+        RM->>SN2: Write data chunk
+        RM->>SN3: Write data chunk
+    end
+
+    SN1-->>RM: Acknowledge write
+    SN2-->>RM: Acknowledge write
+    SN3-->>RM: Acknowledge write
+
+    RM-->>CM: Quorum achieved
+    CM-->>API: Write successful
+    API-->>C: 200 OK
