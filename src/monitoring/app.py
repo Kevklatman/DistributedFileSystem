@@ -8,6 +8,7 @@ import requests
 import time
 from flask_cors import CORS
 from prometheus_client import Counter, Histogram, start_http_server
+import sys
 
 # Disable SSL warnings
 urllib3.disable_warnings()
@@ -56,18 +57,18 @@ def after_request(response):
         endpoint=request.endpoint or 'unknown',
         method=request.method
     ).observe(latency)
-    
+
     # Record request count
     REQUEST_COUNT.labels(
         endpoint=request.endpoint or 'unknown',
         method=request.method,
         status=response.status_code
     ).inc()
-    
+
     # Record outgoing network bytes
     if response.content_length:
         NETWORK_IO.labels(direction='out').inc(response.content_length)
-    
+
     return response
 
 # Configure Kubernetes client
@@ -101,10 +102,10 @@ def get_storage_metrics():
                 'used_storage': '0GB',
                 'available_storage': '0GB'
             }
-            
+
         pvcs = v1.list_persistent_volume_claim_for_all_namespaces()
         total_storage = 0
-        
+
         for pvc in pvcs.items:
             if pvc.spec.resources.requests.get('storage'):
                 # Convert storage string (e.g., "1Gi") to bytes
@@ -117,12 +118,12 @@ def get_storage_metrics():
                 else:
                     storage_bytes = storage_value
                 total_storage += storage_bytes
-        
+
         # Convert bytes to GB for display
         total_storage_gb = total_storage / (1024 * 1024 * 1024)
         used_storage_gb = total_storage_gb * 0.25  # Estimated usage
         available_storage_gb = total_storage_gb - used_storage_gb
-        
+
         return {
             'total_storage': f'{total_storage_gb:.1f}GB',
             'used_storage': f'{used_storage_gb:.1f}GB',
@@ -142,7 +143,7 @@ def get_pod_metrics():
         if not v1:
             print("Kubernetes client not configured, returning empty pod list")
             return []
-            
+
         try:
             pods = v1.list_namespaced_pod(namespace='distributed-fs')
         except client.rest.ApiException as e:
@@ -151,9 +152,9 @@ def get_pod_metrics():
                 pods = v1.list_namespaced_pod(namespace='default')
             else:
                 raise
-                
+
         pod_metrics = []
-        
+
         for pod in pods.items:
             pod_info = {
                 'name': pod.metadata.name,
@@ -164,7 +165,7 @@ def get_pod_metrics():
                 'ready': all(cont.ready for cont in pod.status.container_statuses) if pod.status.container_statuses else False
             }
             pod_metrics.append(pod_info)
-            
+
         return pod_metrics
     except Exception as e:
         print(f"Error getting pod metrics: {e}")
@@ -175,7 +176,7 @@ def get_network_metrics():
     try:
         in_bytes = NETWORK_IO.labels(direction='in')._value.get()
         out_bytes = NETWORK_IO.labels(direction='out')._value.get()
-        
+
         return {
             'bytes_in': f'{in_bytes / (1024*1024):.2f}MB',
             'bytes_out': f'{out_bytes / (1024*1024):.2f}MB',
@@ -249,9 +250,9 @@ def api_proxy(path):
             target_url = f'http://localhost:5555/api/v1/health'
         else:
             target_url = f'http://localhost:5555/api/v1/{path}'
-            
+
         headers = {key: value for key, value in request.headers if key.lower() != 'host'}
-        
+
         response = requests.request(
             method=request.method,
             url=target_url,
@@ -260,10 +261,10 @@ def api_proxy(path):
             cookies=request.cookies,
             timeout=10
         )
-        
+
         excluded_headers = ['content-length', 'connection', 'content-encoding']
         headers = [(k, v) for k, v in response.raw.headers.items() if k.lower() not in excluded_headers]
-        
+
         return Response(response.content, response.status_code, headers)
     except requests.exceptions.RequestException as e:
         return jsonify({'error': str(e)}), 503
@@ -274,11 +275,11 @@ def web_ui_proxy(path=''):
     try:
         target_url = f'http://localhost:3000/{path}'
         headers = {
-            key: value for key, value 
-            in request.headers.items() 
+            key: value for key, value
+            in request.headers.items()
             if key.lower() not in ['host', 'content-length']
         }
-        
+
         response = requests.request(
             method=request.method,
             url=target_url,
@@ -288,7 +289,7 @@ def web_ui_proxy(path=''):
             timeout=5,
             allow_redirects=True
         )
-        
+
         # Only forward specific headers we want
         allowed_headers = [
             'content-type',
@@ -297,16 +298,16 @@ def web_ui_proxy(path=''):
             'date',
             'last-modified'
         ]
-        
+
         headers = {
             k: v for k, v in response.headers.items()
             if k.lower() in allowed_headers
         }
-        
+
         # Ensure we're returning text/html for the main page
         if not path and 'content-type' not in headers:
             headers['content-type'] = 'text/html; charset=utf-8'
-            
+
         return Response(
             response.content,
             response.status_code,
@@ -350,5 +351,9 @@ def api_status():
         }), 503
 
 if __name__ == '__main__':
-    start_http_server(8000)
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
+    try:
+        start_http_server(9090)  # Prometheus metrics port
+        app.run(host='0.0.0.0', port=5001, debug=True)  # Main dashboard port
+    except OSError as e:
+        print(f"Failed to start server: {e}")
+        sys.exit(1)
