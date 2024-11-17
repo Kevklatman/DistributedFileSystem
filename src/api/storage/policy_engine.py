@@ -9,7 +9,7 @@ import logging
 from pathlib import Path
 import json
 
-from .models import Volume, StorageLocation, TieringPolicy, ReplicationPolicy
+from .models import Volume, StorageLocation, TieringPolicy, ReplicationPolicy, PolicyMode
 from .tiering_manager import TierType, DataTemperature
 
 class PolicyMode(Enum):

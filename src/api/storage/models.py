@@ -2,6 +2,13 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Literal, Set
 from datetime import datetime
 import uuid
+from enum import Enum
+
+class PolicyMode(Enum):
+    MANUAL = "manual"
+    ML = "ml"
+    HYBRID = "hybrid"
+    SUPERVISED = "supervised"
 
 @dataclass
 class StorageLocation:
@@ -73,6 +80,16 @@ class Volume:
     created_at: datetime = field(default_factory=datetime.now)
 
 @dataclass
+class TieringPolicy:
+    """Defines data tiering behavior"""
+    enabled: bool = True
+    auto_tiering: bool = True
+    target_tier: Optional[str] = None
+    min_size_mb: int = 100
+    min_age_days: int = 30
+    exclude_patterns: List[str] = field(default_factory=list)
+
+@dataclass
 class CloudTieringPolicy:
     """Defines how data is tiered between on-prem and cloud"""
     volume_id: str
@@ -88,6 +105,17 @@ class CloudTieringPolicy:
     prediction_weight: float = 0.2  # Weight for predicted access in decisions
     exclude_patterns: List[str] = field(default_factory=list)
     schedule: str = "0 0 * * *"  # Default to daily at midnight
+
+@dataclass
+class ReplicationPolicy:
+    """Defines replication behavior"""
+    enabled: bool = True
+    target_locations: List[StorageLocation] = field(default_factory=list)
+    min_copies: int = 2
+    max_copies: int = 5
+    sync_mode: Literal["sync", "async"] = "async"
+    bandwidth_limit_mbps: Optional[int] = None
+    exclude_patterns: List[str] = field(default_factory=list)
 
 @dataclass
 class SnapshotState:
@@ -132,6 +160,7 @@ class HybridStorageSystem:
     cloud_credentials: Dict[str, CloudCredentials] = field(default_factory=dict)
     tiering_policies: Dict[str, CloudTieringPolicy] = field(default_factory=dict)
     protection_policies: Dict[str, DataProtection] = field(default_factory=dict)
+    replication_policies: Dict[str, ReplicationPolicy] = field(default_factory=dict)
     
     def add_storage_pool(self, pool: StoragePool) -> None:
         self.storage_pools[pool.id] = pool

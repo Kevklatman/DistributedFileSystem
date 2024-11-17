@@ -14,9 +14,10 @@ from .models import (
     StoragePool,
     StorageLocation,
     TieringPolicy,
-    DataTemperature
+    DataTemperature,
+    PolicyMode
 )
-from .policy_engine import HybridPolicyEngine, PolicyMode
+from .policy_engine import HybridPolicyEngine
 
 class TierType(Enum):
     PERFORMANCE = "performance"  # NVMe/SSD
