@@ -7,8 +7,9 @@ import urllib3
 import requests
 import time
 from flask_cors import CORS
-from prometheus_client import start_http_server, Counter, Histogram, REGISTRY, generate_latest, CONTENT_TYPE_LATEST
+from prometheus_client import start_http_server, Counter, Histogram, Gauge, REGISTRY, generate_latest, CONTENT_TYPE_LATEST
 import sys
+import psutil
 
 # Disable SSL warnings
 urllib3.disable_warnings()
@@ -33,6 +34,27 @@ NETWORK_IO = Counter(
     ['direction']  # 'in' or 'out'
 )
 
+STORAGE_TOTAL = Gauge(
+    'dfs_storage_bytes_total',
+    'Total storage capacity in bytes'
+)
+
+STORAGE_USED = Gauge(
+    'dfs_storage_bytes_used',
+    'Used storage in bytes'
+)
+
+STORAGE_AVAILABLE = Gauge(
+    'dfs_storage_bytes_available',
+    'Available storage in bytes'
+)
+
+POD_STATUS = Gauge(
+    'dfs_pod_status',
+    'Status of pods in the distributed system',
+    ['pod_name', 'status', 'ip', 'node']
+)
+
 app = Flask(__name__)
 CORS(app, resources={
     r"/*": {
@@ -44,8 +66,36 @@ CORS(app, resources={
     }
 })
 
+def update_storage_metrics():
+    """Update storage metrics from the system"""
+    try:
+        storage = psutil.disk_usage('/Users/kevinklatman/Development/Code/DistributedFileSystem/storage')
+        STORAGE_TOTAL.set(storage.total)
+        STORAGE_USED.set(storage.used)
+        STORAGE_AVAILABLE.set(storage.free)
+    except Exception as e:
+        print(f"Error updating storage metrics: {e}")
+
+def update_pod_metrics():
+    """Update pod metrics from Kubernetes"""
+    try:
+        v1 = client.CoreV1Api()
+        pods = v1.list_namespaced_pod(namespace='distributed-fs')
+        
+        for pod in pods.items:
+            POD_STATUS.labels(
+                pod_name=pod.metadata.name,
+                status=pod.status.phase,
+                ip=pod.status.pod_ip or 'None',
+                node=pod.spec.node_name or 'None'
+            ).set(1)
+    except Exception as e:
+        print(f"Error updating pod metrics: {e}")
+
 @app.before_request
 def before_request():
+    update_storage_metrics()
+    update_pod_metrics()
     request.start_time = time.time()
 
 @app.after_request
@@ -94,107 +144,38 @@ if 'v1' not in locals():
         print(f"Error creating Kubernetes client: {e}")
         v1 = None
 
-def get_storage_metrics():
-    """Get storage metrics from PersistentVolumeClaims"""
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+@app.route('/api/metrics')
+def api_metrics():
+    """API endpoint for dashboard metrics"""
     try:
-        if not v1:
-            print("Kubernetes client not configured, returning default values")
-            return {
-                'total_storage': '0GB',
-                'used_storage': '0GB',
-                'available_storage': '0GB'
-            }
-
-        pvcs = v1.list_persistent_volume_claim_for_all_namespaces()
-        total_storage = 0
-
-        for pvc in pvcs.items:
-            if pvc.spec.resources.requests.get('storage'):
-                # Convert storage string (e.g., "1Gi") to bytes
-                storage_str = pvc.spec.resources.requests['storage']
-                storage_value = int(''.join(filter(str.isdigit, storage_str)))
-                if storage_str.endswith('Gi'):
-                    storage_bytes = storage_value * 1024 * 1024 * 1024
-                elif storage_str.endswith('Mi'):
-                    storage_bytes = storage_value * 1024 * 1024
-                else:
-                    storage_bytes = storage_value
-                total_storage += storage_bytes
-
-        # Convert bytes to GB for display
-        total_storage_gb = total_storage / (1024 * 1024 * 1024)
-        used_storage_gb = total_storage_gb * 0.25  # Estimated usage
-        available_storage_gb = total_storage_gb - used_storage_gb
-
-        return {
-            'total_storage': f'{total_storage_gb:.1f}GB',
-            'used_storage': f'{used_storage_gb:.1f}GB',
-            'available_storage': f'{available_storage_gb:.1f}GB'
-        }
-    except Exception as e:
-        print(f"Error getting storage metrics: {e}")
-        return {
-            'total_storage': '0GB',
-            'used_storage': '0GB',
-            'available_storage': '0GB'
-        }
-
-def get_pod_metrics():
-    """Get metrics for all pods in the distributed-fs namespace"""
-    try:
-        if not v1:
-            print("Kubernetes client not configured, returning empty pod list")
-            return []
-
+        # Get storage metrics
+        storage = psutil.disk_usage('/Users/kevinklatman/Development/Code/DistributedFileSystem/storage')
+        
+        # Get network metrics
+        network_in = NETWORK_IO.labels(direction='in')._value.get()
+        network_out = NETWORK_IO.labels(direction='out')._value.get()
+        
+        # Get pod metrics
+        v1 = client.CoreV1Api()
+        pods = []
         try:
-            pods = v1.list_namespaced_pod(namespace='distributed-fs')
-        except client.rest.ApiException as e:
-            if e.status == 404:
-                # Namespace doesn't exist, try default namespace
-                pods = v1.list_namespaced_pod(namespace='default')
-            else:
-                raise
-
-        pod_metrics = []
-
-        for pod in pods.items:
-            pod_info = {
-                'name': pod.metadata.name,
-                'status': pod.status.phase,
-                'ip': pod.status.pod_ip or 'N/A',
-                'node': pod.spec.node_name or 'N/A',
-                'start_time': pod.status.start_time.strftime('%Y-%m-%d %H:%M:%S') if pod.status.start_time else 'N/A',
-                'ready': all(cont.ready for cont in pod.status.container_statuses) if pod.status.container_statuses else False
-            }
-            pod_metrics.append(pod_info)
-
-        return pod_metrics
-    except Exception as e:
-        print(f"Error getting pod metrics: {e}")
-        return []
-
-def get_network_metrics():
-    """Get network I/O metrics"""
-    try:
-        in_bytes = NETWORK_IO.labels(direction='in')._value.get()
-        out_bytes = NETWORK_IO.labels(direction='out')._value.get()
-
-        return {
-            'bytes_in': f'{in_bytes / (1024*1024):.2f}MB',
-            'bytes_out': f'{out_bytes / (1024*1024):.2f}MB',
-            'total_bytes': f'{(in_bytes + out_bytes) / (1024*1024):.2f}MB'
-        }
-    except Exception as e:
-        print(f"Error getting network metrics: {e}")
-        return {
-            'bytes_in': '0MB',
-            'bytes_out': '0MB',
-            'total_bytes': '0MB'
-        }
-
-def get_latency_metrics():
-    """Get request latency metrics"""
-    try:
+            pod_list = v1.list_namespaced_pod(namespace='distributed-fs')
+            for pod in pod_list.items:
+                pods.append({
+                    'name': pod.metadata.name,
+                    'status': pod.status.phase,
+                    'ip': pod.status.pod_ip or 'None',
+                    'node': pod.spec.node_name or 'None',
+                    'start_time': pod.status.start_time.strftime('%Y-%m-%d %H:%M:%S') if pod.status.start_time else 'Unknown'
+                })
+        except Exception as e:
+            print(f"Error getting pod metrics: {e}")
+        
+        # Get latency metrics
         latencies = []
         for sample in LATENCY.collect()[0].samples:
             if sample.name.endswith('_sum'):
@@ -203,26 +184,27 @@ def get_latency_metrics():
                 latencies.append({
                     'endpoint': endpoint,
                     'method': method,
-                    'latency': f'{sample.value*1000:.2f}ms'  # Convert to milliseconds
+                    'latency': sample.value
                 })
-        return latencies
+        
+        return jsonify({
+            'storage': {
+                'total': storage.total,
+                'used': storage.used,
+                'available': storage.free
+            },
+            'network': {
+                'bytes_in': network_in,
+                'bytes_out': network_out,
+                'total': network_in + network_out
+            },
+            'pods': pods,
+            'latencies': latencies
+        })
     except Exception as e:
-        print(f"Error getting latency metrics: {e}")
-        return []
-
-@app.route('/')
-def index():
-    return render_template('index.html')
-
-@app.route('/api/metrics')
-def metrics():
-    return jsonify({
-        'pods': get_pod_metrics(),
-        'storage': get_storage_metrics(),
-        'network': get_network_metrics(),
-        'latency': get_latency_metrics(),
-        'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    })
+        return jsonify({
+            'error': str(e)
+        }), 500
 
 @app.route('/api/health')
 def api_health():
