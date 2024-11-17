@@ -1,152 +1,223 @@
-from typing import Dict, List, Optional
-import hashlib
-import aiohttp
-import asyncio
-import logging
+"""
+Cross-region replication manager with SnapMirror-like functionality
+"""
+from typing import Dict, List, Optional, Set, Tuple
 from datetime import datetime
+import asyncio
+import aiohttp
+import json
+from pathlib import Path
+import hashlib
 from dataclasses import dataclass
-from .models import StorageLocation, Volume
+
+from .models import (
+    Volume,
+    ReplicationPolicy,
+    ReplicationState,
+    StorageLocation,
+    SnapshotState
+)
 
 @dataclass
-class ReplicationPolicy:
-    source_volume_id: str
-    target_location: StorageLocation
-    bandwidth_limit_mbps: Optional[int] = None
-    compression_enabled: bool = True
-    sync_interval_minutes: int = 60
-    bandwidth_schedule: Dict[str, int] = None  # Hour -> bandwidth limit
-    incremental_only: bool = True
-    verify_after_sync: bool = True
-
+class ChunkMetadata:
+    """Metadata for a chunk during replication"""
+    offset: int
+    size: int
+    checksum: str
+    compressed: bool = False
+    
 class ReplicationManager:
-    def __init__(self, storage_manager):
-        self.storage_manager = storage_manager
-        self.logger = logging.getLogger(__name__)
-        self.active_replications: Dict[str, ReplicationPolicy] = {}
-        self.bandwidth_semaphore = asyncio.Semaphore(10)  # Limit concurrent transfers
+    """Manages cross-region replication with SnapMirror-like functionality"""
+    
+    def __init__(self, data_path: Path):
+        self.data_path = data_path
+        self.chunk_size = 1024 * 1024  # 1MB default chunk size
+        self.bandwidth_limit = None  # Bytes per second, None for unlimited
+        self.active_replications: Dict[str, ReplicationState] = {}
+        self.chunk_cache: Dict[str, bytes] = {}  # Checksum -> chunk data
         
-    async def start_replication(self, policy: ReplicationPolicy):
-        """Start replication for a volume with the given policy"""
-        if policy.source_volume_id not in self.storage_manager.system.volumes:
-            raise ValueError(f"Volume {policy.source_volume_id} not found")
+    async def setup_replication(self, volume: Volume, target_location: StorageLocation,
+                              policy: ReplicationPolicy) -> None:
+        """Initialize replication for a volume"""
+        if volume.id in self.active_replications:
+            return
             
-        self.active_replications[policy.source_volume_id] = policy
-        asyncio.create_task(self._replication_loop(policy))
+        state = ReplicationState(
+            source_volume=volume,
+            target_location=target_location,
+            policy=policy,
+            last_sync=None,
+            in_progress=False
+        )
+        self.active_replications[volume.id] = state
         
-    async def _replication_loop(self, policy: ReplicationPolicy):
-        """Main replication loop that handles scheduling and bandwidth management"""
-        while policy.source_volume_id in self.active_replications:
-            try:
-                await self._perform_replication(policy)
-                await asyncio.sleep(policy.sync_interval_minutes * 60)
-            except Exception as e:
-                self.logger.error(f"Replication error for volume {policy.source_volume_id}: {str(e)}")
-                await asyncio.sleep(60)  # Wait before retry
-                
-    async def _perform_replication(self, policy: ReplicationPolicy):
-        """Perform actual replication with bandwidth control and optimization"""
-        volume = self.storage_manager.system.volumes[policy.source_volume_id]
+        # Initialize baseline snapshot if needed
+        if not volume.snapshots:
+            await self._create_baseline_snapshot(volume)
+            
+    async def _create_baseline_snapshot(self, volume: Volume) -> None:
+        """Create initial snapshot for replication"""
+        snapshot = SnapshotState(
+            parent_id=None,
+            metadata={"type": "replication_baseline"}
+        )
+        volume.snapshots[snapshot.id] = snapshot
         
-        # Get current bandwidth limit based on schedule
-        current_hour = datetime.now().hour
-        bandwidth_limit = policy.bandwidth_schedule.get(
-            current_hour, 
-            policy.bandwidth_limit_mbps
-        ) if policy.bandwidth_schedule else policy.bandwidth_limit_mbps
-        
-        async with self.bandwidth_semaphore:
-            # Get changed blocks since last sync if incremental
-            changed_blocks = await self._get_changed_blocks(volume) if policy.incremental_only else None
+    async def start_replication(self, volume_id: str) -> None:
+        """Start replication process for a volume"""
+        if volume_id not in self.active_replications:
+            raise ValueError(f"Replication not set up for volume {volume_id}")
             
-            # Calculate optimal chunk size based on bandwidth
-            chunk_size = self._calculate_chunk_size(bandwidth_limit) if bandwidth_limit else 1024 * 1024
+        state = self.active_replications[volume_id]
+        if state.in_progress:
+            return
             
-            # Compress data if enabled
-            if policy.compression_enabled:
-                data = await self._compress_data(changed_blocks or volume.data)
-            else:
-                data = changed_blocks or volume.data
-                
-            # Split data into chunks and transfer with bandwidth control
-            chunks = self._split_into_chunks(data, chunk_size)
-            for chunk in chunks:
-                await self._transfer_chunk(
-                    chunk, 
-                    policy.target_location,
-                    bandwidth_limit
-                )
-                
-            if policy.verify_after_sync:
-                await self._verify_replication(volume, policy.target_location)
-
-    async def _transfer_chunk(self, chunk: bytes, target: StorageLocation, bandwidth_limit: Optional[int]):
-        """Transfer a chunk of data with bandwidth limiting"""
-        if bandwidth_limit:
-            chunk_size = len(chunk)
-            expected_transfer_time = chunk_size / (bandwidth_limit * 1024 * 1024 / 8)
-            start_time = datetime.now()
-            
-            # Actual transfer
-            await self._replicate_to_node(chunk, target)
-            
-            # Calculate and apply delay if transfer was too fast
-            elapsed = (datetime.now() - start_time).total_seconds()
-            if elapsed < expected_transfer_time:
-                await asyncio.sleep(expected_transfer_time - elapsed)
-        else:
-            await self._replicate_to_node(chunk, target)
-
-    @staticmethod
-    def _calculate_chunk_size(bandwidth_limit_mbps: int) -> int:
-        """Calculate optimal chunk size based on bandwidth limit"""
-        # Use larger chunks for higher bandwidth
-        base_chunk_size = 1024 * 1024  # 1MB base
-        return min(base_chunk_size * (bandwidth_limit_mbps // 100 + 1), 
-                  16 * 1024 * 1024)  # Cap at 16MB
-
-    async def _get_changed_blocks(self, volume: Volume) -> bytes:
-        """Get blocks that changed since last sync (SnapMirror-like)"""
-        # Implementation would track block changes
-        # For now, return None to indicate full sync needed
-        return None
-
-    async def _compress_data(self, data: bytes) -> bytes:
-        """Compress data for transfer"""
-        # Add actual compression implementation
-        return data
-
-    @staticmethod
-    def _split_into_chunks(data: bytes, chunk_size: int) -> List[bytes]:
-        """Split data into chunks for transfer"""
-        return [data[i:i + chunk_size] for i in range(0, len(data), chunk_size)]
-
-    async def _verify_replication(self, volume: Volume, target_location: StorageLocation):
-        """Verify successful replication"""
-        # Implementation would check checksums between source and target
-        pass
-
-    async def _replicate_to_node(self, data: bytes, target: StorageLocation):
-        """Replicate data to a specific node"""
+        state.in_progress = True
         try:
+            await self._replicate_volume(state)
+        finally:
+            state.in_progress = False
+            
+    async def _replicate_volume(self, state: ReplicationState) -> None:
+        """Perform volume replication"""
+        volume = state.source_volume
+        policy = state.policy
+        
+        # Get latest snapshot
+        latest_snapshot = max(
+            volume.snapshots.values(),
+            key=lambda s: s.creation_time
+        )
+        
+        # Get changed blocks since last sync
+        changed_blocks = await self._get_changed_blocks(
+            volume,
+            latest_snapshot,
+            state.last_sync
+        )
+        
+        # Optimize chunk size based on network conditions
+        optimal_chunk_size = await self._calculate_optimal_chunk_size()
+        chunks = await self._prepare_chunks(volume, changed_blocks, optimal_chunk_size)
+        
+        # Start transfer with bandwidth management
+        async with self._bandwidth_limiter():
+            await self._transfer_chunks(chunks, state.target_location)
+            
+        # Update replication state
+        state.last_sync = datetime.now()
+        
+    async def _get_changed_blocks(self, volume: Volume, snapshot: SnapshotState,
+                                last_sync: Optional[datetime]) -> Set[int]:
+        """Get blocks that changed since last sync"""
+        if not last_sync:
+            # First sync, return all blocks
+            return set(range(volume.size // self.chunk_size))
+            
+        changed = set()
+        # Compare with previous snapshot
+        for block_id in snapshot.changed_blocks:
+            changed.add(block_id)
+            
+        return changed
+        
+    async def _prepare_chunks(self, volume: Volume, block_ids: Set[int],
+                            chunk_size: int) -> List[ChunkMetadata]:
+        """Prepare chunks for transfer with deduplication"""
+        chunks = []
+        volume_path = self.data_path / volume.primary_pool_id / volume.id
+        
+        for block_id in block_ids:
+            offset = block_id * chunk_size
+            with open(volume_path, 'rb') as f:
+                f.seek(offset)
+                data = f.read(chunk_size)
+                
             checksum = hashlib.sha256(data).hexdigest()
             
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    f"http://{target.pod_ip}:8080/storage/replicate",
-                    json={
-                        "data": data.hex(),
-                        "checksum": checksum
-                    }
-                ) as response:
-                    if response.status != 200:
-                        raise Exception(f"Replication failed: {await response.text()}")
+            # Check if chunk is in cache
+            if checksum not in self.chunk_cache:
+                self.chunk_cache[checksum] = data
+                
+            chunks.append(ChunkMetadata(
+                offset=offset,
+                size=len(data),
+                checksum=checksum
+            ))
+            
+        return chunks
+        
+    async def _calculate_optimal_chunk_size(self) -> int:
+        """Calculate optimal chunk size based on network conditions"""
+        # Implement network speed test and RTT measurement
+        # For now, return default
+        return self.chunk_size
+        
+    async def _transfer_chunks(self, chunks: List[ChunkMetadata],
+                             target: StorageLocation) -> None:
+        """Transfer chunks to target with bandwidth management"""
+        async with aiohttp.ClientSession() as session:
+            tasks = []
+            for chunk in chunks:
+                if self.bandwidth_limit:
+                    await self._wait_for_bandwidth(chunk.size)
                     
-                    # Verify the checksum
-                    resp_data = await response.json()
-                    if resp_data["checksum"] != checksum:
-                        raise Exception("Checksum verification failed")
-                    
-                    return True
-        except Exception as e:
-            self.logger.error(f"Replication to node {target.node_id} failed: {str(e)}")
-            return False
+                task = asyncio.create_task(
+                    self._transfer_chunk(session, chunk, target)
+                )
+                tasks.append(task)
+                
+            await asyncio.gather(*tasks)
+            
+    async def _transfer_chunk(self, session: aiohttp.ClientSession,
+                            chunk: ChunkMetadata, target: StorageLocation) -> None:
+        """Transfer a single chunk"""
+        data = self.chunk_cache[chunk.checksum]
+        
+        # Compress if beneficial
+        if len(data) > 1024:  # Only compress chunks > 1KB
+            compressed = await self._compress_chunk(data)
+            if len(compressed) < len(data):
+                data = compressed
+                chunk.compressed = True
+                
+        # Upload to target
+        async with session.put(
+            f"{target.endpoint}/{chunk.offset}",
+            data=data,
+            headers={
+                "X-Checksum": chunk.checksum,
+                "X-Compressed": str(chunk.compressed)
+            }
+        ) as response:
+            await response.read()
+            
+    async def _compress_chunk(self, data: bytes) -> bytes:
+        """Compress chunk data"""
+        import zlib
+        return zlib.compress(data)
+        
+    async def _wait_for_bandwidth(self, size: int) -> None:
+        """Wait to respect bandwidth limit"""
+        if not self.bandwidth_limit:
+            return
+            
+        wait_time = size / self.bandwidth_limit
+        await asyncio.sleep(wait_time)
+        
+    @asyncio.contextmanager
+    async def _bandwidth_limiter(self):
+        """Context manager for bandwidth limiting"""
+        # Could implement token bucket algorithm here
+        yield
+        
+    def update_policy(self, volume_id: str, policy: ReplicationPolicy) -> None:
+        """Update replication policy for a volume"""
+        if volume_id not in self.active_replications:
+            raise ValueError(f"No active replication for volume {volume_id}")
+            
+        self.active_replications[volume_id].policy = policy
+        
+    def set_bandwidth_limit(self, limit_bytes_per_sec: Optional[int]) -> None:
+        """Set bandwidth limit for replication"""
+        self.bandwidth_limit = limit_bytes_per_sec
