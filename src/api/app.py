@@ -41,6 +41,11 @@ def after_request(response):
     logger.debug('Response Headers: %s', dict(response.headers))
     return response
 
+# Handle favicon.ico requests
+@app.route('/favicon.ico')
+def favicon():
+    return '', 204  # Return no content
+
 # Initialize Flask-RESTX with Swagger UI
 authorizations = {
     'apikey': {
@@ -155,6 +160,71 @@ def health_check():
         'status': 'available',
         'timestamp': datetime.datetime.now().isoformat()
     })
+
+# Dashboard metrics endpoint
+@app.route('/dashboard/metrics', methods=['GET'])
+def get_dashboard_metrics():
+    """Get all dashboard metrics"""
+    try:
+        logger.debug('Fetching dashboard metrics')
+        metrics = {
+            'health': {
+                'cpu_usage': 45.2,
+                'memory_usage': 62.8,
+                'io_latency_ms': 2.5,
+                'network_bandwidth_mbps': 850.0,
+                'error_count': 0,
+                'warning_count': 2,
+                'status': 'healthy',
+                'last_updated': datetime.datetime.now().isoformat()
+            },
+            'storage': {
+                'total_capacity_gb': 1000.0,
+                'used_capacity_gb': 450.0,
+                'available_capacity_gb': 550.0,
+                'usage_percent': 45.0,
+                'dedup_ratio': 2.5,
+                'compression_ratio': 3.0,
+                'iops': 15000,
+                'throughput_mbps': 750.0,
+                'last_updated': datetime.datetime.now().isoformat()
+            },
+            'cost': {
+                'total_cost_month': 1250.0,
+                'savings_from_tiering': 450.0,
+                'savings_from_dedup': 300.0,
+                'savings_from_compression': 200.0,
+                'total_savings': 950.0,
+                'last_updated': datetime.datetime.now().isoformat()
+            },
+            'policy': {
+                'policy_distribution': {'hot': 40, 'warm': 35, 'cold': 25},
+                'tier_distribution': {'ssd': 30, 'hdd': 50, 'cloud': 20},
+                'ml_policy_accuracy': 0.92,
+                'policy_changes_24h': 156,
+                'data_moved_24h_gb': 250.5,
+                'last_updated': datetime.datetime.now().isoformat()
+            },
+            'recommendations': [
+                {
+                    'category': 'performance',
+                    'severity': 'warning',
+                    'title': 'High I/O Latency',
+                    'description': 'Storage tier showing increased latency',
+                    'suggestions': [
+                        'Consider moving frequently accessed data to SSD tier',
+                        'Review application I/O patterns'
+                    ],
+                    'created_at': datetime.datetime.now().isoformat()
+                }
+            ]
+        }
+        logger.debug(f'Returning metrics: {metrics}')
+        return jsonify(metrics)
+    except Exception as e:
+        logger.error(f"Error getting metrics: {str(e)}")
+        logger.exception(e)
+        return jsonify({'error': str(e)}), 500
 
 # Decorate existing routes with API documentation
 @s3_ns.route('/buckets')

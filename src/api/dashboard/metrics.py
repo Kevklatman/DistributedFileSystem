@@ -326,3 +326,13 @@ async def get_recommendations():
     except Exception as e:
         logger.error(f"Error getting recommendations: {e}")
         raise HTTPException(status_code=500, detail="Error fetching recommendations")
+
+@router.get("/metrics")
+async def get_metrics():
+    """Get all dashboard metrics"""
+    try:
+        metrics = metrics_manager.get_all_metrics()
+        return metrics
+    except Exception as e:
+        logger.error(f"Error getting metrics: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

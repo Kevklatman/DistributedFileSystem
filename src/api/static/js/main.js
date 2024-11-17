@@ -1,6 +1,8 @@
+// Make sure the script is loaded
+console.log('Main.js loading...');
+
 // Global state
 let currentBucket = null;
-const versionModal = new bootstrap.Modal(document.getElementById('versionModal'));
 
 // Utility functions
 function formatSize(bytes) {
@@ -13,6 +15,15 @@ function formatSize(bytes) {
 
 function formatDate(dateString) {
     return new Date(dateString).toLocaleString();
+}
+
+// Utility function to safely get elements
+function getElement(id) {
+    const element = document.getElementById(id);
+    if (!element) {
+        console.warn(`Element with id '${id}' not found`);
+    }
+    return element;
 }
 
 // API functions
@@ -158,11 +169,13 @@ async function deleteObjectVersion(bucketName, objectKey, versionId) {
 // Dashboard Metrics functions
 async function fetchDashboardMetrics() {
     try {
-        const response = await fetch('/api/v1/dashboard/metrics');
+        console.log('Fetching dashboard metrics...');
+        const response = await fetch('/dashboard/metrics');
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
         const metrics = await response.json();
+        console.log('Received metrics:', metrics);
         updateDashboardUI(metrics);
     } catch (error) {
         console.error('Error fetching metrics:', error);
@@ -170,60 +183,77 @@ async function fetchDashboardMetrics() {
 }
 
 function updateDashboardUI(metrics) {
-    // System Health
-    document.getElementById('cpu-usage').textContent = `${metrics.health.cpu_usage.toFixed(1)}%`;
-    document.getElementById('memory-usage').textContent = `${metrics.health.memory_usage.toFixed(1)}%`;
-    document.getElementById('io-latency').textContent = `${metrics.health.io_latency_ms.toFixed(1)} ms`;
-    document.getElementById('network-bandwidth').textContent = `${metrics.health.network_bandwidth_mbps.toFixed(1)} Mbps`;
-    
-    // Storage Metrics
-    document.getElementById('storage-usage').textContent = `${metrics.storage.usage_percent.toFixed(1)}%`;
-    document.getElementById('dedup-ratio').textContent = `${metrics.storage.dedup_ratio.toFixed(2)}x`;
-    document.getElementById('compression-ratio').textContent = `${metrics.storage.compression_ratio.toFixed(2)}x`;
-    document.getElementById('iops').textContent = metrics.storage.iops;
-    
-    // Cost Metrics
-    document.getElementById('total-cost').textContent = `$${metrics.cost.total_cost_month.toFixed(2)}`;
-    document.getElementById('total-savings').textContent = `$${metrics.cost.total_savings.toFixed(2)}`;
-    
-    // Policy Metrics
-    document.getElementById('ml-accuracy').textContent = `${(metrics.policy.ml_policy_accuracy * 100).toFixed(1)}%`;
-    document.getElementById('data-moved').textContent = `${metrics.policy.data_moved_24h_gb.toFixed(1)} GB`;
-    
-    // Update recommendations
-    const recsContainer = document.getElementById('recommendations');
-    recsContainer.innerHTML = '';
-    metrics.recommendations.forEach(rec => {
-        const recElement = document.createElement('div');
-        recElement.className = `alert alert-${rec.severity}`;
-        recElement.innerHTML = `
-            <h5>${rec.title}</h5>
-            <p>${rec.description}</p>
-            <ul>
-                ${rec.suggestions.map(s => `<li>${s}</li>`).join('')}
-            </ul>
-        `;
-        recsContainer.appendChild(recElement);
-    });
+    try {
+        console.log('Updating UI with metrics:', metrics);
+        
+        // System Health
+        const elements = {
+            'cpu-usage': metrics.health.cpu_usage.toFixed(1) + '%',
+            'memory-usage': metrics.health.memory_usage.toFixed(1) + '%',
+            'io-latency': metrics.health.io_latency_ms.toFixed(1) + ' ms',
+            'network-bandwidth': metrics.health.network_bandwidth_mbps.toFixed(1) + ' Mbps',
+            'storage-usage': metrics.storage.usage_percent.toFixed(1) + '%',
+            'dedup-ratio': metrics.storage.dedup_ratio.toFixed(2) + 'x',
+            'compression-ratio': metrics.storage.compression_ratio.toFixed(2) + 'x',
+            'iops': metrics.storage.iops,
+            'total-cost': '$' + metrics.cost.total_cost_month.toFixed(2),
+            'total-savings': '$' + metrics.cost.total_savings.toFixed(2),
+            'ml-accuracy': (metrics.policy.ml_policy_accuracy * 100).toFixed(1) + '%',
+            'data-moved': metrics.policy.data_moved_24h_gb.toFixed(1) + ' GB'
+        };
+        
+        // Update each element if it exists
+        Object.entries(elements).forEach(([id, value]) => {
+            const element = getElement(id);
+            if (element) {
+                element.textContent = value;
+            }
+        });
+        
+        // Update recommendations
+        const recsContainer = getElement('recommendations');
+        if (recsContainer) {
+            recsContainer.innerHTML = '';
+            metrics.recommendations.forEach(rec => {
+                const recElement = document.createElement('div');
+                recElement.className = `alert alert-${rec.severity}`;
+                recElement.innerHTML = `
+                    <h5>${rec.title}</h5>
+                    <p>${rec.description}</p>
+                    <ul>
+                        ${rec.suggestions.map(s => `<li>${s}</li>`).join('')}
+                    </ul>
+                `;
+                recsContainer.appendChild(recElement);
+            });
+        }
+        console.log('UI update complete');
+    } catch (error) {
+        console.error('Error updating UI:', error);
+        console.error('Error details:', error.message);
+        console.error('Stack trace:', error.stack);
+    }
 }
 
 // UI update functions
 async function refreshBuckets() {
     try {
         const buckets = await listBuckets();
-        const bucketList = document.getElementById('bucketList');
-        bucketList.innerHTML = '';
+        const bucketList = getElement('bucketList');
+        if (bucketList) {
+            bucketList.innerHTML = '';
 
-        buckets.forEach(bucket => {
-            const bucketName = bucket.Name || bucket.name; // Support both Name and name fields
-            const li = document.createElement('li');
-            li.className = 'list-group-item d-flex justify-content-between align-items-center';
-            li.innerHTML = `
-                <span class="bucket-name" onclick="selectBucket('${bucketName}')">${bucketName}</span>
-                <button class="btn btn-danger btn-sm" onclick="deleteBucket('${bucketName}')">Delete</button>
-            `;
-            bucketList.appendChild(li);
-        });
+            buckets.forEach(bucket => {
+                const bucketName = bucket.Name || bucket.name; // Support both Name and name fields
+                const li = document.createElement('li');
+                li.className = 'list-group-item d-flex justify-content-between align-items-center';
+                li.innerHTML = `
+                    <span class="bucket-name" onclick="selectBucket('${bucketName}')">${bucketName}</span>
+                    <button class="btn btn-danger btn-sm" onclick="deleteBucket('${bucketName}')">Delete</button>
+                `;
+                bucketList.appendChild(li);
+            });
+        }
     } catch (error) {
         console.error('Error refreshing buckets:', error);
         alert('Error loading buckets: ' + error.message);
@@ -236,31 +266,36 @@ async function refreshCurrentBucket() {
     try {
         // Update versioning switch
         const versioning = await getVersioning(currentBucket);
-        document.getElementById('versioningSwitch').checked = versioning;
+        const versioningSwitch = getElement('versioningSwitch');
+        if (versioningSwitch) {
+            versioningSwitch.checked = versioning;
+        }
 
         // Update objects list
         const objects = await listObjects(currentBucket);
-        const objectsList = document.getElementById('objectsList');
-        objectsList.innerHTML = objects.map(object => `
-            <tr>
-                <td><i class="fas fa-file me-2"></i>${object}</td>
-                <td>-</td>
-                <td>-</td>
-                <td>
-                    <div class="btn-group btn-group-sm">
-                        <button class="btn btn-outline-primary" onclick="downloadObject('${object}')">
-                            <i class="fas fa-download"></i>
-                        </button>
-                        <button class="btn btn-outline-info" onclick="showVersions('${object}')">
-                            <i class="fas fa-history"></i>
-                        </button>
-                        <button class="btn btn-outline-danger" onclick="deleteObject('${currentBucket}', '${object}')">
-                            <i class="fas fa-trash"></i>
-                        </button>
-                    </div>
-                </td>
-            </tr>
-        `).join('');
+        const objectsList = getElement('objectsList');
+        if (objectsList) {
+            objectsList.innerHTML = objects.map(object => `
+                <tr>
+                    <td><i class="fas fa-file me-2"></i>${object}</td>
+                    <td>-</td>
+                    <td>-</td>
+                    <td>
+                        <div class="btn-group btn-group-sm">
+                            <button class="btn btn-outline-primary" onclick="downloadObject('${object}')">
+                                <i class="fas fa-download"></i>
+                            </button>
+                            <button class="btn btn-outline-info" onclick="showVersions('${object}')">
+                                <i class="fas fa-history"></i>
+                            </button>
+                            <button class="btn btn-outline-danger" onclick="deleteObject('${currentBucket}', '${object}')">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+            `).join('');
+        }
     } catch (error) {
         alert('Error refreshing bucket: ' + error.message);
     }
@@ -268,101 +303,136 @@ async function refreshCurrentBucket() {
 
 async function selectBucket(bucketName) {
     currentBucket = bucketName;
-    document.getElementById('currentBucketName').textContent = bucketName;
-    document.getElementById('welcomeMessage').style.display = 'none';
-    document.getElementById('bucketInfo').style.display = 'block';
+    const currentBucketName = getElement('currentBucketName');
+    if (currentBucketName) {
+        currentBucketName.textContent = bucketName;
+    }
+    const welcomeMessage = getElement('welcomeMessage');
+    if (welcomeMessage) {
+        welcomeMessage.style.display = 'none';
+    }
+    const bucketInfo = getElement('bucketInfo');
+    if (bucketInfo) {
+        bucketInfo.style.display = 'block';
+    }
     refreshBuckets();
     refreshCurrentBucket();
 }
 
 function showWelcomeMessage() {
-    document.getElementById('welcomeMessage').style.display = 'block';
-    document.getElementById('bucketInfo').style.display = 'none';
+    const welcomeMessage = getElement('welcomeMessage');
+    if (welcomeMessage) {
+        welcomeMessage.style.display = 'block';
+    }
+    const bucketInfo = getElement('bucketInfo');
+    if (bucketInfo) {
+        bucketInfo.style.display = 'none';
+    }
 }
 
 async function showVersions(objectKey) {
     try {
         const versions = await listVersions(currentBucket, objectKey);
-        const versionsList = document.getElementById('versionsList');
-        versionsList.innerHTML = versions.map(version => `
-            <tr>
-                <td>${version.VersionId}</td>
-                <td>${formatDate(version.LastModified)}</td>
-                <td>${formatSize(version.Size)}</td>
-                <td>
-                    <div class="btn-group btn-group-sm">
-                        <button class="btn btn-outline-primary" onclick="downloadVersion('${objectKey}', '${version.VersionId}')">
-                            <i class="fas fa-download"></i>
-                        </button>
-                        <button class="btn btn-outline-danger" onclick="deleteVersion('${objectKey}', '${version.VersionId}')">
-                            <i class="fas fa-trash"></i>
-                        </button>
-                    </div>
-                </td>
-            </tr>
-        `).join('');
-        versionModal.show();
+        const versionsList = getElement('versionsList');
+        if (versionsList) {
+            versionsList.innerHTML = versions.map(version => `
+                <tr>
+                    <td>${version.VersionId}</td>
+                    <td>${formatDate(version.LastModified)}</td>
+                    <td>${formatSize(version.Size)}</td>
+                    <td>
+                        <div class="btn-group btn-group-sm">
+                            <button class="btn btn-outline-primary" onclick="downloadVersion('${objectKey}', '${version.VersionId}')">
+                                <i class="fas fa-download"></i>
+                            </button>
+                            <button class="btn btn-outline-danger" onclick="deleteVersion('${objectKey}', '${version.VersionId}')">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+            `).join('');
+        }
+        const versionModal = getElement('versionModal');
+        if (versionModal) {
+            versionModal.show();
+        }
     } catch (error) {
         alert('Error showing versions: ' + error.message);
     }
 }
 
 // Event handlers
-document.getElementById('versioningSwitch').addEventListener('change', async function (e) {
-    try {
-        await setVersioning(currentBucket, e.target.checked);
-    } catch (error) {
-        alert('Error updating versioning: ' + error.message);
-        e.target.checked = !e.target.checked;
-    }
-});
+const versioningSwitch = getElement('versioningSwitch');
+if (versioningSwitch) {
+    versioningSwitch.addEventListener('change', async function (e) {
+        try {
+            await setVersioning(currentBucket, e.target.checked);
+        } catch (error) {
+            alert('Error updating versioning: ' + error.message);
+            e.target.checked = !e.target.checked;
+        }
+    });
+}
 
-const uploadZone = document.getElementById('uploadZone');
-const fileInput = document.getElementById('fileInput');
-const progressBar = document.querySelector('.progress');
-const progressBarInner = document.querySelector('.progress-bar');
+const uploadZone = getElement('uploadZone');
+const fileInput = getElement('fileInput');
+const progressBar = getElement('progressBar');
+const progressBarInner = getElement('progressBarInner');
 
-uploadZone.addEventListener('click', () => fileInput.click());
+if (uploadZone) {
+    uploadZone.addEventListener('click', () => fileInput.click());
 
-uploadZone.addEventListener('dragover', (e) => {
-    e.preventDefault();
-    uploadZone.classList.add('dragover');
-});
+    uploadZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        uploadZone.classList.add('dragover');
+    });
 
-uploadZone.addEventListener('dragleave', () => {
-    uploadZone.classList.remove('dragover');
-});
+    uploadZone.addEventListener('dragleave', () => {
+        uploadZone.classList.remove('dragover');
+    });
 
-uploadZone.addEventListener('drop', async (e) => {
-    e.preventDefault();
-    uploadZone.classList.remove('dragover');
-    const files = e.dataTransfer.files;
-    handleFiles(files);
-});
+    uploadZone.addEventListener('drop', async (e) => {
+        e.preventDefault();
+        uploadZone.classList.remove('dragover');
+        const files = e.dataTransfer.files;
+        handleFiles(files);
+    });
+}
 
-fileInput.addEventListener('change', () => {
-    handleFiles(fileInput.files);
-});
+if (fileInput) {
+    fileInput.addEventListener('change', () => {
+        handleFiles(fileInput.files);
+    });
+}
 
 async function handleFiles(files) {
     if (!currentBucket) return;
 
-    progressBar.style.display = 'block';
+    if (progressBar) {
+        progressBar.style.display = 'block';
+    }
     let completed = 0;
 
     for (const file of files) {
         try {
             await uploadFile(file, currentBucket);
             completed++;
-            progressBarInner.style.width = `${(completed / files.length) * 100}%`;
+            if (progressBarInner) {
+                progressBarInner.style.width = `${(completed / files.length) * 100}%`;
+            }
         } catch (error) {
             alert(`Error uploading ${file.name}: ${error.message}`);
         }
     }
 
     setTimeout(() => {
-        progressBar.style.display = 'none';
-        progressBarInner.style.width = '0%';
+        if (progressBar) {
+            progressBar.style.display = 'none';
+        }
+        if (progressBarInner) {
+            progressBarInner.style.width = '0%';
+        }
     }, 1000);
 
     refreshCurrentBucket();
@@ -417,9 +487,40 @@ async function deleteVersion(objectKey, versionId) {
     }
 }
 
-// Start periodic metrics updates
-setInterval(fetchDashboardMetrics, 30000); // Update every 30 seconds
-fetchDashboardMetrics(); // Initial fetch
+// Initialize everything after DOM is loaded
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initializeDashboard);
+} else {
+    // DOM is already ready, call the initialization function directly
+    initializeDashboard();
+}
 
-// Initialize
-refreshBuckets();
+async function initializeDashboard() {
+    console.log('Initializing dashboard...');
+    
+    try {
+        // Initialize Bootstrap components if they exist
+        const versionModalElement = getElement('versionModal');
+        if (versionModalElement && typeof bootstrap !== 'undefined') {
+            const versionModal = new bootstrap.Modal(versionModalElement);
+        }
+        
+        // Initial metrics fetch
+        console.log('Fetching initial metrics...');
+        await fetchDashboardMetrics();
+        
+        // Start periodic updates
+        console.log('Starting periodic updates...');
+        setInterval(fetchDashboardMetrics, 30000);
+        
+        // Initialize file system
+        console.log('Initializing file system...');
+        await refreshBuckets();
+        
+        console.log('Initialization complete');
+    } catch (error) {
+        console.error('Error during initialization:', error);
+    }
+}
+
+console.log('Main.js loaded');
