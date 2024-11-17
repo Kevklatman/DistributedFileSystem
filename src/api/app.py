@@ -333,17 +333,25 @@ class BucketOperations(Resource):
     @s3_ns.response(400, 'Bad Request', error_model)
     def put(self, bucket_name):
         """Create a new bucket"""
-        consistency = request.headers.get('X-Consistency-Level', 'strong')  # Default to strong for writes
-        success, error = self.storage.create_bucket(bucket_name, consistency_level=consistency)
-        if error:
-            if 'consistency' in error:
-                return {'error': error}, 503
-            elif 'exists' in error:
-                return {'error': error}, 409
-            else:
-                return {'error': error}, 400
-                
-        return {'message': 'Bucket created successfully'}, 200
+        try:
+            # Use eventual consistency if edge node is specified
+            edge_node = request.headers.get('X-Edge-Node')
+            consistency = request.headers.get('X-Consistency-Level', 'eventual' if edge_node else 'strong')
+            
+            success, error = self.storage.create_bucket(bucket_name, consistency_level=consistency)
+            
+            if not success:
+                if error and 'consistency' in error:
+                    return {'error': error}, 503
+                elif error and 'exists' in error:
+                    return {'error': error}, 409
+                else:
+                    return {'error': error}, 400
+                    
+            return {'message': 'Bucket created successfully'}, 200
+        except Exception as e:
+            logger.error(f"Error creating bucket: {e}")
+            return {'error': str(e)}, 500
 
     @s3_ns.doc('delete_bucket')
     @s3_ns.response(204, 'No Content')
@@ -360,14 +368,25 @@ class BucketOperations(Resource):
     @s3_ns.response(404, 'Not Found', error_model)
     def get(self, bucket_name):
         """List objects in bucket"""
-        consistency = request.headers.get('X-Consistency-Level', 'eventual')
-        objects, error = self.storage.list_objects(bucket_name, consistency_level=consistency)
-        if error:
-            if 'consistency' in error:
-                return {'error': error}, 503
-            return {'error': error}, 404
+        try:
+            consistency = request.headers.get('X-Consistency-Level', 'eventual')
+            objects, error = self.storage.list_objects(bucket_name, consistency_level=consistency)
             
-        return {'objects': objects}, 200
+            if error:
+                if 'consistency' in error:
+                    return {'error': error}, 503
+                return {'error': error}, 404
+                
+            # Convert objects to list if needed
+            if objects is None:
+                objects = []
+            elif not isinstance(objects, list):
+                objects = list(objects)
+                
+            return {'objects': objects}, 200
+        except Exception as e:
+            logger.error(f"Error listing objects: {e}")
+            return {'error': str(e)}, 500
 
 @s3_ns.route('/buckets/<string:bucket_name>/objects')
 @s3_ns.param('bucket_name', 'The bucket name')
@@ -399,77 +418,122 @@ class ObjectOperations(Resource):
     @s3_ns.response(404, 'Not Found', error_model)
     def get(self, bucket_name, object_key):
         """Get an object"""
-        consistency = request.headers.get('X-Consistency-Level', 'eventual')
-        cache_control = request.headers.get('Cache-Control', '')
-        
-        # Check if we can serve from edge cache
-        if 'no-cache' not in cache_control.lower():
-            cached_data = edge_cache.get(f"{bucket_name}/{object_key}")
-            if cached_data:
-                response = make_response(cached_data)
-                response.headers['X-Cache-Status'] = 'HIT'
-                return response
-                
-        obj, error = self.storage.get_object(bucket_name, object_key, consistency_level=consistency)
-        
-        if not obj:
-            if error and 'consistency' in error:
-                return {'error': error}, 503
-            return {'error': 'Object not found'}, 404
+        try:
+            consistency = request.headers.get('X-Consistency-Level', 'eventual')
+            edge_node = request.headers.get('X-Edge-Node')
+            cache_control = request.headers.get('Cache-Control', '')
             
-        # Update edge cache
-        edge_cache.set(f"{bucket_name}/{object_key}", obj)
+            # Check if we can serve from edge cache
+            if edge_node and 'no-cache' not in cache_control.lower():
+                cached_data = edge_cache.get(f"{bucket_name}/{object_key}")
+                if cached_data:
+                    response = make_response(cached_data)
+                    response.headers['X-Cache-Status'] = 'HIT'
+                    response.headers['Cache-Control'] = 'public, max-age=3600'
+                    return response
+            
+            # Get from storage if not in cache
+            obj, error = self.storage.get_object(bucket_name, object_key, consistency_level=consistency)
+            
+            if not obj:
+                if error and 'consistency' in error:
+                    return {'error': error}, 503
+                return {'error': 'Object not found'}, 404
+                
+            # Update edge cache if needed
+            if edge_node:
+                edge_cache.set(f"{bucket_name}/{object_key}", obj)
         
-        response = make_response(obj)
-        response.headers['X-Cache-Status'] = 'MISS'
-        return response
+            response = make_response(obj)
+            response.headers['X-Cache-Status'] = 'MISS'
+            response.headers['Content-Type'] = 'application/octet-stream'
+            response.headers['ETag'] = hashlib.md5(obj).hexdigest()
+            response.headers['Last-Modified'] = datetime.datetime.now().strftime('%a, %d %b %Y %H:%M:%S GMT')
+            return response
+            
+        except Exception as e:
+            logger.error(f"Error in GET request: {e}")
+            return {'error': str(e)}, 500
 
     @s3_ns.doc('head_object')
     @s3_ns.response(200, 'Success')
     @s3_ns.response(404, 'Not Found', error_model)
     def head(self, bucket_name, object_key):
         """Get object metadata"""
-        consistency = request.headers.get('X-Consistency-Level', 'eventual')
-        edge_node = request.headers.get('X-Edge-Node')
-        
-        data, error = self.storage.get_object(bucket_name, object_key, consistency_level=consistency)
-        if error:
-            if 'consistency' in error:
-                return {'error': error}, 503
-            return {'error': error}, 404
+        try:
+            consistency = request.headers.get('X-Consistency-Level', 'eventual')
+            edge_node = request.headers.get('X-Edge-Node')
+            cache_info = request.headers.get('X-Cache-Info')
             
-        response = make_response('')
-        response.headers['Content-Length'] = str(len(data))
-        response.headers['Content-Type'] = 'application/octet-stream'
-        response.headers['ETag'] = hashlib.md5(data).hexdigest()
-        response.headers['Last-Modified'] = datetime.datetime.now().strftime('%a, %d %b %Y %H:%M:%S GMT')
-        
-        # Set cache headers if edge node
-        cache_info = request.headers.get('X-Cache-Info')
-        return self._set_cache_headers(response, edge_node, cache_info)
+            # Check edge cache first
+            if edge_node:
+                cached_data = edge_cache.get(f"{bucket_name}/{object_key}")
+                if cached_data:
+                    response = make_response('')
+                    response.headers['Content-Length'] = str(len(cached_data))
+                    response.headers['Content-Type'] = 'application/octet-stream'
+                    response.headers['ETag'] = hashlib.md5(cached_data).hexdigest()
+                    response.headers['Last-Modified'] = datetime.datetime.now().strftime('%a, %d %b %Y %H:%M:%S GMT')
+                    response.headers['X-Cache-Status'] = 'HIT'
+                    response.headers['Cache-Control'] = 'public, max-age=3600'
+                    return response
+            
+            # Get from storage if not in cache
+            obj, error = self.storage.get_object(bucket_name, object_key, consistency_level=consistency)
+            
+            if not obj:
+                if error and 'consistency' in error:
+                    return {'error': error}, 503
+                return {'error': 'Object not found'}, 404
+                
+            response = make_response('')
+            response.headers['Content-Length'] = str(len(obj))
+            response.headers['Content-Type'] = 'application/octet-stream'
+            response.headers['ETag'] = hashlib.md5(obj).hexdigest()
+            response.headers['Last-Modified'] = datetime.datetime.now().strftime('%a, %d %b %Y %H:%M:%S GMT')
+            
+            # Set cache headers for edge nodes
+            if edge_node:
+                edge_cache.set(f"{bucket_name}/{object_key}", obj)
+                response.headers['X-Cache-Status'] = 'MISS'
+                response.headers['Cache-Control'] = 'public, max-age=3600'
+            
+            return response
+            
+        except Exception as e:
+            logger.error(f"Error in HEAD request: {e}")
+            return {'error': str(e)}, 500
 
     @s3_ns.doc('put_object')
     @s3_ns.response(200, 'Success')
     @s3_ns.response(400, 'Bad Request', error_model)
     def put(self, bucket_name, object_key):
         """Put an object"""
-        consistency = request.headers.get('X-Consistency-Level', 'strong')  # Default to strong for writes
-        edge_node = request.headers.get('X-Edge-Node')
-        
-        success, error = self.storage.put_object(bucket_name, object_key, request.data, consistency_level=consistency)
-        if not success:
-            if 'consistency' in error:
-                return {'error': error}, 503
-            return {'error': error}, 400
+        try:
+            edge_node = request.headers.get('X-Edge-Node')
+            consistency = request.headers.get('X-Consistency-Level', 'eventual' if edge_node else 'strong')
             
-        response = make_response('')
-        response.headers['ETag'] = hashlib.md5(request.data).hexdigest()
-        
-        # Set cache headers if edge node
-        if edge_node:
-            response = self._set_cache_headers(response, edge_node, 'HIT')
+            success, error = self.storage.put_object(bucket_name, object_key, request.data, consistency_level=consistency)
             
-        return response
+            if not success:
+                if error and 'consistency' in error:
+                    return {'error': error}, 503
+                return {'error': error}, 400
+                
+            response = make_response('')
+            response.headers['ETag'] = hashlib.md5(request.data).hexdigest()
+            
+            # Update edge cache if needed
+            if edge_node:
+                edge_cache.set(f"{bucket_name}/{object_key}", request.data)
+                response.headers['X-Cache-Status'] = 'UPDATED'
+                response.headers['Cache-Control'] = 'public, max-age=3600'
+            
+            return response
+            
+        except Exception as e:
+            logger.error(f"Error in PUT request: {e}")
+            return {'error': str(e)}, 500
 
     @s3_ns.doc('delete_object')
     @s3_ns.response(204, 'No Content')

@@ -66,7 +66,7 @@ class StorageBackend(ABC):
         pass
 
     @abstractmethod
-    def list_objects(self, bucket_name):
+    def list_objects(self, bucket_name, consistency_level='eventual'):
         pass
 
     @abstractmethod
@@ -130,6 +130,7 @@ class LocalStorageBackend(StorageBackend):
         self.fs_manager = fs_manager
         self.buckets = {}  # In-memory bucket storage
         self.node_status = {}  # Track node status
+        self.node_last_seen = {}  # Track last seen time for each node
         
         # Create root directory for buckets if it doesn't exist
         self.fs_manager.createDirectory('/buckets')
@@ -142,39 +143,67 @@ class LocalStorageBackend(StorageBackend):
         
     def _init_node_status(self):
         """Initialize node status"""
-        # Mock node status for testing
+        # Track status of all nodes
         self.node_status = {
-            'node1': True,
-            'node2': True,
-            'node3': True
+            'distributedfilesystem-node1-1': True,
+            'distributedfilesystem-node2-1': True,
+            'distributedfilesystem-node3-1': True
+        }
+        self.node_last_seen = {
+            'distributedfilesystem-node1-1': datetime.datetime.now(),
+            'distributedfilesystem-node2-1': datetime.datetime.now(),
+            'distributedfilesystem-node3-1': datetime.datetime.now()
         }
         
     def _check_consistency(self, consistency_level):
         """Check if consistency level can be satisfied"""
         if consistency_level == 'strong':
-            # For strong consistency, all nodes must be up
-            return all(self.node_status.values())
-        return True  # Eventual consistency is always satisfied
+            # For strong consistency, all nodes must be up and recently seen
+            now = datetime.datetime.now()
+            active_nodes = 0
+            for node, last_seen in self.node_last_seen.items():
+                if self.node_status[node] and (now - last_seen).total_seconds() <= 10:
+                    active_nodes += 1
+            # Need at least 2 nodes for strong consistency
+            return active_nodes >= 2
+        return True  # Eventual consistency always satisfied
         
     def _update_node_status(self, node_id, status):
         """Update node status"""
         if node_id in self.node_status:
             self.node_status[node_id] = status
+            if status:
+                self.node_last_seen[node_id] = datetime.datetime.now()
             
+    def _check_node_health(self):
+        """Check health of all nodes"""
+        now = datetime.datetime.now()
+        for node in self.node_status:
+            if (now - self.node_last_seen[node]).total_seconds() > 10:
+                self.node_status[node] = False
+                logger.warning(f"Node {node} marked as down due to timeout")
+                
     def get_object(self, bucket_name, object_key, consistency_level='eventual'):
         """Get an object with specified consistency level"""
-        if consistency_level == 'strong' and not self._check_consistency(consistency_level):
-            return None, "Strong consistency requirement not met: some nodes are down"
-            
-        if bucket_name not in self.buckets:
-            return None, "Bucket not found"
-            
-        object_path = f'/buckets/{bucket_name}/{object_key}'
-        data = self.fs_manager.readFile(object_path)
-        if data is None:
-            return None, "Object not found"
-            
-        return data, None
+        try:
+            if consistency_level == 'strong' and not self._check_consistency(consistency_level):
+                return None, "Strong consistency requirement not met: some nodes are down"
+                
+            if bucket_name not in self.buckets:
+                return None, "Bucket not found"
+                
+            object_path = f'/buckets/{bucket_name}/{object_key}'
+            if not self.fs_manager.exists(object_path):
+                return None, "Object not found"
+                
+            data = self.fs_manager.readFile(object_path)
+            if not data:
+                return None, "Failed to read object"
+                
+            return data, None
+        except Exception as e:
+            logger.error(f"Error getting object: {e}")
+            return None, str(e)
         
     def put_object(self, bucket_name, object_key, data, consistency_level='eventual'):
         """Put an object with specified consistency level"""
@@ -231,26 +260,28 @@ class LocalStorageBackend(StorageBackend):
             logger.error(f"Error creating bucket: {e}")
             return False, str(e)
 
-    def list_objects(self, bucket_name):
+    def list_objects(self, bucket_name, consistency_level='eventual'):
         """List objects in a bucket"""
-        if bucket_name not in self.buckets:
-            return None, "Bucket not found"
-            
         try:
-            bucket_path = f'/buckets/{bucket_name}'
-            result = self.fs_manager.listDirectory(bucket_path)
-            if result is None:
-                return [], None
+            if consistency_level == 'strong' and not self._check_consistency(consistency_level):
+                return None, "Strong consistency requirement not met: some nodes are down"
                 
+            if bucket_name not in self.buckets:
+                return None, "Bucket not found"
+                
+            bucket_path = f'/buckets/{bucket_name}'
+            if not self.fs_manager.exists(bucket_path):
+                return None, "Bucket directory not found"
+                
+            # Get list of objects from filesystem
             objects = []
-            if 'files' in result:
-                for file_path in result['files']:
-                    object_key = os.path.basename(file_path)
-                    stat = self.fs_manager.getFileStat(file_path)
+            for item in self.fs_manager.listDirectory(bucket_path):
+                if not item.startswith('.'):  # Skip hidden files
+                    object_path = f'{bucket_path}/{item}'
                     objects.append({
-                        'Key': object_key,
-                        'Size': stat.get('size', 0) if stat else 0,
-                        'LastModified': stat.get('mtime', datetime.datetime.now().isoformat()) if stat else datetime.datetime.now().isoformat()
+                        'Key': item,
+                        'Size': self.fs_manager.getSize(object_path),
+                        'LastModified': self.fs_manager.getLastModified(object_path)
                     })
                     
             return objects, None
