@@ -118,8 +118,12 @@ class AzureBlobProvider(CloudStorageProvider):
         if not self.connection_string:
             raise ValueError("Azure connection string not found in environment variables")
         
-        self.client = BlobServiceClient.from_connection_string(self.connection_string)
-    
+        try:
+            self.client = BlobServiceClient.from_connection_string(self.connection_string)
+        except ValueError as e:
+            logger.error(f"Invalid Azure connection string: {str(e)}")
+            raise ValueError("Invalid Azure connection string format")
+            
     def upload_file(self, file_data: Union[bytes, BinaryIO], object_key: str, bucket: str, **kwargs) -> bool:
         try:
             container_client = self.client.get_container_client(bucket)
@@ -132,6 +136,9 @@ class AzureBlobProvider(CloudStorageProvider):
             return True
         except AzureError as e:
             logger.error(f"Error uploading to Azure Blob: {str(e)}")
+            return False
+        except Exception as e:
+            logger.error(f"Unexpected error uploading to Azure Blob: {str(e)}")
             return False
 
     def download_file(self, object_key: str, bucket: str) -> Optional[bytes]:
