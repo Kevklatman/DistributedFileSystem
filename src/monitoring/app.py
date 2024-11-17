@@ -7,27 +7,28 @@ import urllib3
 import requests
 import time
 from flask_cors import CORS
-from prometheus_client import Counter, Histogram, start_http_server
+from prometheus_client import start_http_server, Counter, Histogram, REGISTRY, generate_latest, CONTENT_TYPE_LATEST
 import sys
 
 # Disable SSL warnings
 urllib3.disable_warnings()
 
-# Initialize Prometheus metrics
-REQUEST_COUNT = Counter(
+# Create a single registry for all metrics
+REQUESTS = Counter(
     'dfs_request_total',
     'Total number of requests by endpoint and method',
     ['endpoint', 'method', 'status']
 )
 
-REQUEST_LATENCY = Histogram(
+LATENCY = Histogram(
     'dfs_request_latency_seconds',
     'Request latency in seconds',
-    ['endpoint', 'method']
+    ['endpoint', 'method'],
+    buckets=[0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1.0, 2.5, 5.0, 7.5, 10.0]
 )
 
 NETWORK_IO = Counter(
-    'dfs_network_bytes',
+    'dfs_network_bytes_total',
     'Network I/O in bytes',
     ['direction']  # 'in' or 'out'
 )
@@ -46,29 +47,30 @@ CORS(app, resources={
 @app.before_request
 def before_request():
     request.start_time = time.time()
-    if request.content_length:
-        NETWORK_IO.labels(direction='in').inc(request.content_length)
 
 @app.after_request
 def after_request(response):
-    # Record request latency
-    latency = time.time() - request.start_time
-    REQUEST_LATENCY.labels(
-        endpoint=request.endpoint or 'unknown',
-        method=request.method
-    ).observe(latency)
-
-    # Record request count
-    REQUEST_COUNT.labels(
-        endpoint=request.endpoint or 'unknown',
-        method=request.method,
-        status=response.status_code
-    ).inc()
-
-    # Record outgoing network bytes
-    if response.content_length:
-        NETWORK_IO.labels(direction='out').inc(response.content_length)
-
+    if request.path != '/formatted_metrics':  # Don't track metrics about getting metrics
+        latency = time.time() - request.start_time
+        REQUESTS.labels(
+            endpoint=request.endpoint or 'unknown',
+            method=request.method,
+            status=response.status_code
+        ).inc()
+        
+        LATENCY.labels(
+            endpoint=request.endpoint or 'unknown',
+            method=request.method
+        ).observe(latency)
+        
+        # Track response size
+        response_size = len(response.get_data())
+        NETWORK_IO.labels(direction='out').inc(response_size)
+        
+        # Track request size
+        request_size = len(request.get_data())
+        NETWORK_IO.labels(direction='in').inc(request_size)
+    
     return response
 
 # Configure Kubernetes client
@@ -194,7 +196,7 @@ def get_latency_metrics():
     """Get request latency metrics"""
     try:
         latencies = []
-        for sample in REQUEST_LATENCY.collect()[0].samples:
+        for sample in LATENCY.collect()[0].samples:
             if sample.name.endswith('_sum'):
                 endpoint = dict(sample.labels)['endpoint']
                 method = dict(sample.labels)['method']
@@ -353,12 +355,8 @@ def api_status():
 @app.route('/formatted_metrics')
 def formatted_metrics():
     """Custom metrics endpoint that formats Prometheus metrics for readability"""
-    from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
-    from io import StringIO
-    import pprint
-
-    # Get raw metrics
-    raw_metrics = generate_latest().decode('utf-8')
+    # Use the same registry as the Prometheus server
+    raw_metrics = generate_latest(REGISTRY).decode('utf-8')
     
     # Parse and format metrics
     formatted_metrics = []
@@ -403,7 +401,7 @@ if __name__ == '__main__':
         # Start Prometheus metrics server first
         metrics_port = 9091
         try:
-            start_http_server(metrics_port)
+            start_http_server(metrics_port, registry=REGISTRY)
             print(f"Prometheus metrics server started on port {metrics_port}")
         except Exception as e:
             print(f"Warning: Could not start Prometheus metrics server: {e}")
