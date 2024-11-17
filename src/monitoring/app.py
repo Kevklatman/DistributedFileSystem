@@ -49,6 +49,17 @@ STORAGE_AVAILABLE = Gauge(
     'Available storage in bytes'
 )
 
+CPU_USAGE = Gauge(
+    'dfs_cpu_usage_percent',
+    'CPU usage percentage'
+)
+
+MEMORY_USAGE = Gauge(
+    'dfs_memory_usage_bytes',
+    'Memory usage in bytes',
+    ['type']  # 'total', 'used', 'available'
+)
+
 POD_STATUS = Gauge(
     'dfs_pod_status',
     'Status of pods in the distributed system',
@@ -66,22 +77,40 @@ CORS(app, resources={
     }
 })
 
-def update_storage_metrics():
-    """Update storage metrics from the system"""
+def update_system_metrics():
+    """Update system metrics including CPU and memory"""
     try:
+        # CPU metrics
+        CPU_USAGE.set(psutil.cpu_percent(interval=1))
+        
+        # Memory metrics
+        memory = psutil.virtual_memory()
+        MEMORY_USAGE.labels(type='total').set(memory.total)
+        MEMORY_USAGE.labels(type='used').set(memory.used)
+        MEMORY_USAGE.labels(type='available').set(memory.available)
+        
+        # Storage metrics
         storage = psutil.disk_usage('/Users/kevinklatman/Development/Code/DistributedFileSystem/storage')
         STORAGE_TOTAL.set(storage.total)
         STORAGE_USED.set(storage.used)
         STORAGE_AVAILABLE.set(storage.free)
     except Exception as e:
-        print(f"Error updating storage metrics: {e}")
+        print(f"Error updating system metrics: {e}", file=sys.stderr)
 
 def update_pod_metrics():
     """Update pod metrics from Kubernetes"""
     try:
+        config.load_kube_config()
         v1 = client.CoreV1Api()
-        pods = v1.list_namespaced_pod(namespace='distributed-fs')
+        pods = v1.list_namespaced_pod(namespace='default')  # Changed to 'default' namespace
         
+        # Clear existing pod metrics
+        for item in REGISTRY.collect():
+            if item.name == 'dfs_pod_status':
+                for metric in item.samples:
+                    POD_STATUS.remove(*[l for l in metric.labels.values()])
+        
+        # Set new pod metrics
         for pod in pods.items:
             POD_STATUS.labels(
                 pod_name=pod.metadata.name,
@@ -90,11 +119,11 @@ def update_pod_metrics():
                 node=pod.spec.node_name or 'None'
             ).set(1)
     except Exception as e:
-        print(f"Error updating pod metrics: {e}")
+        print(f"Error updating pod metrics: {e}", file=sys.stderr)
 
 @app.before_request
 def before_request():
-    update_storage_metrics()
+    update_system_metrics()  # Now includes CPU and memory
     update_pod_metrics()
     request.start_time = time.time()
 
@@ -152,7 +181,9 @@ def index():
 def api_metrics():
     """API endpoint for dashboard metrics"""
     try:
-        # Get storage metrics
+        # Get system metrics
+        cpu_percent = psutil.cpu_percent(interval=1)
+        memory = psutil.virtual_memory()
         storage = psutil.disk_usage('/Users/kevinklatman/Development/Code/DistributedFileSystem/storage')
         
         # Get network metrics
@@ -160,10 +191,11 @@ def api_metrics():
         network_out = NETWORK_IO.labels(direction='out')._value.get()
         
         # Get pod metrics
-        v1 = client.CoreV1Api()
         pods = []
         try:
-            pod_list = v1.list_namespaced_pod(namespace='distributed-fs')
+            config.load_kube_config()
+            v1 = client.CoreV1Api()
+            pod_list = v1.list_namespaced_pod(namespace='default')
             for pod in pod_list.items:
                 pods.append({
                     'name': pod.metadata.name,
@@ -173,25 +205,23 @@ def api_metrics():
                     'start_time': pod.status.start_time.strftime('%Y-%m-%d %H:%M:%S') if pod.status.start_time else 'Unknown'
                 })
         except Exception as e:
-            print(f"Error getting pod metrics: {e}")
-        
-        # Get latency metrics
-        latencies = []
-        for sample in LATENCY.collect()[0].samples:
-            if sample.name.endswith('_sum'):
-                endpoint = dict(sample.labels)['endpoint']
-                method = dict(sample.labels)['method']
-                latencies.append({
-                    'endpoint': endpoint,
-                    'method': method,
-                    'latency': sample.value
-                })
+            print(f"Error getting pod metrics: {e}", file=sys.stderr)
         
         return jsonify({
+            'system': {
+                'cpu_percent': cpu_percent,
+                'memory': {
+                    'total': memory.total,
+                    'used': memory.used,
+                    'available': memory.available,
+                    'percent': memory.percent
+                }
+            },
             'storage': {
                 'total': storage.total,
                 'used': storage.used,
-                'available': storage.free
+                'available': storage.free,
+                'percent': storage.percent
             },
             'network': {
                 'bytes_in': network_in,
@@ -199,12 +229,11 @@ def api_metrics():
                 'total': network_in + network_out
             },
             'pods': pods,
-            'latencies': latencies
+            'timestamp': datetime.now().isoformat()
         })
     except Exception as e:
-        return jsonify({
-            'error': str(e)
-        }), 500
+        print(f"Error in api_metrics: {e}", file=sys.stderr)
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/health')
 def api_health():
