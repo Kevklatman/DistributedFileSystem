@@ -2,9 +2,11 @@
 from typing import Dict, List, Optional, Union, BinaryIO
 from enum import Enum, IntEnum
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from .providers import CloudStorageProvider, AWSS3Provider, AzureBlobProvider, GCPStorageProvider
 from .config import TransferConfig
+from .types import ProviderHealth
+from .metrics_store import MetricsStore
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -15,12 +17,6 @@ class ProviderPriority(IntEnum):
     PRIMARY = 1
     SECONDARY = 2
     FALLBACK = 3
-
-class ProviderHealth(IntEnum):
-    """Health status of providers."""
-    HEALTHY = 1
-    DEGRADED = 2
-    UNHEALTHY = 3
 
 class RoutingStrategy(Enum):
     """Strategies for routing requests."""
@@ -67,6 +63,16 @@ class ProviderMetrics:
             self.health_status = ProviderHealth.DEGRADED
         else:
             self.health_status = ProviderHealth.UNHEALTHY
+    
+    def to_dict(self) -> Dict:
+        """Convert metrics to dictionary format."""
+        return {
+            'latency_ms': self.latency_ms,
+            'error_count': self.error_count,
+            'success_count': self.success_count,
+            'health_status': self.health_status.value,
+            'cost_per_gb': self.cost_per_gb
+        }
 
 class HybridCloudManager:
     """Manages multiple cloud providers in a hybrid cloud setup."""
@@ -77,7 +83,24 @@ class HybridCloudManager:
         self.metrics: Dict[str, ProviderMetrics] = {}
         self.routing_strategy = routing_strategy
         self.replication_enabled = False
+        self.metrics_store = MetricsStore()
         
+        # Store metrics every hour by default
+        self._last_metrics_store = datetime.now()
+        self._metrics_store_interval = timedelta(hours=1)
+    
+    def _store_metrics_if_needed(self):
+        """Store metrics if enough time has passed."""
+        now = datetime.now()
+        if now - self._last_metrics_store >= self._metrics_store_interval:
+            self._store_metrics()
+            self._last_metrics_store = now
+    
+    def _store_metrics(self):
+        """Store current metrics for all providers."""
+        for name, metrics in self.metrics.items():
+            self.metrics_store.store_metrics(name, metrics.to_dict())
+    
     def add_provider(self, name: str, provider: CloudStorageProvider, 
                     priority: ProviderPriority, cost_per_gb: float):
         """Add a cloud provider to the hybrid setup."""
@@ -157,6 +180,7 @@ class HybridCloudManager:
                             except Exception as e:
                                 logger.error(f"Replication failed to {name}: {str(e)}")
                 
+                self._store_metrics_if_needed()
                 return True
             
             # Try fallback providers if primary fails
@@ -165,6 +189,7 @@ class HybridCloudManager:
                     try:
                         if provider.upload_file(file_data, object_key, bucket, **kwargs):
                             self.metrics[name].record_success()
+                            self._store_metrics_if_needed()
                             return True
                     except Exception as e:
                         self.metrics[name].record_error(str(e))
@@ -174,6 +199,7 @@ class HybridCloudManager:
         except Exception as e:
             self.metrics[primary_provider].record_error(str(e))
             logger.error(f"Upload failed on {primary_provider}: {str(e)}")
+            self._store_metrics_if_needed()
             return False
     
     def download_file(self, object_key: str, bucket: str) -> Optional[bytes]:
@@ -189,6 +215,7 @@ class HybridCloudManager:
             if data:
                 self.metrics[primary_provider].record_success()
                 self.metrics[primary_provider].update_latency(int(latency))
+                self._store_metrics_if_needed()
                 return data
             
             # Try fallback providers if primary fails
@@ -197,6 +224,7 @@ class HybridCloudManager:
                     try:
                         if data := provider.download_file(object_key, bucket):
                             self.metrics[name].record_success()
+                            self._store_metrics_if_needed()
                             return data
                     except Exception as e:
                         self.metrics[name].record_error(str(e))
@@ -206,6 +234,7 @@ class HybridCloudManager:
         except Exception as e:
             self.metrics[primary_provider].record_error(str(e))
             logger.error(f"Download failed on {primary_provider}: {str(e)}")
+            self._store_metrics_if_needed()
             return None
     
     def get_provider_health(self) -> Dict[str, Dict]:
@@ -239,3 +268,7 @@ class HybridCloudManager:
             except Exception:
                 status[name] = False
         return status
+    
+    def get_provider_stats(self, provider_name: str, timeframe: str = '24h') -> Dict:
+        """Get historical statistics for a provider."""
+        return self.metrics_store.get_provider_stats(provider_name, timeframe)
