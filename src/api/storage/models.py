@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Literal
+from typing import Dict, List, Optional, Literal, Set
 from datetime import datetime
 import uuid
 
@@ -8,9 +8,29 @@ class StorageLocation:
     """Represents a storage location either on-premises or in cloud"""
     type: Literal["on_prem", "aws_s3", "azure_blob", "gcp_storage"]
     path: str
-    region: Optional[str] = None  # Required for cloud locations
+    region: Optional[str] = None
     availability_zone: Optional[str] = None
-    performance_tier: Literal["standard", "premium"] = "standard"
+    performance_tier: Literal["premium_ssd", "standard_ssd", "standard_hdd", "archive"] = "standard_ssd"
+    cost_per_gb: float = 0.0  # Cost per GB per month
+
+@dataclass
+class DeduplicationState:
+    """Tracks deduplication state"""
+    enabled: bool = True
+    global_dedup: bool = False  # Enable cross-volume dedup
+    chunk_size: int = 4096  # Chunk size for dedup
+    hash_dict: Dict[str, Set[str]] = field(default_factory=dict)  # Hash to paths mapping
+    space_saved: float = 0.0  # Space saved in GB
+
+@dataclass
+class CompressionState:
+    """Tracks compression state and algorithms"""
+    enabled: bool = True
+    algorithm: Literal["zstd", "lz4", "gzip"] = "zstd"
+    level: int = 3  # Compression level
+    min_size: int = 4096  # Minimum size to compress
+    adaptive: bool = True  # Adapt compression based on data type
+    space_saved: float = 0.0  # Space saved in GB
 
 @dataclass
 class StoragePool:
@@ -20,16 +40,28 @@ class StoragePool:
     total_capacity_gb: int
     available_capacity_gb: int
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    is_thin_provisioned: bool = False
+    is_thin_provisioned: bool = True
     encryption_enabled: bool = True
+    oversubscription_ratio: float = 1.0  # For thin provisioning
+    dedup_state: DeduplicationState = field(default_factory=DeduplicationState)
+    compression_state: CompressionState = field(default_factory=CompressionState)
     created_at: datetime = field(default_factory=datetime.now)
+
+@dataclass
+class DataTemperature:
+    """Tracks data temperature for intelligent tiering"""
+    last_access: datetime
+    access_count: int = 0
+    access_pattern: Literal["random", "sequential"] = "random"
+    predicted_next_access: Optional[datetime] = None
+    temperature: Literal["hot", "warm", "cold", "frozen"] = "warm"
 
 @dataclass
 class Volume:
     """Logical volume that can span across on-prem and cloud"""
     name: str
     size_gb: int
-    primary_pool_id: str  # Reference to primary StoragePool
+    primary_pool_id: str
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     cloud_backup_enabled: bool = False
     cloud_tiering_enabled: bool = False
@@ -37,17 +69,36 @@ class Volume:
     encryption_at_rest: bool = True
     compression_enabled: bool = True
     deduplication_enabled: bool = True
+    data_temperature: Dict[str, DataTemperature] = field(default_factory=dict)
     created_at: datetime = field(default_factory=datetime.now)
-    
+
 @dataclass
 class CloudTieringPolicy:
     """Defines how data is tiered between on-prem and cloud"""
     volume_id: str
     target_cloud_location: StorageLocation
-    cold_data_threshold_days: int = 30
+    temperature_thresholds: Dict[str, int] = field(default_factory=lambda: {
+        "hot_to_warm_days": 7,
+        "warm_to_cold_days": 30,
+        "cold_to_frozen_days": 90
+    })
     minimum_file_size_mb: int = 100
+    cost_threshold_per_gb: float = 0.05  # Maximum cost per GB for tiering
+    access_pattern_weight: float = 0.3  # Weight for access pattern in decisions
+    prediction_weight: float = 0.2  # Weight for predicted access in decisions
     exclude_patterns: List[str] = field(default_factory=list)
     schedule: str = "0 0 * * *"  # Default to daily at midnight
+
+@dataclass
+class SnapshotState:
+    """Tracks snapshot state and chain"""
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    parent_id: Optional[str] = None
+    creation_time: datetime = field(default_factory=datetime.now)
+    expiration_time: Optional[datetime] = None
+    size_gb: float = 0.0
+    changed_blocks: Set[int] = field(default_factory=set)
+    metadata: Dict[str, str] = field(default_factory=dict)
 
 @dataclass
 class DataProtection:
@@ -61,6 +112,7 @@ class DataProtection:
     cloud_backup_retention_days: int = 30
     disaster_recovery_enabled: bool = False
     dr_location: Optional[StorageLocation] = None
+    snapshots: Dict[str, SnapshotState] = field(default_factory=dict)
     
 @dataclass
 class CloudCredentials:
@@ -89,7 +141,7 @@ class HybridStorageSystem:
             raise ValueError(f"Storage pool {pool_id} not found")
             
         pool = self.storage_pools[pool_id]
-        if pool.available_capacity_gb < size_gb:
+        if not pool.is_thin_provisioned and pool.available_capacity_gb < size_gb:
             raise ValueError(f"Insufficient capacity in pool {pool_id}")
             
         volume = Volume(
@@ -98,25 +150,8 @@ class HybridStorageSystem:
             primary_pool_id=pool_id
         )
         self.volumes[volume.id] = volume
-        pool.available_capacity_gb -= size_gb
-        return volume
         
-    def enable_cloud_tiering(
-        self, 
-        volume_id: str, 
-        cloud_location: StorageLocation,
-        threshold_days: int = 30
-    ) -> None:
-        if volume_id not in self.volumes:
-            raise ValueError(f"Volume {volume_id} not found")
+        if not pool.is_thin_provisioned:
+            pool.available_capacity_gb -= size_gb
             
-        volume = self.volumes[volume_id]
-        volume.cloud_tiering_enabled = True
-        volume.cloud_location = cloud_location
-        
-        policy = CloudTieringPolicy(
-            volume_id=volume_id,
-            cold_data_threshold_days=threshold_days,
-            target_cloud_location=cloud_location
-        )
-        self.tiering_policies[volume_id] = policy
+        return volume

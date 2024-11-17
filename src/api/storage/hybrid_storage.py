@@ -1,7 +1,7 @@
 import os
 import json
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Set
 from pathlib import Path
 import shutil
 import dataclasses
@@ -13,7 +13,9 @@ from .models import (
     Volume,
     CloudTieringPolicy,
     DataProtection,
-    HybridStorageSystem
+    HybridStorageSystem,
+    DataTemperature,
+    SnapshotState
 )
 
 class EnhancedJSONEncoder(json.JSONEncoder):
@@ -229,36 +231,165 @@ class HybridStorageManager:
         return data
 
     def _check_tiering_policy(self, volume_id: str, path: str) -> None:
-        """Check if data should be tiered to cloud"""
+        """Check if data should be tiered to cloud based on temperature and cost"""
         if volume_id not in self.system.tiering_policies:
             return
             
         policy = self.system.tiering_policies[volume_id]
-        full_path = self.data_path / self.system.volumes[volume_id].primary_pool_id / volume_id / path
+        volume = self.system.volumes[volume_id]
+        full_path = self.data_path / volume.primary_pool_id / volume_id / path
         
-        # Check file size
-        if full_path.stat().st_size < (policy.minimum_file_size_mb * 1024 * 1024):
+        # Get or create temperature tracking
+        if path not in volume.data_temperature:
+            volume.data_temperature[path] = DataTemperature(
+                last_access=datetime.fromtimestamp(full_path.stat().st_atime)
+            )
+        temp_data = volume.data_temperature[path]
+        
+        # Update access pattern
+        file_size = full_path.stat().st_size
+        if file_size < policy.minimum_file_size_mb * 1024 * 1024:
             return
             
-        # Check last access time
-        last_access = datetime.fromtimestamp(full_path.stat().st_atime)
-        if datetime.now() - last_access > timedelta(days=policy.cold_data_threshold_days):
-            self._tier_to_cloud(volume_id, path)
-    
+        # Calculate data temperature score
+        current_time = datetime.now()
+        age_days = (current_time - temp_data.last_access).days
+        
+        # Determine temperature based on thresholds
+        if age_days > policy.temperature_thresholds["cold_to_frozen_days"]:
+            new_temp = "frozen"
+        elif age_days > policy.temperature_thresholds["warm_to_cold_days"]:
+            new_temp = "cold"
+        elif age_days > policy.temperature_thresholds["hot_to_warm_days"]:
+            new_temp = "warm"
+        else:
+            new_temp = "hot"
+            
+        if new_temp != temp_data.temperature:
+            temp_data.temperature = new_temp
+            
+            # Calculate cost savings
+            current_tier = self.system.storage_pools[volume.primary_pool_id].location
+            target_tier = policy.target_cloud_location
+            cost_savings = (current_tier.cost_per_gb - target_tier.cost_per_gb) * (file_size / (1024 * 1024 * 1024))
+            
+            # Decision to tier based on temperature and cost
+            if (new_temp in ["cold", "frozen"] and 
+                cost_savings > policy.cost_threshold_per_gb and
+                self._should_tier_based_on_prediction(temp_data)):
+                self._tier_to_cloud(volume_id, path)
+                
+    def _should_tier_based_on_prediction(self, temp_data: DataTemperature) -> bool:
+        """Use access pattern and prediction to decide on tiering"""
+        if temp_data.predicted_next_access:
+            days_until_next_access = (temp_data.predicted_next_access - datetime.now()).days
+            if days_until_next_access < 7:  # If predicted access is soon, don't tier
+                return False
+        return True
+        
     def _tier_to_cloud(self, volume_id: str, path: str) -> None:
-        """Move data to cloud tier"""
+        """Move data to cloud tier with optimization"""
         volume = self.system.volumes[volume_id]
         if not self.cloud_provider or not volume.cloud_location:
             return
             
         source = self.data_path / volume.primary_pool_id / volume_id / path
         
-        # Read the file
+        # Optimize data before upload
         with open(source, 'rb') as f:
             data = f.read()
             
-        # Upload to cloud
+        # Apply compression if enabled
+        if volume.compression_enabled:
+            pool = self.system.storage_pools[volume.primary_pool_id]
+            if pool.compression_state.adaptive:
+                # Choose compression algorithm based on data type
+                data = self._compress_data_adaptive(data)
+            else:
+                data = self._compress_data(data, pool.compression_state.algorithm)
+                
+        # Apply deduplication if enabled
+        if volume.deduplication_enabled:
+            data = self._deduplicate_data(data, volume_id, path)
+            
+        # Upload to cloud with optimal chunk size
         if self.cloud_provider.upload_file(data, path, volume.cloud_location.path):
-            # Create stub file pointing to cloud location
-            with open(source, 'w') as f:
-                f.write(f"TIERED_TO_CLOUD:{volume.cloud_location.path}/{path}")
+            # Create space-efficient stub
+            self._create_cloud_stub(source, volume.cloud_location.path, path)
+            
+    def _create_cloud_stub(self, source_path: Path, bucket: str, path: str) -> None:
+        """Create space-efficient stub file for tiered data"""
+        stub_data = {
+            "tiered_to_cloud": True,
+            "bucket": bucket,
+            "path": path,
+            "timestamp": datetime.now().isoformat()
+        }
+        with open(source_path, 'w') as f:
+            json.dump(stub_data, f)
+            
+    def create_snapshot(self, volume_id: str, name: str = None) -> str:
+        """Create space-efficient snapshot"""
+        volume = self.system.volumes[volume_id]
+        protection = self.system.protection_policies.get(volume_id)
+        
+        if not protection:
+            protection = DataProtection(volume_id=volume_id)
+            self.system.protection_policies[volume_id] = protection
+            
+        # Create new snapshot state
+        snapshot = SnapshotState(
+            parent_id=self._get_latest_snapshot_id(protection),
+            metadata={"name": name} if name else {}
+        )
+        
+        # Track changed blocks since parent
+        if snapshot.parent_id:
+            parent = protection.snapshots[snapshot.parent_id]
+            snapshot.changed_blocks = self._get_changed_blocks_since(
+                volume_id, 
+                parent.creation_time
+            )
+        
+        protection.snapshots[snapshot.id] = snapshot
+        self._save_system_state()
+        
+        # If cloud backup enabled, replicate snapshot
+        if protection.cloud_backup_enabled and self.cloud_provider:
+            self._backup_snapshot_to_cloud(volume_id, snapshot.id)
+            
+        return snapshot.id
+        
+    def _get_latest_snapshot_id(self, protection: DataProtection) -> Optional[str]:
+        """Get the most recent snapshot ID"""
+        if not protection.snapshots:
+            return None
+        return max(
+            protection.snapshots.items(),
+            key=lambda x: x[1].creation_time
+        )[0]
+        
+    def _get_changed_blocks_since(self, volume_id: str, timestamp: datetime) -> Set[int]:
+        """Get blocks that changed since timestamp"""
+        # Implementation would track block changes
+        # For now, return empty set
+        return set()
+        
+    def _backup_snapshot_to_cloud(self, volume_id: str, snapshot_id: str) -> None:
+        """Backup snapshot to cloud storage"""
+        volume = self.system.volumes[volume_id]
+        protection = self.system.protection_policies[volume_id]
+        snapshot = protection.snapshots[snapshot_id]
+        
+        if not self.cloud_provider or not volume.cloud_location:
+            return
+            
+        # Only backup changed blocks for efficiency
+        changed_data = self._get_snapshot_changed_data(volume_id, snapshot)
+        
+        # Upload with compression and dedup
+        self.cloud_provider.upload_snapshot(
+            changed_data,
+            f"snapshots/{snapshot_id}",
+            volume.cloud_location.path
+        )
