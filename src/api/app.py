@@ -30,6 +30,13 @@ CORS(app, resources={r"/*": {"origins": ["http://localhost:3000", "http://localh
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
+# Set storage environment
+os.environ['STORAGE_ENV'] = 'local'
+
+# Initialize filesystem manager and storage backend
+fs_manager = FileSystemManager()
+storage_backend = get_storage_backend(fs_manager)
+
 # Add request logging
 @app.before_request
 def log_request_info():
@@ -100,7 +107,6 @@ def handle_error(error):
     logger.error(f"Error: {str(error)}")
     return jsonify({'error': str(error)}), 500
 
-fs_manager = FileSystemManager()
 s3_handler = S3ApiHandler(fs_manager)
 
 # Add back the index route
@@ -112,14 +118,15 @@ def index():
     # If client accepts JSON, return bucket list
     if 'application/json' in accept_header:
         try:
-            storage = get_storage_backend(fs_manager)
+            storage = storage_backend
             logger.debug("Using storage backend: %s", storage.__class__.__name__)
 
-            buckets, error = storage.list_buckets()
+            consistency = request.headers.get('X-Consistency-Level', 'eventual')
+            success, buckets = storage.list_buckets(consistency_level=consistency)
 
-            if error:
-                logger.error("Error listing buckets: %s", error)
-                return jsonify({'error': str(error)}), 500
+            if not success:
+                logger.error("Error listing buckets: %s", buckets)
+                return jsonify({'error': str(buckets)}), 503 if 'consistency' in buckets else 500
 
             # Ensure buckets is a list and contains valid data
             if buckets is None:
@@ -211,7 +218,7 @@ def get_dashboard_metrics():
         logger.debug('Fetching dashboard metrics')
         
         # Get storage backend metrics
-        storage = get_storage_backend(fs_manager)
+        storage = storage_backend
         io_metrics = storage.get_io_metrics()
         
         # Get policy metrics
@@ -290,68 +297,77 @@ class BucketList(Resource):
     @s3_ns.response(200, 'Success')
     def get(self):
         """List all buckets"""
-        try:
-            storage = get_storage_backend(fs_manager)
-            logger.debug("Using storage backend: %s", storage.__class__.__name__)
+        consistency = request.headers.get('X-Consistency-Level', 'eventual')
+        success, buckets = storage_backend.list_buckets(consistency_level=consistency)
+        
+        if not success:
+            return {'error': buckets}, 503 if 'consistency' in buckets else 500
+            
+        # Ensure buckets is a list and contains valid data
+        if buckets is None:
+            buckets = []
+        elif not isinstance(buckets, list):
+            buckets = list(buckets)
 
-            buckets, error = storage.list_buckets()
+        # Convert bucket objects to dictionaries
+        bucket_list = []
+        for bucket in buckets:
+            if isinstance(bucket, dict):
+                bucket_list.append(bucket)
+            else:
+                # Handle case where bucket might be a string or other object
+                bucket_list.append({'Name': str(bucket)})
 
-            if error:
-                logger.error("Error listing buckets: %s", error)
-                return {'error': str(error)}, 500
-
-            # Ensure buckets is a list and contains valid data
-            if buckets is None:
-                buckets = []
-            elif not isinstance(buckets, list):
-                buckets = list(buckets)
-
-            # Convert bucket objects to dictionaries
-            bucket_list = []
-            for bucket in buckets:
-                if isinstance(bucket, dict):
-                    # Convert any datetime objects to ISO format strings
-                    bucket_dict = {}
-                    for key, value in bucket.items():
-                        if isinstance(value, datetime.datetime):
-                            bucket_dict[key] = value.isoformat()
-                        else:
-                            bucket_dict[key] = value
-                    bucket_list.append(bucket_dict)
-                else:
-                    # Handle case where bucket might be a string or other object
-                    bucket_list.append({'Name': str(bucket)})
-
-            logger.debug("Found buckets: %s", bucket_list)
-            return bucket_list, 200
-        except Exception as e:
-            logger.error("Unexpected error listing buckets: %s", str(e))
-            return {'error': 'Internal server error'}, 500
+        logger.debug("Found buckets: %s", bucket_list)
+        return bucket_list, 200
 
 @s3_ns.route('/buckets/<string:bucket_name>')
 @s3_ns.param('bucket_name', 'The bucket name')
 class BucketOperations(Resource):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.storage = storage_backend
+
     @s3_ns.doc('create_bucket')
     @s3_ns.response(200, 'Success')
     @s3_ns.response(400, 'Bad Request', error_model)
     def put(self, bucket_name):
         """Create a new bucket"""
-        storage = get_storage_backend(fs_manager)
-        result, error = storage.create_bucket(bucket_name)
+        consistency = request.headers.get('X-Consistency-Level', 'strong')  # Default to strong for writes
+        success, error = self.storage.create_bucket(bucket_name, consistency_level=consistency)
         if error:
-            return {'error': str(error)}, 400
+            if 'consistency' in error:
+                return {'error': error}, 503
+            elif 'exists' in error:
+                return {'error': error}, 409
+            else:
+                return {'error': error}, 400
+                
         return {'message': 'Bucket created successfully'}, 200
 
     @s3_ns.doc('delete_bucket')
-    @s3_ns.response(204, 'Bucket deleted')
-    @s3_ns.response(404, 'Bucket not found', error_model)
+    @s3_ns.response(204, 'No Content')
+    @s3_ns.response(404, 'Not Found', error_model)
     def delete(self, bucket_name):
         """Delete a bucket"""
-        storage = get_storage_backend(fs_manager)
-        result, error = storage.delete_bucket(bucket_name)
+        success, error = self.storage.delete_bucket(bucket_name)
         if error:
-            return {'error': str(error)}, 404
+            return {'error': error}, 404
         return '', 204
+
+    @s3_ns.doc('list_objects')
+    @s3_ns.response(200, 'Success')
+    @s3_ns.response(404, 'Not Found', error_model)
+    def get(self, bucket_name):
+        """List objects in bucket"""
+        consistency = request.headers.get('X-Consistency-Level', 'eventual')
+        objects, error = self.storage.list_objects(bucket_name, consistency_level=consistency)
+        if error:
+            if 'consistency' in error:
+                return {'error': error}, 503
+            return {'error': error}, 404
+            
+        return {'objects': objects}, 200
 
 @s3_ns.route('/buckets/<string:bucket_name>/objects')
 @s3_ns.param('bucket_name', 'The bucket name')
@@ -365,38 +381,119 @@ class ObjectList(Resource):
 
 @s3_ns.route('/buckets/<string:bucket_name>/objects/<path:object_key>')
 @s3_ns.param('bucket_name', 'The bucket name')
-@s3_ns.param('object_key', 'The object key/path')
+@s3_ns.param('object_key', 'The object key')
 class ObjectOperations(Resource):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.storage = storage_backend
+
+    def _set_cache_headers(self, response, edge_node=None, cache_info=None):
+        """Set cache-related headers"""
+        if edge_node:
+            response.headers['X-Cache-Status'] = cache_info or 'MISS'
+            response.headers['Cache-Control'] = 'public, max-age=3600'  # 1 hour cache
+        return response
+
     @s3_ns.doc('get_object')
     @s3_ns.response(200, 'Success')
-    @s3_ns.response(404, 'Object not found', error_model)
+    @s3_ns.response(404, 'Not Found', error_model)
     def get(self, bucket_name, object_key):
         """Get an object"""
-        return s3_handler.get_object(bucket_name, object_key)
+        consistency = request.headers.get('X-Consistency-Level', 'eventual')
+        cache_control = request.headers.get('Cache-Control', '')
+        
+        # Check if we can serve from edge cache
+        if 'no-cache' not in cache_control.lower():
+            cached_data = edge_cache.get(f"{bucket_name}/{object_key}")
+            if cached_data:
+                response = make_response(cached_data)
+                response.headers['X-Cache-Status'] = 'HIT'
+                return response
+                
+        obj, error = self.storage.get_object(bucket_name, object_key, consistency_level=consistency)
+        
+        if not obj:
+            if error and 'consistency' in error:
+                return {'error': error}, 503
+            return {'error': 'Object not found'}, 404
+            
+        # Update edge cache
+        edge_cache.set(f"{bucket_name}/{object_key}", obj)
+        
+        response = make_response(obj)
+        response.headers['X-Cache-Status'] = 'MISS'
+        return response
+
+    @s3_ns.doc('head_object')
+    @s3_ns.response(200, 'Success')
+    @s3_ns.response(404, 'Not Found', error_model)
+    def head(self, bucket_name, object_key):
+        """Get object metadata"""
+        consistency = request.headers.get('X-Consistency-Level', 'eventual')
+        edge_node = request.headers.get('X-Edge-Node')
+        
+        data, error = self.storage.get_object(bucket_name, object_key, consistency_level=consistency)
+        if error:
+            if 'consistency' in error:
+                return {'error': error}, 503
+            return {'error': error}, 404
+            
+        response = make_response('')
+        response.headers['Content-Length'] = str(len(data))
+        response.headers['Content-Type'] = 'application/octet-stream'
+        response.headers['ETag'] = hashlib.md5(data).hexdigest()
+        response.headers['Last-Modified'] = datetime.datetime.now().strftime('%a, %d %b %Y %H:%M:%S GMT')
+        
+        # Set cache headers if edge node
+        cache_info = request.headers.get('X-Cache-Info')
+        return self._set_cache_headers(response, edge_node, cache_info)
 
     @s3_ns.doc('put_object')
     @s3_ns.response(200, 'Success')
     @s3_ns.response(400, 'Bad Request', error_model)
     def put(self, bucket_name, object_key):
-        """Upload an object"""
-        return s3_handler.put_object(bucket_name, object_key)
+        """Put an object"""
+        consistency = request.headers.get('X-Consistency-Level', 'strong')  # Default to strong for writes
+        edge_node = request.headers.get('X-Edge-Node')
+        
+        success, error = self.storage.put_object(bucket_name, object_key, request.data, consistency_level=consistency)
+        if not success:
+            if 'consistency' in error:
+                return {'error': error}, 503
+            return {'error': error}, 400
+            
+        response = make_response('')
+        response.headers['ETag'] = hashlib.md5(request.data).hexdigest()
+        
+        # Set cache headers if edge node
+        if edge_node:
+            response = self._set_cache_headers(response, edge_node, 'HIT')
+            
+        return response
 
     @s3_ns.doc('delete_object')
-    @s3_ns.response(204, 'Object deleted')
-    @s3_ns.response(404, 'Object not found', error_model)
+    @s3_ns.response(204, 'No Content')
+    @s3_ns.response(404, 'Not Found', error_model)
     def delete(self, bucket_name, object_key):
         """Delete an object"""
-        return s3_handler.delete_object(bucket_name, object_key)
+        result, error = self.storage.delete_object(bucket_name, object_key)
+        if error:
+            return {'error': error}, 404
+        return '', 204
 
 @s3_ns.route('/buckets/<string:bucket_name>/versioning')
 @s3_ns.param('bucket_name', 'The bucket name')
 class VersioningOperations(Resource):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.storage = storage_backend
+
     @s3_ns.doc('get_versioning_status')
     @s3_ns.response(200, 'Success')
     @s3_ns.response(404, 'Bucket not found', error_model)
     def get(self, bucket_name):
         """Get versioning status"""
-        return s3_handler.get_versioning_status(bucket_name)
+        return self.storage.get_versioning_status(bucket_name)
 
     @s3_ns.doc('set_versioning_status')
     @s3_ns.response(200, 'Success')
@@ -411,9 +508,9 @@ class VersioningOperations(Resource):
             return make_response({'error': 'Missing VersioningEnabled field'}, 400)
 
         if data['VersioningEnabled']:
-            return s3_handler.enable_versioning(bucket_name)
+            return self.storage.enable_versioning(bucket_name)
         else:
-            return s3_handler.disable_versioning(bucket_name)
+            return self.storage.disable_versioning(bucket_name)
 
 # Serve Swagger UI files
 @app.route('/swaggerui/<path:path>')

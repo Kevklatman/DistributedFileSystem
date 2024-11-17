@@ -6,6 +6,8 @@ import uuid
 import datetime
 import hashlib
 import logging
+import re
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +42,7 @@ class StorageBackend(ABC):
         return self.io_metrics
 
     @abstractmethod
-    def create_bucket(self, bucket_name):
+    def create_bucket(self, bucket_name, consistency_level='eventual'):
         pass
 
     @abstractmethod
@@ -52,11 +54,11 @@ class StorageBackend(ABC):
         pass
 
     @abstractmethod
-    def put_object(self, bucket_name, object_key, data):
+    def put_object(self, bucket_name, object_key, data, consistency_level='eventual'):
         pass
 
     @abstractmethod
-    def get_object(self, bucket_name, object_key):
+    def get_object(self, bucket_name, object_key, consistency_level='eventual'):
         pass
 
     @abstractmethod
@@ -127,9 +129,7 @@ class LocalStorageBackend(StorageBackend):
         super().__init__()
         self.fs_manager = fs_manager
         self.buckets = {}  # In-memory bucket storage
-        self.multipart_uploads = {}  # Store multipart upload data
-        self.versioning = {}  # Store versioning configuration
-        self.versions = {}  # Store object versions
+        self.node_status = {}  # Track node status
         
         # Create root directory for buckets if it doesn't exist
         self.fs_manager.createDirectory('/buckets')
@@ -137,34 +137,91 @@ class LocalStorageBackend(StorageBackend):
         # Initialize buckets from filesystem
         self._init_buckets_from_fs()
         
+        # Initialize node status
+        self._init_node_status()
+        
+    def _init_node_status(self):
+        """Initialize node status"""
+        # Mock node status for testing
+        self.node_status = {
+            'node1': True,
+            'node2': True,
+            'node3': True
+        }
+        
+    def _check_consistency(self, consistency_level):
+        """Check if consistency level can be satisfied"""
+        if consistency_level == 'strong':
+            # For strong consistency, all nodes must be up
+            return all(self.node_status.values())
+        return True  # Eventual consistency is always satisfied
+        
+    def _update_node_status(self, node_id, status):
+        """Update node status"""
+        if node_id in self.node_status:
+            self.node_status[node_id] = status
+            
+    def get_object(self, bucket_name, object_key, consistency_level='eventual'):
+        """Get an object with specified consistency level"""
+        if consistency_level == 'strong' and not self._check_consistency(consistency_level):
+            return None, "Strong consistency requirement not met: some nodes are down"
+            
+        if bucket_name not in self.buckets:
+            return None, "Bucket not found"
+            
+        object_path = f'/buckets/{bucket_name}/{object_key}'
+        data = self.fs_manager.readFile(object_path)
+        if data is None:
+            return None, "Object not found"
+            
+        return data, None
+        
+    def put_object(self, bucket_name, object_key, data, consistency_level='eventual'):
+        """Put an object with specified consistency level"""
+        if consistency_level == 'strong' and not self._check_consistency(consistency_level):
+            return False, "Strong consistency requirement not met: some nodes are down"
+            
+        if bucket_name not in self.buckets:
+            return False, "Bucket not found"
+            
+        object_path = f'/buckets/{bucket_name}/{object_key}'
+        if not self.fs_manager.writeFile(object_path, data):
+            return False, "Failed to write object"
+            
+        return True, None
+        
     def _init_buckets_from_fs(self):
         """Initialize buckets from the filesystem"""
         try:
             # List all directories under /buckets
-            all_files = self.fs_manager.listAllFiles()
-            for path in all_files:
-                if path.startswith('/buckets/'):
-                    bucket_name = path.split('/')[2]  # /buckets/name/...
-                    if bucket_name and bucket_name not in self.buckets:
+            result = self.fs_manager.listDirectory('/buckets')
+            if result and 'directories' in result:
+                for dir_path in result['directories']:
+                    bucket_name = dir_path.split('/')[-1]
+                    if bucket_name:
                         self.buckets[bucket_name] = {
                             'name': bucket_name,
                             'creation_date': datetime.datetime.now().isoformat()
                         }
         except Exception as e:
             logger.error(f"Error initializing buckets from filesystem: {e}")
-            
-    def create_bucket(self, bucket_name):
+
+    def create_bucket(self, bucket_name, consistency_level='eventual'):
         """Create a new bucket"""
-        if bucket_name in self.buckets:
-            return False, "Bucket already exists"
-            
         try:
-            # Create bucket directory
+            if consistency_level == 'strong' and not self._check_consistency(consistency_level):
+                return False, "Strong consistency requirement not met: some nodes are down"
+                
+            if not bucket_name or not re.match(r'^[a-zA-Z0-9.\-_]{1,255}$', bucket_name):
+                return False, "Invalid bucket name"
+                
+            if bucket_name in self.buckets:
+                return False, "Bucket already exists"
+                
             bucket_path = f'/buckets/{bucket_name}'
             if not self.fs_manager.createDirectory(bucket_path):
                 return False, "Failed to create bucket directory"
                 
-            # Add bucket to memory
             self.buckets[bucket_name] = {
                 'name': bucket_name,
                 'creation_date': datetime.datetime.now().isoformat()
@@ -173,7 +230,34 @@ class LocalStorageBackend(StorageBackend):
         except Exception as e:
             logger.error(f"Error creating bucket: {e}")
             return False, str(e)
+
+    def list_objects(self, bucket_name):
+        """List objects in a bucket"""
+        if bucket_name not in self.buckets:
+            return None, "Bucket not found"
             
+        try:
+            bucket_path = f'/buckets/{bucket_name}'
+            result = self.fs_manager.listDirectory(bucket_path)
+            if result is None:
+                return [], None
+                
+            objects = []
+            if 'files' in result:
+                for file_path in result['files']:
+                    object_key = os.path.basename(file_path)
+                    stat = self.fs_manager.getFileStat(file_path)
+                    objects.append({
+                        'Key': object_key,
+                        'Size': stat.get('size', 0) if stat else 0,
+                        'LastModified': stat.get('mtime', datetime.datetime.now().isoformat()) if stat else datetime.datetime.now().isoformat()
+                    })
+                    
+            return objects, None
+        except Exception as e:
+            logger.error(f"Error listing objects: {e}")
+            return None, str(e)
+
     def list_buckets(self):
         try:
             buckets = [
@@ -197,80 +281,6 @@ class LocalStorageBackend(StorageBackend):
         del self.buckets[bucket_name]
         self.fs_manager.deleteDirectory(f'/buckets/{bucket_name}')
         return True, None
-
-    def put_object(self, bucket_name, object_key, data):
-        start_time = datetime.datetime.now()
-        
-        if bucket_name not in self.buckets:
-            return False, "Bucket does not exist"
-
-        try:
-            # Track incoming bytes
-            data_size = len(data)
-            self._update_io_metrics(bytes_in=data_size)
-
-            # Initialize versions dict for bucket if needed
-            if bucket_name not in self.versions:
-                self.versions[bucket_name] = {}
-            if object_key not in self.versions[bucket_name]:
-                self.versions[bucket_name][object_key] = []
-
-            # Generate version ID if versioning is enabled
-            version_id = None
-            if self.versioning.get(bucket_name):
-                version_id = self._generate_version_id()
-                # Store the current version
-                self.versions[bucket_name][object_key].append({
-                    'version_id': version_id,
-                    'data': data,
-                    'size': data_size,
-                    'last_modified': datetime.datetime.now(datetime.timezone.utc)
-                })
-            else:
-                # If versioning is disabled, just keep the latest version
-                self.versions[bucket_name][object_key] = [{
-                    'version_id': 'latest',
-                    'data': data,
-                    'size': data_size,
-                    'last_modified': datetime.datetime.now(datetime.timezone.utc)
-                }]
-
-            # Update latency
-            end_time = datetime.datetime.now()
-            latency = (end_time - start_time).total_seconds() * 1000  # Convert to milliseconds
-            self._update_io_metrics(latency_ms=latency)
-
-            return True, version_id
-        except Exception as e:
-            logger.error(f"Error putting object: {e}")
-            return False, str(e)
-
-    def get_object(self, bucket_name, object_key):
-        start_time = datetime.datetime.now()
-        
-        if bucket_name not in self.buckets:
-            return None, "Bucket does not exist"
-            
-        try:
-            # Get the latest version
-            if bucket_name in self.versions and object_key in self.versions[bucket_name]:
-                versions = self.versions[bucket_name][object_key]
-                if versions:
-                    latest = versions[-1]
-                    data = latest['data']
-                    
-                    # Track outgoing bytes and latency
-                    self._update_io_metrics(bytes_out=len(data))
-                    end_time = datetime.datetime.now()
-                    latency = (end_time - start_time).total_seconds() * 1000
-                    self._update_io_metrics(latency_ms=latency)
-                    
-                    return data, None
-            
-            return None, "Object not found"
-        except Exception as e:
-            logger.error(f"Error getting object: {e}")
-            return None, str(e)
 
     def delete_object(self, bucket_name, object_key):
         if bucket_name not in self.buckets:
@@ -323,11 +333,6 @@ class LocalStorageBackend(StorageBackend):
         except Exception as e:
             logger.error(f"Error deleting object {object_key} from bucket {bucket_name}: {str(e)}")
             return False, f"Internal error: {str(e)}"
-
-    def list_objects(self, bucket_name):
-        if bucket_name not in self.buckets:
-            return None, "Bucket does not exist"
-        return list(self.buckets[bucket_name]['objects'].keys()), None
 
     def create_multipart_upload(self, bucket_name, object_key):
         if bucket_name not in self.buckets:
@@ -633,7 +638,7 @@ class AWSStorageBackend(StorageBackend):
             print(f"Error listing objects: {str(e)}")
             raise
 
-    def create_bucket(self, bucket_name):
+    def create_bucket(self, bucket_name, consistency_level='eventual'):
         try:
             # Always specify LocationConstraint for non-us-east-1 regions
             if self.region != 'us-east-1':
@@ -668,7 +673,7 @@ class AWSStorageBackend(StorageBackend):
             logger.error("Error listing buckets: %s", str(e), exc_info=True)
             return None, str(e)
 
-    def put_object(self, bucket_name, object_key, data):
+    def put_object(self, bucket_name, object_key, data, consistency_level='eventual'):
         start_time = datetime.datetime.now()
         
         try:
@@ -684,7 +689,7 @@ class AWSStorageBackend(StorageBackend):
         except Exception as e:
             return False, str(e)
 
-    def get_object(self, bucket_name, object_key):
+    def get_object(self, bucket_name, object_key, consistency_level='eventual'):
         start_time = datetime.datetime.now()
         
         try:

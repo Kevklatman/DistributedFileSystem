@@ -24,18 +24,21 @@ async def dfs_test_setup():
     ]
     test_data = b"Test data content " * 1000
     
-    return {
+    setup_data = {
         "docker_client": docker_client,
         "core_nodes": core_nodes,
         "edge_nodes": edge_nodes,
         "test_data": test_data
     }
+    
+    return setup_data
 
 @pytest.mark.asyncio
 async def test_basic_operations(dfs_test_setup):
     """Test basic operations using S3-compatible API"""
     logger.info("Testing basic operations...")
-    test_data = (await dfs_test_setup)["test_data"]
+    setup_data = await dfs_test_setup
+    test_data = setup_data["test_data"]
     
     async with aiohttp.ClientSession() as session:
         bucket_name = f"test-bucket-{random.randint(1, 1000)}"
@@ -43,46 +46,54 @@ async def test_basic_operations(dfs_test_setup):
         
         # Create bucket
         async with session.put(
-            f"http://localhost:8001/api/v1/s3/{bucket_name}"
+            f"http://localhost:8001/api/v1/s3/buckets/{bucket_name}"
         ) as create_bucket_response:
             assert create_bucket_response.status == 200, "Bucket creation failed"
         
         # Upload object
         headers = {
-            'Content-Type': 'application/octet-stream'
+            'Content-Type': 'application/octet-stream',
+            'X-Consistency-Level': 'strong'  # Use strong consistency for basic operations
         }
         async with session.put(
-            f"http://localhost:8001/api/v1/s3/{bucket_name}/{object_key}",
+            f"http://localhost:8001/api/v1/s3/buckets/{bucket_name}/objects/{object_key}",
             data=test_data,
             headers=headers
         ) as upload_response:
             assert upload_response.status == 200, "Object upload failed"
+            assert 'ETag' in upload_response.headers, "ETag missing in upload response"
         
         # Get object
         async with session.get(
-            f"http://localhost:8001/api/v1/s3/{bucket_name}/{object_key}"
+            f"http://localhost:8001/api/v1/s3/buckets/{bucket_name}/objects/{object_key}",
+            headers={'X-Consistency-Level': 'strong'}
         ) as get_response:
             assert get_response.status == 200, "Object retrieval failed"
+            assert 'Last-Modified' in get_response.headers, "Last-Modified header missing"
+            assert 'ETag' in get_response.headers, "ETag missing in get response"
             response_data = await get_response.read()
             assert response_data == test_data, "Retrieved data does not match uploaded data"
             
         # Delete object
         async with session.delete(
-            f"http://localhost:8001/api/v1/s3/{bucket_name}/{object_key}"
+            f"http://localhost:8001/api/v1/s3/buckets/{bucket_name}/objects/{object_key}"
         ) as delete_response:
-            assert delete_response.status == 200, "Object deletion failed"
+            assert delete_response.status == 204, "Object deletion failed"
             
         # Delete bucket
         async with session.delete(
-            f"http://localhost:8001/api/v1/s3/{bucket_name}"
+            f"http://localhost:8001/api/v1/s3/buckets/{bucket_name}"
         ) as delete_bucket_response:
-            assert delete_bucket_response.status == 200, "Bucket deletion failed"
+            assert delete_bucket_response.status == 204, "Bucket deletion failed"
+    
+    logger.info("Basic operations test passed!")
 
 @pytest.mark.asyncio
 async def test_consistency_levels(dfs_test_setup):
     """Test different consistency levels"""
     logger.info("Testing consistency levels...")
-    test_data = (await dfs_test_setup)["test_data"]
+    setup_data = await dfs_test_setup
+    test_data = setup_data["test_data"]
     
     async with aiohttp.ClientSession() as session:
         bucket_name = f"test-bucket-{random.randint(1, 1000)}"
@@ -90,7 +101,7 @@ async def test_consistency_levels(dfs_test_setup):
         
         # Create bucket
         async with session.put(
-            f"http://localhost:8001/api/v1/s3/{bucket_name}"
+            f"http://localhost:8001/api/v1/s3/buckets/{bucket_name}"
         ) as create_bucket_response:
             assert create_bucket_response.status == 200, "Bucket creation failed"
         
@@ -102,18 +113,20 @@ async def test_consistency_levels(dfs_test_setup):
         
         # Upload with strong consistency
         async with session.put(
-            f"http://localhost:8001/api/v1/s3/{bucket_name}/{object_key}",
+            f"http://localhost:8001/api/v1/s3/buckets/{bucket_name}/objects/{object_key}",
             data=test_data,
             headers=headers
         ) as upload_response:
             assert upload_response.status == 200, "Strong consistency upload failed"
+            assert 'ETag' in upload_response.headers, "ETag missing in upload response"
         
         # Read with strong consistency
         async with session.get(
-            f"http://localhost:8001/api/v1/s3/{bucket_name}/{object_key}",
+            f"http://localhost:8001/api/v1/s3/buckets/{bucket_name}/objects/{object_key}",
             headers={'X-Consistency-Level': 'strong'}
         ) as get_response:
             assert get_response.status == 200, "Strong consistency get failed"
+            assert 'Last-Modified' in get_response.headers, "Last-Modified header missing"
             response_data = await get_response.read()
             assert response_data == test_data, "Strong consistency data verification failed"
         
@@ -123,7 +136,7 @@ async def test_consistency_levels(dfs_test_setup):
         
         # Upload with eventual consistency
         async with session.put(
-            f"http://localhost:8001/api/v1/s3/{bucket_name}/{eventual_object_key}",
+            f"http://localhost:8001/api/v1/s3/buckets/{bucket_name}/objects/{eventual_object_key}",
             data=test_data,
             headers=headers
         ) as upload_response:
@@ -131,7 +144,7 @@ async def test_consistency_levels(dfs_test_setup):
         
         # Read with eventual consistency
         async with session.get(
-            f"http://localhost:8001/api/v1/s3/{bucket_name}/{eventual_object_key}",
+            f"http://localhost:8001/api/v1/s3/buckets/{bucket_name}/objects/{eventual_object_key}",
             headers={'X-Consistency-Level': 'eventual'}
         ) as get_response:
             assert get_response.status == 200, "Eventual consistency get failed"
@@ -141,14 +154,14 @@ async def test_consistency_levels(dfs_test_setup):
         # Cleanup
         for key in [object_key, eventual_object_key]:
             async with session.delete(
-                f"http://localhost:8001/api/v1/s3/{bucket_name}/{key}"
+                f"http://localhost:8001/api/v1/s3/buckets/{bucket_name}/objects/{key}"
             ) as delete_response:
-                assert delete_response.status == 200, f"Object deletion failed for {key}"
+                assert delete_response.status == 204, f"Object deletion failed for {key}"
         
         async with session.delete(
-            f"http://localhost:8001/api/v1/s3/{bucket_name}"
+            f"http://localhost:8001/api/v1/s3/buckets/{bucket_name}"
         ) as delete_bucket_response:
-            assert delete_bucket_response.status == 200, "Bucket deletion failed"
+            assert delete_bucket_response.status == 204, "Bucket deletion failed"
     
     logger.info("Consistency levels test passed!")
 
@@ -156,8 +169,9 @@ async def test_consistency_levels(dfs_test_setup):
 async def test_edge_computing(dfs_test_setup):
     """Test edge computing scenarios"""
     logger.info("Testing edge computing scenarios...")
-    test_data = (await dfs_test_setup)["test_data"]
-    edge_nodes = (await dfs_test_setup)["edge_nodes"]
+    setup_data = await dfs_test_setup
+    test_data = setup_data["test_data"]
+    edge_nodes = setup_data["edge_nodes"]
     
     async with aiohttp.ClientSession() as session:
         bucket_name = f"test-bucket-{random.randint(1, 1000)}"
@@ -165,7 +179,7 @@ async def test_edge_computing(dfs_test_setup):
         
         # Create bucket
         async with session.put(
-            f"http://localhost:8001/api/v1/s3/{bucket_name}"
+            f"http://localhost:8001/api/v1/s3/buckets/{bucket_name}"
         ) as create_bucket_response:
             assert create_bucket_response.status == 200, "Bucket creation failed"
         
@@ -176,7 +190,7 @@ async def test_edge_computing(dfs_test_setup):
         }
         
         async with session.put(
-            f"http://localhost:8001/api/v1/s3/{bucket_name}/{object_key}",
+            f"http://localhost:8001/api/v1/s3/buckets/{bucket_name}/objects/{object_key}",
             data=test_data,
             headers=headers
         ) as upload_response:
@@ -188,7 +202,7 @@ async def test_edge_computing(dfs_test_setup):
         }
         
         async with session.get(
-            f"http://localhost:8001/api/v1/s3/{bucket_name}/{object_key}",
+            f"http://localhost:8001/api/v1/s3/buckets/{bucket_name}/objects/{object_key}",
             headers=headers
         ) as get_response:
             assert get_response.status == 200, "Edge node retrieval failed"
@@ -203,7 +217,7 @@ async def test_edge_computing(dfs_test_setup):
         }
         
         async with session.get(
-            f"http://localhost:8001/api/v1/s3/{bucket_name}/{object_key}",
+            f"http://localhost:8001/api/v1/s3/buckets/{bucket_name}/objects/{object_key}",
             headers=headers
         ) as compute_response:
             assert compute_response.status == 200, "Edge computation failed"
@@ -212,14 +226,14 @@ async def test_edge_computing(dfs_test_setup):
         
         # Cleanup
         async with session.delete(
-            f"http://localhost:8001/api/v1/s3/{bucket_name}/{object_key}"
+            f"http://localhost:8001/api/v1/s3/buckets/{bucket_name}/objects/{object_key}"
         ) as delete_response:
-            assert delete_response.status == 200, "Object deletion failed"
+            assert delete_response.status == 204, "Object deletion failed"
         
         async with session.delete(
-            f"http://localhost:8001/api/v1/s3/{bucket_name}"
+            f"http://localhost:8001/api/v1/s3/buckets/{bucket_name}"
         ) as delete_bucket_response:
-            assert delete_bucket_response.status == 200, "Bucket deletion failed"
+            assert delete_bucket_response.status == 204, "Bucket deletion failed"
     
     logger.info("Edge computing test passed!")
 
@@ -227,9 +241,10 @@ async def test_edge_computing(dfs_test_setup):
 async def test_failure_scenarios(dfs_test_setup):
     """Test system behavior during failures"""
     logger.info("Testing failure scenarios...")
-    test_data = (await dfs_test_setup)["test_data"]
-    docker_client = (await dfs_test_setup)["docker_client"]
-    core_nodes = (await dfs_test_setup)["core_nodes"]
+    setup_data = await dfs_test_setup
+    test_data = setup_data["test_data"]
+    docker_client = setup_data["docker_client"]
+    core_nodes = setup_data["core_nodes"]
     
     async with aiohttp.ClientSession() as session:
         bucket_name = f"test-bucket-{random.randint(1, 1000)}"
@@ -237,7 +252,7 @@ async def test_failure_scenarios(dfs_test_setup):
         
         # Create bucket
         async with session.put(
-            f"http://localhost:8001/api/v1/s3/{bucket_name}"
+            f"http://localhost:8001/api/v1/s3/buckets/{bucket_name}"
         ) as create_bucket_response:
             assert create_bucket_response.status == 200, "Bucket creation failed"
         
@@ -247,7 +262,7 @@ async def test_failure_scenarios(dfs_test_setup):
             'X-Consistency-Level': 'strong'
         }
         async with session.put(
-            f"http://localhost:8001/api/v1/s3/{bucket_name}/{object_key}",
+            f"http://localhost:8001/api/v1/s3/buckets/{bucket_name}/objects/{object_key}",
             data=test_data,
             headers=headers
         ) as upload_response:
@@ -261,14 +276,14 @@ async def test_failure_scenarios(dfs_test_setup):
         try:
             # Try to read with strong consistency - should fail
             async with session.get(
-                f"http://localhost:8001/api/v1/s3/{bucket_name}/{object_key}",
+                f"http://localhost:8001/api/v1/s3/buckets/{bucket_name}/objects/{object_key}",
                 headers={'X-Consistency-Level': 'strong'}
             ) as get_response:
                 assert get_response.status in [503, 500], "Strong consistency read should fail with node down"
             
             # Read with eventual consistency - should succeed
             async with session.get(
-                f"http://localhost:8001/api/v1/s3/{bucket_name}/{object_key}",
+                f"http://localhost:8001/api/v1/s3/buckets/{bucket_name}/objects/{object_key}",
                 headers={'X-Consistency-Level': 'eventual'}
             ) as get_response:
                 assert get_response.status == 200, "Eventual consistency read failed"
@@ -278,7 +293,7 @@ async def test_failure_scenarios(dfs_test_setup):
             # Try to write with strong consistency - should fail
             new_data = b"Updated test data"
             async with session.put(
-                f"http://localhost:8001/api/v1/s3/{bucket_name}/{object_key}",
+                f"http://localhost:8001/api/v1/s3/buckets/{bucket_name}/objects/{object_key}",
                 data=new_data,
                 headers={'Content-Type': 'application/octet-stream', 'X-Consistency-Level': 'strong'}
             ) as upload_response:
@@ -286,7 +301,7 @@ async def test_failure_scenarios(dfs_test_setup):
             
             # Write with eventual consistency - should succeed
             async with session.put(
-                f"http://localhost:8001/api/v1/s3/{bucket_name}/{object_key}",
+                f"http://localhost:8001/api/v1/s3/buckets/{bucket_name}/objects/{object_key}",
                 data=new_data,
                 headers={'Content-Type': 'application/octet-stream', 'X-Consistency-Level': 'eventual'}
             ) as upload_response:
@@ -299,21 +314,21 @@ async def test_failure_scenarios(dfs_test_setup):
             
             # Verify system returns to normal
             async with session.get(
-                f"http://localhost:8001/api/v1/s3/{bucket_name}/{object_key}",
+                f"http://localhost:8001/api/v1/s3/buckets/{bucket_name}/objects/{object_key}",
                 headers={'X-Consistency-Level': 'strong'}
             ) as get_response:
                 assert get_response.status == 200, "System did not recover properly"
             
             # Cleanup
             async with session.delete(
-                f"http://localhost:8001/api/v1/s3/{bucket_name}/{object_key}"
+                f"http://localhost:8001/api/v1/s3/buckets/{bucket_name}/objects/{object_key}"
             ) as delete_response:
-                assert delete_response.status == 200, "Object deletion failed"
+                assert delete_response.status == 204, "Object deletion failed"
             
             async with session.delete(
-                f"http://localhost:8001/api/v1/s3/{bucket_name}"
+                f"http://localhost:8001/api/v1/s3/buckets/{bucket_name}"
             ) as delete_bucket_response:
-                assert delete_bucket_response.status == 200, "Bucket deletion failed"
+                assert delete_bucket_response.status == 204, "Bucket deletion failed"
     
     logger.info("Failure scenarios test passed!")
 
@@ -321,7 +336,8 @@ async def test_failure_scenarios(dfs_test_setup):
 async def test_performance(dfs_test_setup):
     """Test system performance"""
     logger.info("Testing performance metrics...")
-    test_data = (await dfs_test_setup)["test_data"]
+    setup_data = await dfs_test_setup
+    test_data = setup_data["test_data"]
     
     async with aiohttp.ClientSession() as session:
         bucket_name = f"test-bucket-{random.randint(1, 1000)}"
@@ -329,7 +345,7 @@ async def test_performance(dfs_test_setup):
         
         # Create bucket
         async with session.put(
-            f"http://localhost:8001/api/v1/s3/{bucket_name}"
+            f"http://localhost:8001/api/v1/s3/buckets/{bucket_name}"
         ) as create_bucket_response:
             assert create_bucket_response.status == 200, "Bucket creation failed"
         
@@ -344,7 +360,7 @@ async def test_performance(dfs_test_setup):
                 'X-Consistency-Level': 'eventual'  # Use eventual consistency for better performance
             }
             async with session.put(
-                f"http://localhost:8001/api/v1/s3/{bucket_name}/{object_key}",
+                f"http://localhost:8001/api/v1/s3/buckets/{bucket_name}/objects/{object_key}",
                 data=test_data,
                 headers=headers
             ) as response:
@@ -365,7 +381,7 @@ async def test_performance(dfs_test_setup):
         async def download_object(object_key):
             headers = {'X-Consistency-Level': 'eventual'}
             async with session.get(
-                f"http://localhost:8001/api/v1/s3/{bucket_name}/{object_key}",
+                f"http://localhost:8001/api/v1/s3/buckets/{bucket_name}/objects/{object_key}",
                 headers=headers
             ) as response:
                 assert response.status == 200, f"Download failed for object {object_key}"
@@ -383,7 +399,7 @@ async def test_performance(dfs_test_setup):
         # Test list objects performance
         start_time = datetime.now()
         async with session.get(
-            f"http://localhost:8001/api/v1/s3/{bucket_name}"
+            f"http://localhost:8001/api/v1/s3/buckets/{bucket_name}"
         ) as list_response:
             assert list_response.status == 200, "List objects failed"
             objects = await list_response.json()
@@ -397,18 +413,18 @@ async def test_performance(dfs_test_setup):
         
         async def delete_object(object_key):
             async with session.delete(
-                f"http://localhost:8001/api/v1/s3/{bucket_name}/{object_key}"
+                f"http://localhost:8001/api/v1/s3/buckets/{bucket_name}/objects/{object_key}"
             ) as response:
-                assert response.status == 200, f"Delete failed for object {object_key}"
+                assert response.status == 204, f"Delete failed for object {object_key}"
         
         for object_key in uploaded_objects:
             delete_tasks.append(delete_object(object_key))
         await asyncio.gather(*delete_tasks)
         
         async with session.delete(
-            f"http://localhost:8001/api/v1/s3/{bucket_name}"
+            f"http://localhost:8001/api/v1/s3/buckets/{bucket_name}"
         ) as delete_bucket_response:
-            assert delete_bucket_response.status == 200, "Bucket deletion failed"
+            assert delete_bucket_response.status == 204, "Bucket deletion failed"
     
     logger.info("Performance test passed!")
 
@@ -416,9 +432,10 @@ async def test_performance(dfs_test_setup):
 async def test_offline_mode(dfs_test_setup):
     """Test edge node offline operation"""
     logger.info("Testing offline mode operation...")
-    test_data = (await dfs_test_setup)["test_data"]
-    docker_client = (await dfs_test_setup)["docker_client"]
-    edge_nodes = (await dfs_test_setup)["edge_nodes"]
+    setup_data = await dfs_test_setup
+    test_data = setup_data["test_data"]
+    docker_client = setup_data["docker_client"]
+    edge_nodes = setup_data["edge_nodes"]
     
     async with aiohttp.ClientSession() as session:
         bucket_name = f"test-bucket-{random.randint(1, 1000)}"
@@ -426,7 +443,7 @@ async def test_offline_mode(dfs_test_setup):
         
         # Create bucket
         async with session.put(
-            f"http://localhost:8001/api/v1/s3/{bucket_name}"
+            f"http://localhost:8001/api/v1/s3/buckets/{bucket_name}"
         ) as create_bucket_response:
             assert create_bucket_response.status == 200, "Bucket creation failed"
         
@@ -438,7 +455,7 @@ async def test_offline_mode(dfs_test_setup):
         }
         
         async with session.put(
-            f"http://localhost:8001/api/v1/s3/{bucket_name}/{object_key}",
+            f"http://localhost:8001/api/v1/s3/buckets/{bucket_name}/objects/{object_key}",
             data=test_data,
             headers=headers
         ) as upload_response:
@@ -450,7 +467,7 @@ async def test_offline_mode(dfs_test_setup):
             'X-Cache-Info': 'query'
         }
         async with session.head(
-            f"http://localhost:8001/api/v1/s3/{bucket_name}/{object_key}",
+            f"http://localhost:8001/api/v1/s3/buckets/{bucket_name}/objects/{object_key}",
             headers=headers
         ) as cache_response:
             assert cache_response.status == 200, "Cache verification failed"
@@ -459,7 +476,7 @@ async def test_offline_mode(dfs_test_setup):
         
         # Simulate network partition by stopping core nodes
         core_containers = []
-        for node in (await dfs_test_setup)["core_nodes"]:
+        for node in setup_data["core_nodes"]:
             container = docker_client.containers.get(node)
             container.stop()
             core_containers.append(container)
@@ -473,7 +490,7 @@ async def test_offline_mode(dfs_test_setup):
                 'X-Offline-Mode': 'true'
             }
             async with session.get(
-                f"http://localhost:8001/api/v1/s3/{bucket_name}/{object_key}",
+                f"http://localhost:8001/api/v1/s3/buckets/{bucket_name}/objects/{object_key}",
                 headers=headers
             ) as offline_response:
                 assert offline_response.status == 200, "Offline mode read failed"
@@ -484,7 +501,7 @@ async def test_offline_mode(dfs_test_setup):
             new_data = b"Offline update"
             headers['Content-Type'] = 'application/octet-stream'
             async with session.put(
-                f"http://localhost:8001/api/v1/s3/{bucket_name}/offline-{object_key}",
+                f"http://localhost:8001/api/v1/s3/buckets/{bucket_name}/objects/offline-{object_key}",
                 data=new_data,
                 headers=headers
             ) as offline_write_response:
@@ -499,7 +516,7 @@ async def test_offline_mode(dfs_test_setup):
             
             # Verify offline operations are synchronized
             async with session.get(
-                f"http://localhost:8001/api/v1/s3/{bucket_name}/offline-{object_key}"
+                f"http://localhost:8001/api/v1/s3/buckets/{bucket_name}/objects/offline-{object_key}"
             ) as sync_response:
                 assert sync_response.status == 200, "Offline operation sync failed"
                 sync_data = await sync_response.read()
@@ -508,13 +525,13 @@ async def test_offline_mode(dfs_test_setup):
             # Cleanup
             for key in [object_key, f"offline-{object_key}"]:
                 async with session.delete(
-                    f"http://localhost:8001/api/v1/s3/{bucket_name}/{key}"
+                    f"http://localhost:8001/api/v1/s3/buckets/{bucket_name}/objects/{key}"
                 ) as delete_response:
-                    assert delete_response.status == 200, f"Object deletion failed for {key}"
+                    assert delete_response.status == 204, f"Object deletion failed for {key}"
             
             async with session.delete(
-                f"http://localhost:8001/api/v1/s3/{bucket_name}"
+                f"http://localhost:8001/api/v1/s3/buckets/{bucket_name}"
             ) as delete_bucket_response:
-                assert delete_bucket_response.status == 200, "Bucket deletion failed"
+                assert delete_bucket_response.status == 204, "Bucket deletion failed"
     
     logger.info("Offline mode test passed!")
