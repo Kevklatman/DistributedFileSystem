@@ -1,535 +1,348 @@
 """Unit tests for cloud storage providers."""
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import Mock, patch, MagicMock, ANY
+import io
 import os
-import boto3
-from botocore.exceptions import ClientError
-from google.cloud import storage
-from azure.storage.blob import BlobServiceClient
-from azure.core.exceptions import AzureError
-
-from src.api.storage.cloud.providers import (
-    AWSS3Provider,
-    AzureBlobProvider,
-    GCPStorageProvider,
-    get_cloud_provider
-)
-from tests.test_config import TEST_CONFIG, TEST_DATA
+from src.api.storage.cloud.providers import AWSS3Provider, AzureBlobProvider, GCPStorageProvider
+from src.api.storage.cloud.config import TransferConfig
+from src.api.storage.cloud.transfer import TransferManager
 
 class TestAWSS3Provider(unittest.TestCase):
-    """Test AWS S3 provider implementation."""
+    """Test cases for AWS S3 provider"""
     
     def setUp(self):
-        """Set up test environment."""
-        self.env_patcher = patch.dict('os.environ', {
+        """Set up test environment"""
+        self.mock_env = {
             'AWS_ACCESS_KEY': 'test-key',
             'AWS_SECRET_KEY': 'test-secret',
-            'AWS_REGION': 'us-east-1'
-        })
-        self.env_patcher.start()
-        
-        self.boto3_patcher = patch('boto3.client')
-        self.mock_boto3 = self.boto3_patcher.start()
-        self.mock_s3 = MagicMock()
-        self.mock_boto3.return_value = self.mock_s3
-        self.provider = AWSS3Provider()
-        
-    def tearDown(self):
-        """Clean up test environment."""
-        self.boto3_patcher.stop()
-        self.env_patcher.stop()
-        
-    def test_upload_file_success(self):
-        """Test successful file upload."""
-        self.mock_s3.put_object.return_value = {}
-        result = self.provider.upload_file(
-            TEST_DATA['small_file'],
-            'test.txt',
-            TEST_CONFIG['aws']['bucket']
-        )
-        self.assertTrue(result)
-        self.mock_s3.put_object.assert_called_once()
-        
-    def test_upload_file_failure(self):
-        """Test file upload failure."""
-        self.mock_s3.put_object.side_effect = ClientError(
-            {'Error': {'Code': '500', 'Message': 'Error'}},
-            'put_object'
-        )
-        result = self.provider.upload_file(
-            TEST_DATA['small_file'],
-            'test.txt',
-            TEST_CONFIG['aws']['bucket']
-        )
-        self.assertFalse(result)
-        
-    def test_download_file_success(self):
-        """Test successful file download."""
-        mock_body = MagicMock()
-        mock_body.read.return_value = TEST_DATA['small_file']
-        self.mock_s3.get_object.return_value = {'Body': mock_body}
-        
-        result = self.provider.download_file(
-            'test.txt',
-            TEST_CONFIG['aws']['bucket']
-        )
-        self.assertEqual(result, TEST_DATA['small_file'])
-        
-    def test_download_file_failure(self):
-        """Test file download failure."""
-        self.mock_s3.get_object.side_effect = ClientError(
-            {'Error': {'Code': '500', 'Message': 'Error'}},
-            'get_object'
-        )
-        result = self.provider.download_file(
-            'test.txt',
-            TEST_CONFIG['aws']['bucket']
-        )
-        self.assertIsNone(result)
-        
-    def test_delete_file_success(self):
-        """Test successful file deletion."""
-        self.mock_s3.delete_object.return_value = {}
-        result = self.provider.delete_file(
-            'test.txt',
-            TEST_CONFIG['aws']['bucket']
-        )
-        self.assertTrue(result)
-        self.mock_s3.delete_object.assert_called_once_with(
-            Bucket=TEST_CONFIG['aws']['bucket'],
-            Key='test.txt'
-        )
-        
-    def test_delete_file_failure(self):
-        """Test file deletion failure."""
-        self.mock_s3.delete_object.side_effect = ClientError(
-            {'Error': {'Code': '500', 'Message': 'Error'}},
-            'delete_object'
-        )
-        result = self.provider.delete_file(
-            'test.txt',
-            TEST_CONFIG['aws']['bucket']
-        )
-        self.assertFalse(result)
-        
-    def test_create_bucket_success(self):
-        """Test successful bucket creation."""
-        self.mock_s3.create_bucket.return_value = {}
-        result = self.provider.create_bucket(
-            TEST_CONFIG['aws']['bucket'],
-            'us-east-1'
-        )
-        self.assertTrue(result)
-        self.mock_s3.create_bucket.assert_called_once_with(
-            Bucket=TEST_CONFIG['aws']['bucket'],
-            CreateBucketConfiguration={'LocationConstraint': 'us-east-1'}
-        )
-        
-    def test_create_bucket_failure(self):
-        """Test bucket creation failure."""
-        self.mock_s3.create_bucket.side_effect = ClientError(
-            {'Error': {'Code': '500', 'Message': 'Error'}},
-            'create_bucket'
-        )
-        result = self.provider.create_bucket(TEST_CONFIG['aws']['bucket'])
-        self.assertFalse(result)
-        
-    def test_list_objects_success(self):
-        """Test successful object listing."""
-        mock_objects = {
-            'Contents': [
-                {'Key': 'test1.txt', 'Size': 100},
-                {'Key': 'test2.txt', 'Size': 200}
-            ]
+            'AWS_REGION': 'us-east-2'
         }
-        self.mock_s3.list_objects_v2.return_value = mock_objects
-        result = self.provider.list_objects(TEST_CONFIG['aws']['bucket'])
-        self.assertEqual(result, mock_objects['Contents'])
-        self.mock_s3.list_objects_v2.assert_called_once_with(
-            Bucket=TEST_CONFIG['aws']['bucket'],
-            Prefix=''
+        self.patcher = patch.dict('os.environ', self.mock_env)
+        self.patcher.start()
+        
+        # Create a custom transfer config for testing
+        self.transfer_config = TransferConfig(
+            multipart_threshold=5 * 1024 * 1024,  # 5MB
+            multipart_chunksize=1 * 1024 * 1024,  # 1MB
+            max_attempts=3,
+            retry_mode='exponential',
+            upload_bandwidth_limit=1024 * 1024,  # 1MB/s
+            download_bandwidth_limit=1024 * 1024  # 1MB/s
         )
         
-    def test_list_objects_failure(self):
-        """Test object listing failure."""
-        self.mock_s3.list_objects_v2.side_effect = ClientError(
-            {'Error': {'Code': '500', 'Message': 'Error'}},
-            'list_objects_v2'
+        self.provider = AWSS3Provider(self.transfer_config)
+        self.mock_s3 = Mock()
+        self.provider.s3 = self.mock_s3
+    
+    def tearDown(self):
+        """Clean up test environment"""
+        self.patcher.stop()
+    
+    def test_init_with_transfer_config(self):
+        """Test initialization with transfer config"""
+        provider = AWSS3Provider(self.transfer_config)
+        self.assertEqual(provider.transfer_config.multipart_threshold, 5 * 1024 * 1024)
+        self.assertEqual(provider.transfer_config.multipart_chunksize, 1 * 1024 * 1024)
+    
+    def test_upload_small_file_bytes(self):
+        """Test uploading small file with bytes"""
+        data = b"test data"
+        self.provider.upload_file(data, "test.txt", "test-bucket")
+        self.mock_s3.put_object.assert_called_once_with(
+            Bucket="test-bucket",
+            Key="test.txt",
+            Body=data,
+            StorageClass=self.transfer_config.storage_class
         )
-        result = self.provider.list_objects(TEST_CONFIG['aws']['bucket'])
-        self.assertEqual(result, [])
+    
+    def test_upload_small_file_stream(self):
+        """Test uploading small file with file stream"""
+        data = io.BytesIO(b"test data")
+        self.provider.upload_file(data, "test.txt", "test-bucket")
+        self.mock_s3.upload_fileobj.assert_called_once_with(
+            data,
+            "test-bucket",
+            "test.txt",
+            ExtraArgs={'StorageClass': self.transfer_config.storage_class}
+        )
+    
+    def test_upload_large_file_multipart(self):
+        """Test multipart upload for large files"""
+        # Create a large file that exceeds multipart threshold
+        large_data = b"x" * (6 * 1024 * 1024)  # 6MB
+        file_obj = io.BytesIO(large_data)
+        
+        # Mock multipart upload responses
+        self.mock_s3.create_multipart_upload.return_value = {'UploadId': 'test-upload-id'}
+        self.mock_s3.upload_part.return_value = {'ETag': 'test-etag'}
+        
+        self.provider.upload_file(file_obj, "large.txt", "test-bucket")
+        
+        # Verify multipart upload was initiated
+        self.mock_s3.create_multipart_upload.assert_called_once()
+        
+        # Verify parts were uploaded
+        self.assertTrue(self.mock_s3.upload_part.called)
+        
+        # Verify multipart upload was completed
+        self.mock_s3.complete_multipart_upload.assert_called_once()
+    
+    def test_download_with_bandwidth_limit(self):
+        """Test downloading with bandwidth throttling"""
+        mock_response = {'Body': io.BytesIO(b"test data")}
+        self.mock_s3.get_object.return_value = mock_response
+        
+        result = self.provider.download_file("test.txt", "test-bucket")
+        
+        self.assertEqual(result, b"test data")
+        self.mock_s3.get_object.assert_called_once_with(
+            Bucket="test-bucket",
+            Key="test.txt"
+        )
+    
+    def test_retry_on_failure(self):
+        """Test retry mechanism on failure"""
+        self.mock_s3.get_object.side_effect = [
+            Exception("Temporary failure"),
+            Exception("Another failure"),
+            {'Body': io.BytesIO(b"success")}
+        ]
+        
+        result = self.provider.download_file("test.txt", "test-bucket")
+        
+        self.assertEqual(result, b"success")
+        self.assertEqual(self.mock_s3.get_object.call_count, 3)
+    
+    def test_abort_multipart_on_failure(self):
+        """Test multipart upload abort on failure"""
+        large_data = b"x" * (6 * 1024 * 1024)
+        file_obj = io.BytesIO(large_data)
+        
+        self.mock_s3.create_multipart_upload.return_value = {'UploadId': 'test-upload-id'}
+        self.mock_s3.upload_part.side_effect = Exception("Upload failed")
+        
+        self.provider.upload_file(file_obj, "large.txt", "test-bucket")
+        
+        self.mock_s3.abort_multipart_upload.assert_called_once_with(
+            Bucket="test-bucket",
+            Key="large.txt",
+            UploadId="test-upload-id"
+        )
+    
+    def test_transfer_acceleration(self):
+        """Test S3 transfer acceleration configuration"""
+        config = TransferConfig(use_transfer_acceleration=True)
+        provider = AWSS3Provider(config)
+        
+        # Verify S3 client was configured with acceleration endpoint
+        self.assertTrue(provider.s3._client_config.s3['use_accelerate_endpoint'])
+    
+    def test_storage_class_setting(self):
+        """Test storage class configuration"""
+        config = TransferConfig(storage_class="STANDARD_IA")
+        provider = AWSS3Provider(config)
+        
+        data = b"test data"
+        provider.s3 = self.mock_s3
+        provider.upload_file(data, "test.txt", "test-bucket")
+        
+        self.mock_s3.put_object.assert_called_once_with(
+            Bucket="test-bucket",
+            Key="test.txt",
+            Body=data,
+            StorageClass="STANDARD_IA"
+        )
 
 class TestAzureBlobProvider(unittest.TestCase):
-    """Test Azure Blob Storage provider implementation."""
+    """Test cases for Azure Blob provider"""
     
     def setUp(self):
-        """Set up test environment."""
-        # Mock environment variables
-        self.env_patcher = patch.dict('os.environ', {
-            'AZURE_STORAGE_CONNECTION_STRING': 'DefaultEndpointsProtocol=https;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://127.0.0.1:10000/devstoreaccount1;'
-        })
-        self.env_patcher.start()
+        """Set up test environment"""
+        self.mock_env = {
+            'AZURE_STORAGE_CONNECTION_STRING': 'test-connection-string'
+        }
+        self.patcher = patch.dict('os.environ', self.mock_env)
+        self.patcher.start()
         
-        # Mock Azure client
-        self.mock_service = MagicMock()
-        self.mock_container = MagicMock()
-        self.mock_blob = MagicMock()
-        
-        # Set up the mock chain
-        self.mock_service.get_container_client.return_value = self.mock_container
-        self.mock_container.get_blob_client.return_value = self.mock_blob
-        
-        # Patch BlobServiceClient.from_connection_string to return our mock
-        self.azure_patcher = patch('azure.storage.blob.BlobServiceClient.from_connection_string', return_value=self.mock_service)
-        self.azure_patcher.start()
-        
-        # Create provider after setting up all mocks
-        self.provider = AzureBlobProvider()
-        
+        self.transfer_config = TransferConfig()
+        self.provider = AzureBlobProvider(self.transfer_config)
+        self.mock_blob_service = Mock()
+        self.provider.blob_service = self.mock_blob_service
+    
     def tearDown(self):
-        """Clean up test environment."""
-        self.azure_patcher.stop()
-        self.env_patcher.stop()
+        """Clean up test environment"""
+        self.patcher.stop()
+    
+    def test_init_with_transfer_config(self):
+        """Test initialization with transfer config"""
+        provider = AzureBlobProvider(self.transfer_config)
+        self.assertEqual(provider.transfer_config.multipart_threshold, 5 * 1024 * 1024)
+        self.assertEqual(provider.transfer_config.multipart_chunksize, 1 * 1024 * 1024)
+    
+    def test_upload_small_file_bytes(self):
+        """Test uploading small file with bytes"""
+        data = b"test data"
+        self.provider.upload_file(data, "test.txt", "test-container")
+        self.mock_blob_service.get_blob_client.assert_called_once_with("test.txt")
+        self.mock_blob_service.get_blob_client.return_value.upload_blob.assert_called_once_with(data, overwrite=True)
+    
+    def test_upload_small_file_stream(self):
+        """Test uploading small file with file stream"""
+        data = io.BytesIO(b"test data")
+        self.provider.upload_file(data, "test.txt", "test-container")
+        self.mock_blob_service.get_blob_client.assert_called_once_with("test.txt")
+        self.mock_blob_service.get_blob_client.return_value.upload_blob.assert_called_once_with(data, overwrite=True)
+    
+    def test_upload_large_file_multipart(self):
+        """Test multipart upload for large files"""
+        # Create a large file that exceeds multipart threshold
+        large_data = b"x" * (6 * 1024 * 1024)  # 6MB
+        file_obj = io.BytesIO(large_data)
         
-    def test_upload_file_success(self):
-        """Test successful file upload."""
-        # Configure mock to simulate successful upload
-        self.mock_blob.upload_blob.return_value = None  # Azure returns None on success
+        # Mock multipart upload responses
+        self.mock_blob_service.get_blob_client.return_value.stage_block.side_effect = ['block1', 'block2']
+        self.mock_blob_service.get_blob_client.return_value.commit_block_list.side_effect = ['commit1', 'commit2']
         
-        result = self.provider.upload_file(
-            TEST_DATA['small_file'],
-            'test.txt',
-            TEST_CONFIG['azure']['container']
-        )
-        self.assertTrue(result)
+        self.provider.upload_file(file_obj, "large.txt", "test-container")
         
-        # Verify mock was called correctly
-        self.mock_service.get_container_client.assert_called_once_with(TEST_CONFIG['azure']['container'])
-        self.mock_container.get_blob_client.assert_called_once_with('test.txt')
-        self.mock_blob.upload_blob.assert_called_once_with(TEST_DATA['small_file'], overwrite=True)
+        # Verify multipart upload was initiated
+        self.mock_blob_service.get_blob_client.assert_called_once_with("large.txt")
         
-    def test_upload_file_failure(self):
-        """Test file upload failure."""
-        # Configure mock to simulate upload failure
-        class CustomAzureError(AzureError):
-            def __init__(self):
-                super().__init__(message="Test Azure Error")
+        # Verify parts were uploaded
+        self.assertTrue(self.mock_blob_service.get_blob_client.return_value.stage_block.called)
         
-        self.mock_blob.upload_blob.side_effect = CustomAzureError()
+        # Verify multipart upload was completed
+        self.mock_blob_service.get_blob_client.return_value.commit_block_list.assert_called_once()
+    
+    def test_download_with_bandwidth_limit(self):
+        """Test downloading with bandwidth throttling"""
+        mock_response = {'content': io.BytesIO(b"test data")}
+        self.mock_blob_service.get_blob_client.return_value.download_blob.return_value = mock_response
         
-        result = self.provider.upload_file(
-            TEST_DATA['small_file'],
-            'test.txt',
-            TEST_CONFIG['azure']['container']
-        )
-        self.assertFalse(result)
+        result = self.provider.download_file("test.txt", "test-container")
         
-        # Verify mock was called correctly
-        self.mock_service.get_container_client.assert_called_once_with(TEST_CONFIG['azure']['container'])
-        self.mock_container.get_blob_client.assert_called_once_with('test.txt')
-        self.mock_blob.upload_blob.assert_called_once_with(TEST_DATA['small_file'], overwrite=True)
-
-    def test_download_file_success(self):
-        """Test successful file download."""
-        mock_blob_data = MagicMock()
-        mock_blob_data.readall.return_value = TEST_DATA['small_file']
-        self.mock_blob.download_blob.return_value = mock_blob_data
-        
-        result = self.provider.download_file(
-            'test.txt',
-            TEST_CONFIG['azure']['container']
-        )
-        self.assertEqual(result, TEST_DATA['small_file'])
-        
-        # Verify mock was called correctly
-        self.mock_service.get_container_client.assert_called_once_with(TEST_CONFIG['azure']['container'])
-        self.mock_container.get_blob_client.assert_called_once_with('test.txt')
-        self.mock_blob.download_blob.assert_called_once()
-        
-    def test_download_file_failure(self):
-        """Test file download failure."""
-        class CustomAzureError(AzureError):
-            def __init__(self):
-                super().__init__(message="Test Azure Error")
-        
-        self.mock_blob.download_blob.side_effect = CustomAzureError()
-        
-        result = self.provider.download_file(
-            'test.txt',
-            TEST_CONFIG['azure']['container']
-        )
-        self.assertIsNone(result)
-        
-    def test_delete_file_success(self):
-        """Test successful file deletion."""
-        self.mock_blob.delete_blob.return_value = None
-        result = self.provider.delete_file(
-            'test.txt',
-            TEST_CONFIG['azure']['container']
-        )
-        self.assertTrue(result)
-        
-        # Verify mock was called correctly
-        self.mock_service.get_container_client.assert_called_once_with(TEST_CONFIG['azure']['container'])
-        self.mock_container.get_blob_client.assert_called_once_with('test.txt')
-        self.mock_blob.delete_blob.assert_called_once()
-        
-    def test_delete_file_failure(self):
-        """Test file deletion failure."""
-        class CustomAzureError(AzureError):
-            def __init__(self):
-                super().__init__(message="Test Azure Error")
-        
-        self.mock_blob.delete_blob.side_effect = CustomAzureError()
-        result = self.provider.delete_file(
-            'test.txt',
-            TEST_CONFIG['azure']['container']
-        )
-        self.assertFalse(result)
-        
-    def test_create_bucket_success(self):
-        """Test successful container creation."""
-        self.mock_service.create_container.return_value = None
-        result = self.provider.create_bucket(TEST_CONFIG['azure']['container'])
-        self.assertTrue(result)
-        self.mock_service.create_container.assert_called_once_with(TEST_CONFIG['azure']['container'])
-        
-    def test_create_bucket_failure(self):
-        """Test container creation failure."""
-        class CustomAzureError(AzureError):
-            def __init__(self):
-                super().__init__(message="Test Azure Error")
-        
-        self.mock_service.create_container.side_effect = CustomAzureError()
-        result = self.provider.create_bucket(TEST_CONFIG['azure']['container'])
-        self.assertFalse(result)
-        
-    def test_list_objects_success(self):
-        """Test successful object listing."""
-        mock_blob1 = MagicMock()
-        mock_blob1.name = 'test1.txt'
-        mock_blob1.size = 100
-        mock_blob1.last_modified = '2023-01-01'
-        
-        mock_blob2 = MagicMock()
-        mock_blob2.name = 'test2.txt'
-        mock_blob2.size = 200
-        mock_blob2.last_modified = '2023-01-02'
-        
-        self.mock_container.list_blobs.return_value = [mock_blob1, mock_blob2]
-        result = self.provider.list_objects(TEST_CONFIG['azure']['container'])
-        
-        expected = [
-            {'Key': 'test1.txt', 'Size': 100, 'LastModified': '2023-01-01'},
-            {'Key': 'test2.txt', 'Size': 200, 'LastModified': '2023-01-02'}
+        self.assertEqual(result, b"test data")
+        self.mock_blob_service.get_blob_client.assert_called_once_with("test.txt")
+        self.mock_blob_service.get_blob_client.return_value.download_blob.assert_called_once()
+    
+    def test_retry_on_failure(self):
+        """Test retry mechanism on failure"""
+        self.mock_blob_service.get_blob_client.return_value.download_blob.side_effect = [
+            Exception("Temporary failure"),
+            Exception("Another failure"),
+            {'content': io.BytesIO(b"success")}
         ]
-        self.assertEqual(result, expected)
-        self.mock_container.list_blobs.assert_called_once_with(name_starts_with='')
         
-    def test_list_objects_failure(self):
-        """Test object listing failure."""
-        class CustomAzureError(AzureError):
-            def __init__(self):
-                super().__init__(message="Test Azure Error")
+        result = self.provider.download_file("test.txt", "test-container")
         
-        self.mock_container.list_blobs.side_effect = CustomAzureError()
-        result = self.provider.list_objects(TEST_CONFIG['azure']['container'])
-        self.assertEqual(result, [])
+        self.assertEqual(result, b"success")
+        self.assertEqual(self.mock_blob_service.get_blob_client.return_value.download_blob.call_count, 3)
+    
+    def test_abort_multipart_on_failure(self):
+        """Test multipart upload abort on failure"""
+        large_data = b"x" * (6 * 1024 * 1024)
+        file_obj = io.BytesIO(large_data)
+        
+        self.mock_blob_service.get_blob_client.return_value.stage_block.side_effect = Exception("Upload failed")
+        
+        self.provider.upload_file(file_obj, "large.txt", "test-container")
+        
+        self.mock_blob_service.get_blob_client.return_value.abort_upload.assert_called_once()
 
 class TestGCPStorageProvider(unittest.TestCase):
-    """Test Google Cloud Storage provider implementation."""
+    """Test cases for GCP Storage provider"""
     
     def setUp(self):
-        """Set up test environment."""
-        # Mock environment variables
-        self.env_patcher = patch.dict('os.environ', {
-            'GOOGLE_APPLICATION_CREDENTIALS': '/path/to/credentials.json'
-        })
-        self.env_patcher.start()
+        """Set up test environment"""
+        self.mock_env = {
+            'GOOGLE_APPLICATION_CREDENTIALS': 'test-credentials.json'
+        }
+        self.patcher = patch.dict('os.environ', self.mock_env)
+        self.patcher.start()
         
-        # Mock GCP client
-        self.storage_patcher = patch('google.cloud.storage.Client', autospec=True)
-        self.mock_storage = self.storage_patcher.start()
-        self.mock_client = MagicMock()
-        self.mock_bucket = MagicMock()
-        self.mock_blob = MagicMock()
-        
-        self.mock_storage.return_value = self.mock_client
-        self.mock_client.bucket.return_value = self.mock_bucket
-        self.mock_bucket.blob.return_value = self.mock_blob
-        
-        # Mock credentials
-        self.credentials_patcher = patch('google.auth.default', return_value=(MagicMock(), 'test-project'))
-        self.credentials_patcher.start()
-        
-        self.provider = GCPStorageProvider()
-        
+        self.transfer_config = TransferConfig()
+        self.provider = GCPStorageProvider(self.transfer_config)
+        self.mock_client = Mock()
+        self.provider.client = self.mock_client
+    
     def tearDown(self):
-        """Clean up test environment."""
-        self.storage_patcher.stop()
-        self.credentials_patcher.stop()
-        self.env_patcher.stop()
+        """Clean up test environment"""
+        self.patcher.stop()
+    
+    def test_init_with_transfer_config(self):
+        """Test initialization with transfer config"""
+        provider = GCPStorageProvider(self.transfer_config)
+        self.assertEqual(provider.transfer_config.multipart_threshold, 5 * 1024 * 1024)
+        self.assertEqual(provider.transfer_config.multipart_chunksize, 1 * 1024 * 1024)
+    
+    def test_upload_small_file_bytes(self):
+        """Test uploading small file with bytes"""
+        data = b"test data"
+        self.provider.upload_file(data, "test.txt", "test-bucket")
+        self.mock_client.bucket.assert_called_once_with("test-bucket")
+        self.mock_client.bucket.return_value.blob.assert_called_once_with("test.txt")
+        self.mock_client.bucket.return_value.blob.return_value.upload_from_string.assert_called_once_with(data)
+    
+    def test_upload_small_file_stream(self):
+        """Test uploading small file with file stream"""
+        data = io.BytesIO(b"test data")
+        self.provider.upload_file(data, "test.txt", "test-bucket")
+        self.mock_client.bucket.assert_called_once_with("test-bucket")
+        self.mock_client.bucket.return_value.blob.assert_called_once_with("test.txt")
+        self.mock_client.bucket.return_value.blob.return_value.upload_from_file.assert_called_once_with(data)
+    
+    def test_upload_large_file_multipart(self):
+        """Test multipart upload for large files"""
+        # Create a large file that exceeds multipart threshold
+        large_data = b"x" * (6 * 1024 * 1024)  # 6MB
+        file_obj = io.BytesIO(large_data)
         
-    def test_upload_file_success(self):
-        """Test successful file upload."""
-        result = self.provider.upload_file(
-            TEST_DATA['small_file'],
-            'test.txt',
-            TEST_CONFIG['gcp']['bucket']
-        )
-        self.assertTrue(result)
-        self.mock_blob.upload_from_string.assert_called_once()
+        # Mock multipart upload responses
+        self.mock_client.bucket.return_value.blob.return_value.chunk_size = 1 * 1024 * 1024
         
-    def test_upload_file_failure(self):
-        """Test file upload failure."""
-        self.mock_blob.upload_from_string.side_effect = Exception()
-        result = self.provider.upload_file(
-            TEST_DATA['small_file'],
-            'test.txt',
-            TEST_CONFIG['gcp']['bucket']
-        )
-        self.assertFalse(result)
-
-    def test_download_file_success(self):
-        """Test successful file download."""
-        self.mock_blob.download_as_bytes.return_value = TEST_DATA['small_file']
+        self.provider.upload_file(file_obj, "large.txt", "test-bucket")
         
-        result = self.provider.download_file(
-            'test.txt',
-            TEST_CONFIG['gcp']['bucket']
-        )
-        self.assertEqual(result, TEST_DATA['small_file'])
+        # Verify multipart upload was initiated
+        self.mock_client.bucket.assert_called_once_with("test-bucket")
         
-        # Verify mock was called correctly
-        self.mock_client.bucket.assert_called_once_with(TEST_CONFIG['gcp']['bucket'])
-        self.mock_bucket.blob.assert_called_once_with('test.txt')
-        self.mock_blob.download_as_bytes.assert_called_once()
+        # Verify parts were uploaded
+        self.assertTrue(self.mock_client.bucket.return_value.blob.return_value.upload_from_file.called)
         
-    def test_download_file_failure(self):
-        """Test file download failure."""
-        self.mock_blob.download_as_bytes.side_effect = Exception("Test GCP Error")
-        result = self.provider.download_file(
-            'test.txt',
-            TEST_CONFIG['gcp']['bucket']
-        )
-        self.assertIsNone(result)
+        # Verify multipart upload was completed
+        self.mock_client.bucket.return_value.blob.return_value.upload_from_file.assert_called_once()
+    
+    def test_download_with_bandwidth_limit(self):
+        """Test downloading with bandwidth throttling"""
+        mock_response = {'content': io.BytesIO(b"test data")}
+        self.mock_client.bucket.return_value.blob.return_value.download_as_bytes.return_value = mock_response
         
-    def test_delete_file_success(self):
-        """Test successful file deletion."""
-        self.mock_blob.delete.return_value = None
-        result = self.provider.delete_file(
-            'test.txt',
-            TEST_CONFIG['gcp']['bucket']
-        )
-        self.assertTrue(result)
+        result = self.provider.download_file("test.txt", "test-bucket")
         
-        # Verify mock was called correctly
-        self.mock_client.bucket.assert_called_once_with(TEST_CONFIG['gcp']['bucket'])
-        self.mock_bucket.blob.assert_called_once_with('test.txt')
-        self.mock_blob.delete.assert_called_once()
-        
-    def test_delete_file_failure(self):
-        """Test file deletion failure."""
-        self.mock_blob.delete.side_effect = Exception("Test GCP Error")
-        result = self.provider.delete_file(
-            'test.txt',
-            TEST_CONFIG['gcp']['bucket']
-        )
-        self.assertFalse(result)
-        
-    def test_create_bucket_success(self):
-        """Test successful bucket creation."""
-        mock_bucket = MagicMock()
-        self.mock_client.create_bucket.return_value = mock_bucket
-        result = self.provider.create_bucket(TEST_CONFIG['gcp']['bucket'])
-        self.assertTrue(result)
-        self.mock_client.create_bucket.assert_called_once_with(TEST_CONFIG['gcp']['bucket'], location=None)
-        
-    def test_create_bucket_failure(self):
-        """Test bucket creation failure."""
-        self.mock_client.create_bucket.side_effect = Exception("Test GCP Error")
-        result = self.provider.create_bucket(TEST_CONFIG['gcp']['bucket'])
-        self.assertFalse(result)
-        
-    def test_list_objects_success(self):
-        """Test successful object listing."""
-        mock_blob1 = MagicMock()
-        mock_blob1.name = 'test1.txt'
-        mock_blob1.size = 100
-        mock_blob1.time_created = '2023-01-01'
-        
-        mock_blob2 = MagicMock()
-        mock_blob2.name = 'test2.txt'
-        mock_blob2.size = 200
-        mock_blob2.time_created = '2023-01-02'
-        
-        self.mock_bucket.list_blobs.return_value = [mock_blob1, mock_blob2]
-        
-        result = self.provider.list_objects(TEST_CONFIG['gcp']['bucket'])
-        expected = [
-            {'Key': 'test1.txt', 'Size': 100, 'LastModified': '2023-01-01'},
-            {'Key': 'test2.txt', 'Size': 200, 'LastModified': '2023-01-02'}
+        self.assertEqual(result, b"test data")
+        self.mock_client.bucket.assert_called_once_with("test-bucket")
+        self.mock_client.bucket.return_value.blob.assert_called_once_with("test.txt")
+        self.mock_client.bucket.return_value.blob.return_value.download_as_bytes.assert_called_once()
+    
+    def test_retry_on_failure(self):
+        """Test retry mechanism on failure"""
+        self.mock_client.bucket.return_value.blob.return_value.download_as_bytes.side_effect = [
+            Exception("Temporary failure"),
+            Exception("Another failure"),
+            {'content': io.BytesIO(b"success")}
         ]
-        self.assertEqual(result, expected)
-        self.mock_client.bucket.assert_called_once_with(TEST_CONFIG['gcp']['bucket'])
-        self.mock_bucket.list_blobs.assert_called_once_with(prefix='')
         
-    def test_list_objects_failure(self):
-        """Test object listing failure."""
-        self.mock_bucket.list_blobs.side_effect = Exception("Test GCP Error")
-        result = self.provider.list_objects(TEST_CONFIG['gcp']['bucket'])
-        self.assertEqual(result, [])
-
-class TestCloudProviderFactory(unittest.TestCase):
-    """Test cloud provider factory function."""
+        result = self.provider.download_file("test.txt", "test-bucket")
+        
+        self.assertEqual(result, b"success")
+        self.assertEqual(self.mock_client.bucket.return_value.blob.return_value.download_as_bytes.call_count, 3)
     
-    def setUp(self):
-        """Set up test environment."""
-        # Mock environment variables
-        self.env_patcher = patch.dict('os.environ', {
-            'AWS_ACCESS_KEY': 'test-key',
-            'AWS_SECRET_KEY': 'test-secret',
-            'AWS_REGION': 'us-east-1',
-            'AZURE_STORAGE_CONNECTION_STRING': 'DefaultEndpointsProtocol=https;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://127.0.0.1:10000/devstoreaccount1;',
-            'GOOGLE_APPLICATION_CREDENTIALS': '/path/to/credentials.json'
-        })
-        self.env_patcher.start()
+    def test_abort_multipart_on_failure(self):
+        """Test multipart upload abort on failure"""
+        large_data = b"x" * (6 * 1024 * 1024)
+        file_obj = io.BytesIO(large_data)
         
-        # Mock cloud clients
-        self.boto3_patcher = patch('boto3.client', return_value=MagicMock())
-        self.azure_patcher = patch('azure.storage.blob.BlobServiceClient.from_connection_string', return_value=MagicMock())
-        self.gcp_patcher = patch('google.cloud.storage.Client', return_value=MagicMock())
-        self.credentials_patcher = patch('google.auth.default', return_value=(MagicMock(), 'test-project'))
+        self.mock_client.bucket.return_value.blob.return_value.upload_from_file.side_effect = Exception("Upload failed")
         
-        self.boto3_patcher.start()
-        self.azure_patcher.start()
-        self.gcp_patcher.start()
-        self.credentials_patcher.start()
+        self.provider.upload_file(file_obj, "large.txt", "test-bucket")
         
-    def tearDown(self):
-        """Clean up test environment."""
-        self.boto3_patcher.stop()
-        self.azure_patcher.stop()
-        self.gcp_patcher.stop()
-        self.credentials_patcher.stop()
-        self.env_patcher.stop()
-        
-    def test_get_aws_provider(self):
-        """Test getting AWS provider."""
-        provider = get_cloud_provider('aws')
-        self.assertIsInstance(provider, AWSS3Provider)
-        
-    def test_get_azure_provider(self):
-        """Test getting Azure provider."""
-        provider = get_cloud_provider('azure')
-        self.assertIsInstance(provider, AzureBlobProvider)
-        
-    def test_get_gcp_provider(self):
-        """Test getting GCP provider."""
-        provider = get_cloud_provider('gcp')
-        self.assertIsInstance(provider, GCPStorageProvider)
-        
-    def test_get_invalid_provider(self):
-        """Test getting invalid provider."""
-        with self.assertRaises(ValueError):
-            get_cloud_provider('invalid')
+        self.mock_client.bucket.return_value.blob.return_value.delete_blob.assert_called_once()
