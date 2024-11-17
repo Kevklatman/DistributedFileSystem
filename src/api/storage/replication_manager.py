@@ -1,103 +1,139 @@
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 import hashlib
-import asyncio
 import aiohttp
-from dataclasses import dataclass
-import time
-from concurrent.futures import ThreadPoolExecutor
+import asyncio
 import logging
+from datetime import datetime
+from dataclasses import dataclass
+from .models import StorageLocation, Volume
 
 @dataclass
 class ReplicationPolicy:
-    min_copies: int = 3
-    sync_replication: bool = True
-    consistency_level: str = "quorum"  # one, quorum, all
-    preferred_zones: List[str] = None
+    source_volume_id: str
+    target_location: StorageLocation
+    bandwidth_limit_mbps: Optional[int] = None
+    compression_enabled: bool = True
+    sync_interval_minutes: int = 60
+    bandwidth_schedule: Dict[str, int] = None  # Hour -> bandwidth limit
+    incremental_only: bool = True
+    verify_after_sync: bool = True
 
 class ReplicationManager:
-    def __init__(self, cluster_manager, policy: ReplicationPolicy = None):
-        self.cluster_manager = cluster_manager
-        self.policy = policy or ReplicationPolicy()
-        self.replication_queue = asyncio.Queue()
-        self.executor = ThreadPoolExecutor(max_workers=10)
+    def __init__(self, storage_manager):
+        self.storage_manager = storage_manager
         self.logger = logging.getLogger(__name__)
+        self.active_replications: Dict[str, ReplicationPolicy] = {}
+        self.bandwidth_semaphore = asyncio.Semaphore(10)  # Limit concurrent transfers
+        
+    async def start_replication(self, policy: ReplicationPolicy):
+        """Start replication for a volume with the given policy"""
+        if policy.source_volume_id not in self.storage_manager.system.volumes:
+            raise ValueError(f"Volume {policy.source_volume_id} not found")
+            
+        self.active_replications[policy.source_volume_id] = policy
+        asyncio.create_task(self._replication_loop(policy))
+        
+    async def _replication_loop(self, policy: ReplicationPolicy):
+        """Main replication loop that handles scheduling and bandwidth management"""
+        while policy.source_volume_id in self.active_replications:
+            try:
+                await self._perform_replication(policy)
+                await asyncio.sleep(policy.sync_interval_minutes * 60)
+            except Exception as e:
+                self.logger.error(f"Replication error for volume {policy.source_volume_id}: {str(e)}")
+                await asyncio.sleep(60)  # Wait before retry
+                
+    async def _perform_replication(self, policy: ReplicationPolicy):
+        """Perform actual replication with bandwidth control and optimization"""
+        volume = self.storage_manager.system.volumes[policy.source_volume_id]
+        
+        # Get current bandwidth limit based on schedule
+        current_hour = datetime.now().hour
+        bandwidth_limit = policy.bandwidth_schedule.get(
+            current_hour, 
+            policy.bandwidth_limit_mbps
+        ) if policy.bandwidth_schedule else policy.bandwidth_limit_mbps
+        
+        async with self.bandwidth_semaphore:
+            # Get changed blocks since last sync if incremental
+            changed_blocks = await self._get_changed_blocks(volume) if policy.incremental_only else None
+            
+            # Calculate optimal chunk size based on bandwidth
+            chunk_size = self._calculate_chunk_size(bandwidth_limit) if bandwidth_limit else 1024 * 1024
+            
+            # Compress data if enabled
+            if policy.compression_enabled:
+                data = await self._compress_data(changed_blocks or volume.data)
+            else:
+                data = changed_blocks or volume.data
+                
+            # Split data into chunks and transfer with bandwidth control
+            chunks = self._split_into_chunks(data, chunk_size)
+            for chunk in chunks:
+                await self._transfer_chunk(
+                    chunk, 
+                    policy.target_location,
+                    bandwidth_limit
+                )
+                
+            if policy.verify_after_sync:
+                await self._verify_replication(volume, policy.target_location)
 
-    async def start(self):
-        """Start the replication manager"""
-        await asyncio.gather(
-            self._process_replication_queue(),
-            self._monitor_replication_health()
-        )
-
-    async def replicate_data(self, data_id: str, data: bytes, source_node: str) -> List[str]:
-        """
-        Replicate data to multiple nodes according to the replication policy
-        Returns list of node IDs where data was successfully replicated
-        """
-        target_nodes = self._select_target_nodes(
-            excluding_nodes=[source_node],
-            count=self.policy.min_copies
-        )
-
-        if not target_nodes:
-            raise Exception("Not enough healthy nodes available for replication")
-
-        replication_tasks = []
-        for node in target_nodes:
-            task = self._replicate_to_node(data_id, data, node)
-            replication_tasks.append(task)
-
-        if self.policy.sync_replication:
-            # Wait for all replications to complete
-            results = await asyncio.gather(*replication_tasks, return_exceptions=True)
-            successful_nodes = [
-                node for node, success in zip(target_nodes, results)
-                if not isinstance(success, Exception)
-            ]
-
-            if len(successful_nodes) < self._get_min_successful_copies():
-                raise Exception("Failed to meet minimum replication requirement")
-
-            return successful_nodes
+    async def _transfer_chunk(self, chunk: bytes, target: StorageLocation, bandwidth_limit: Optional[int]):
+        """Transfer a chunk of data with bandwidth limiting"""
+        if bandwidth_limit:
+            chunk_size = len(chunk)
+            expected_transfer_time = chunk_size / (bandwidth_limit * 1024 * 1024 / 8)
+            start_time = datetime.now()
+            
+            # Actual transfer
+            await self._replicate_to_node(chunk, target)
+            
+            # Calculate and apply delay if transfer was too fast
+            elapsed = (datetime.now() - start_time).total_seconds()
+            if elapsed < expected_transfer_time:
+                await asyncio.sleep(expected_transfer_time - elapsed)
         else:
-            # Async replication - queue the tasks and return immediately
-            for task in replication_tasks:
-                await self.replication_queue.put(task)
-            return [node.node_id for node in target_nodes]
+            await self._replicate_to_node(chunk, target)
 
-    def _select_target_nodes(self, excluding_nodes: List[str], count: int) -> List[str]:
-        """Select appropriate target nodes for replication"""
-        available_nodes = [
-            node for node in self.cluster_manager.nodes.values()
-            if node.node_id not in excluding_nodes
-            and node.status == "READY"
-            and (node.capacity_bytes - node.used_bytes) > 0
-        ]
+    @staticmethod
+    def _calculate_chunk_size(bandwidth_limit_mbps: int) -> int:
+        """Calculate optimal chunk size based on bandwidth limit"""
+        # Use larger chunks for higher bandwidth
+        base_chunk_size = 1024 * 1024  # 1MB base
+        return min(base_chunk_size * (bandwidth_limit_mbps // 100 + 1), 
+                  16 * 1024 * 1024)  # Cap at 16MB
 
-        if self.policy.preferred_zones:
-            # Prioritize nodes in preferred zones
-            available_nodes.sort(
-                key=lambda n: n.zone in self.policy.preferred_zones,
-                reverse=True
-            )
+    async def _get_changed_blocks(self, volume: Volume) -> bytes:
+        """Get blocks that changed since last sync (SnapMirror-like)"""
+        # Implementation would track block changes
+        # For now, return None to indicate full sync needed
+        return None
 
-        # Select nodes with most available space
-        return sorted(
-            available_nodes,
-            key=lambda n: (n.capacity_bytes - n.used_bytes),
-            reverse=True
-        )[:count]
+    async def _compress_data(self, data: bytes) -> bytes:
+        """Compress data for transfer"""
+        # Add actual compression implementation
+        return data
 
-    async def _replicate_to_node(self, data_id: str, data: bytes, target_node: str) -> bool:
+    @staticmethod
+    def _split_into_chunks(data: bytes, chunk_size: int) -> List[bytes]:
+        """Split data into chunks for transfer"""
+        return [data[i:i + chunk_size] for i in range(0, len(data), chunk_size)]
+
+    async def _verify_replication(self, volume: Volume, target_location: StorageLocation):
+        """Verify successful replication"""
+        # Implementation would check checksums between source and target
+        pass
+
+    async def _replicate_to_node(self, data: bytes, target: StorageLocation):
         """Replicate data to a specific node"""
         try:
             checksum = hashlib.sha256(data).hexdigest()
             
             async with aiohttp.ClientSession() as session:
                 async with session.post(
-                    f"http://{target_node.pod_ip}:8080/storage/replicate",
+                    f"http://{target.pod_ip}:8080/storage/replicate",
                     json={
-                        "data_id": data_id,
                         "data": data.hex(),
                         "checksum": checksum
                     }
@@ -112,113 +148,5 @@ class ReplicationManager:
                     
                     return True
         except Exception as e:
-            self.logger.error(f"Replication to node {target_node.node_id} failed: {str(e)}")
+            self.logger.error(f"Replication to node {target.node_id} failed: {str(e)}")
             return False
-
-    async def _process_replication_queue(self):
-        """Process async replication queue"""
-        while True:
-            task = await self.replication_queue.get()
-            try:
-                await task
-            except Exception as e:
-                self.logger.error(f"Async replication failed: {str(e)}")
-            finally:
-                self.replication_queue.task_done()
-
-    async def _monitor_replication_health(self):
-        """Monitor and maintain replication health"""
-        while True:
-            try:
-                await self._check_replication_status()
-                await asyncio.sleep(300)  # Check every 5 minutes
-            except Exception as e:
-                self.logger.error(f"Replication health check failed: {str(e)}")
-                await asyncio.sleep(60)  # Retry after 1 minute on error
-
-    async def _check_replication_status(self):
-        """Check and repair replication status of all data"""
-        # Get all data locations
-        data_locations = await self._get_all_data_locations()
-        
-        for data_id, locations in data_locations.items():
-            if len(locations) < self.policy.min_copies:
-                # Need to create more replicas
-                await self._repair_replication(data_id, locations)
-
-    async def _get_all_data_locations(self) -> Dict[str, List[str]]:
-        """Get mapping of data_id to list of node IDs containing that data"""
-        data_locations = {}
-        
-        # Query each node for its data
-        tasks = []
-        for node in self.cluster_manager.nodes.values():
-            if node.status == "READY":
-                tasks.append(self._get_node_data_list(node))
-        
-        # Wait for all queries to complete
-        node_data_lists = await asyncio.gather(*tasks, return_exceptions=True)
-        
-        # Process results
-        for node, data_list in zip(self.cluster_manager.nodes.values(), node_data_lists):
-            if isinstance(data_list, Exception):
-                self.logger.error(f"Failed to get data list from node {node.node_id}: {str(data_list)}")
-                continue
-                
-            for data_id in data_list:
-                if data_id not in data_locations:
-                    data_locations[data_id] = []
-                data_locations[data_id].append(node.node_id)
-        
-        return data_locations
-
-    async def _get_node_data_list(self, node) -> List[str]:
-        """Get list of data IDs stored on a specific node"""
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    f"http://{node.pod_ip}:8080/storage/list"
-                ) as response:
-                    if response.status != 200:
-                        raise Exception(f"Failed to get data list: {await response.text()}")
-                    return await response.json()
-        except Exception as e:
-            raise Exception(f"Failed to get data list from node {node.node_id}: {str(e)}")
-
-    async def _repair_replication(self, data_id: str, current_locations: List[str]):
-        """Repair replication for under-replicated data"""
-        needed_copies = self.policy.min_copies - len(current_locations)
-        if needed_copies <= 0:
-            return
-
-        # Get the data from one of the existing locations
-        source_node = current_locations[0]
-        data = await self._fetch_data(data_id, source_node)
-        
-        # Replicate to new nodes
-        await self.replicate_data(data_id, data, source_node)
-
-    async def _fetch_data(self, data_id: str, node_id: str) -> bytes:
-        """Fetch data from a specific node"""
-        node = self.cluster_manager.nodes.get(node_id)
-        if not node:
-            raise Exception(f"Node {node_id} not found")
-
-        async with aiohttp.ClientSession() as session:
-            async with session.get(
-                f"http://{node.pod_ip}:8080/storage/data/{data_id}"
-            ) as response:
-                if response.status != 200:
-                    raise Exception(f"Failed to fetch data: {await response.text()}")
-                return await response.read()
-
-    def _get_min_successful_copies(self) -> int:
-        """Get minimum number of successful copies needed based on consistency level"""
-        if self.policy.consistency_level == "one":
-            return 1
-        elif self.policy.consistency_level == "quorum":
-            return (self.policy.min_copies // 2) + 1
-        elif self.policy.consistency_level == "all":
-            return self.policy.min_copies
-        else:
-            return self.policy.min_copies
