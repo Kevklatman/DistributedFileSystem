@@ -1,150 +1,22 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>DFS Dashboard</title>
+    <title>DFS Monitoring Dashboard</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
-        body {
-            font-family: Arial, sans-serif;
-            margin: 0;
-            padding: 20px;
-            background-color: #f5f5f5;
-        }
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-        }
-        .header {
-            background-color: #fff;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            margin-bottom: 20px;
-        }
-        .section {
-            background-color: #fff;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            margin-bottom: 20px;
-        }
-        h1 {
-            color: #333;
-            margin: 0;
-        }
-        h2 {
-            color: #666;
-            margin-top: 0;
-        }
-        .metrics {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 20px;
-            margin-bottom: 20px;
-        }
         .metric-card {
-            background-color: #f8f9fa;
-            padding: 15px;
-            border-radius: 6px;
-            text-align: center;
-        }
-        .metric-value {
-            font-size: 24px;
-            font-weight: bold;
-            color: #007bff;
-        }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 10px;
-        }
-        th, td {
-            padding: 12px;
-            text-align: left;
-            border-bottom: 1px solid #ddd;
-        }
-        th {
-            background-color: #f8f9fa;
-            font-weight: bold;
-            color: #666;
-        }
-        tr:hover {
-            background-color: #f8f9fa;
-        }
-        .timestamp {
-            color: #666;
-            font-size: 0.9em;
-            margin-top: 10px;
-        }
-        .nav-tabs {
-            display: flex;
             margin-bottom: 20px;
-            border-bottom: 1px solid #ddd;
-            background-color: #fff;
-            padding: 10px 20px 0;
-            border-radius: 8px 8px 0 0;
         }
-        .nav-tab {
-            padding: 10px 20px;
-            cursor: pointer;
-            border: 1px solid transparent;
-            border-bottom: none;
-            margin-right: 5px;
-            border-radius: 4px 4px 0 0;
-            background-color: #f8f9fa;
-        }
-        .nav-tab:hover {
-            background-color: #e9ecef;
-        }
-        .nav-tab.active {
-            background-color: #fff;
-            border-color: #ddd;
-            border-bottom-color: #fff;
-            margin-bottom: -1px;
-            font-weight: bold;
-        }
-        .tab-content {
-            display: none;
-        }
-        .tab-content.active {
-            display: block;
-        }
-        iframe {
-            width: 100%;
-            height: 700px;
-            border: none;
-            border-radius: 8px;
-            background-color: #fff;
-        }
-        .service-status {
-            padding: 20px;
+        .chart-container {
+            position: relative;
+            height: 300px;
             margin-bottom: 20px;
-            border-radius: 8px;
-            background-color: #fff;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        .status-indicator {
-            display: inline-block;
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-            margin-right: 8px;
-        }
-        .status-up {
-            background-color: #28a745;
-        }
-        .status-down {
-            background-color: #dc3545;
-        }
-        .environment-labels {
-            display: flex;
-            gap: 20px;
-            margin: 10px 0;
-            font-size: 0.9em;
         }
         .env-label {
             padding: 5px 10px;
             border-radius: 4px;
+            margin-right: 10px;
         }
         .env-label a {
             color: inherit;
@@ -161,207 +33,250 @@
             background-color: #ffc107;
             color: #000;
         }
-        .api-links {
-            margin: 20px 0;
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-        }
-        .api-link {
-            display: inline-block;
-            padding: 8px 16px;
-            background-color: #007bff;
-            color: white;
-            text-decoration: none;
-            border-radius: 4px;
-            transition: background-color 0.2s;
-        }
-        .api-link:hover {
-            background-color: #0056b3;
-            text-decoration: none;
-            color: white;
-        }
     </style>
 </head>
 <body>
-    <div class="container">
-        <div class="header">
-            <h1>DFS Dashboard</h1>
-            <div class="environment-labels">
-                <div class="env-label prod">Production UI: <a href="http://localhost:3000" target="_blank">localhost:3000</a></div>
-                <div class="env-label dev">Development UI: <a href="http://localhost:5555" target="_blank">localhost:5555</a></div>
+    <div class="container mt-4">
+        <div class="card mb-4">
+            <div class="card-body">
+                <h1 class="mb-3">Distributed File System Dashboard</h1>
+                <div class="d-flex">
+                    <div class="env-label prod">
+                        Production UI: <a href="http://localhost:3000" target="_blank">localhost:3000</a>
+                    </div>
+                    <div class="env-label dev">
+                        Development UI: <a href="http://localhost:5555" target="_blank">localhost:5555</a>
+                    </div>
+                </div>
             </div>
-            <div class="timestamp">Last updated: <span id="timestamp"></span></div>
         </div>
-
-        <div class="nav-tabs">
-            <div class="nav-tab active" onclick="showTab('monitoring')">Monitoring</div>
-            <div class="nav-tab" onclick="showTab('web-ui')">Web UI</div>
-            <div class="nav-tab" onclick="showTab('api')">API</div>
-        </div>
-
-        <div id="monitoring" class="tab-content active">
-            <div class="section">
-                <h2>Storage Overview</h2>
-                <div class="metrics">
-                    <div class="metric-card">
-                        <div>Total Storage</div>
-                        <div class="metric-value" id="total-storage">-</div>
+        
+        <div class="row mt-4">
+            <!-- Storage Overview -->
+            <div class="col-md-6">
+                <div class="card metric-card">
+                    <div class="card-header">
+                        <h5>Storage Overview</h5>
                     </div>
-                    <div class="metric-card">
-                        <div>Used Storage</div>
-                        <div class="metric-value" id="used-storage">-</div>
-                    </div>
-                    <div class="metric-card">
-                        <div>Available</div>
-                        <div class="metric-value" id="available-storage">-</div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-4">
+                                <h6>Total Storage</h6>
+                                <p id="total-storage">Loading...</p>
+                            </div>
+                            <div class="col-md-4">
+                                <h6>Used Storage</h6>
+                                <p id="used-storage">Loading...</p>
+                            </div>
+                            <div class="col-md-4">
+                                <h6>Available</h6>
+                                <p id="available-storage">Loading...</p>
+                            </div>
+                        </div>
+                        <div class="chart-container">
+                            <canvas id="storage-chart"></canvas>
+                        </div>
                     </div>
                 </div>
             </div>
 
-            <div class="section">
-                <h2>Pod Status</h2>
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Pod Name</th>
-                            <th>Status</th>
-                            <th>IP</th>
-                            <th>Node</th>
-                            <th>Start Time</th>
-                        </tr>
-                    </thead>
-                    <tbody id="pods-table">
-                    </tbody>
-                </table>
-            </div>
-        </div>
-
-        <div id="web-ui" class="tab-content">
-            <div class="section">
-                <div class="service-status" id="web-ui-status">
-                    <span class="status-indicator" id="web-ui-indicator"></span>
-                    Web UI Service Status: <span id="web-ui-status-text">Checking...</span>
-                </div>
-                <div class="web-ui-container">
-                    <div id="web-ui-error" style="display: none;" class="alert alert-warning">
-                        Unable to load Web UI in iframe. 
-                        <a href="http://localhost:3000" target="_blank" class="btn btn-primary">Open in new tab</a>
+            <!-- Network I/O -->
+            <div class="col-md-6">
+                <div class="card metric-card">
+                    <div class="card-header">
+                        <h5>Network I/O</h5>
                     </div>
-                    <iframe 
-                        src="/web-ui" 
-                        id="web-ui-frame"
-                        onload="this.style.display='block'"
-                        onerror="document.getElementById('web-ui-error').style.display='block';this.style.display='none'"
-                        style="display: none;"
-                    ></iframe>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-4">
+                                <h6>Bytes In</h6>
+                                <p id="bytes-in">Loading...</p>
+                            </div>
+                            <div class="col-md-4">
+                                <h6>Bytes Out</h6>
+                                <p id="bytes-out">Loading...</p>
+                            </div>
+                            <div class="col-md-4">
+                                <h6>Total</h6>
+                                <p id="total-bytes">Loading...</p>
+                            </div>
+                        </div>
+                        <div class="chart-container">
+                            <canvas id="network-chart"></canvas>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
 
-        <div id="api" class="tab-content">
-            <div class="section">
-                <div class="service-status" id="api-status">
-                    <span class="status-indicator" id="api-indicator"></span>
-                    API Service Status: <span id="api-status-text">Checking...</span>
+        <!-- Request Latency -->
+        <div class="row mt-4">
+            <div class="col-12">
+                <div class="card metric-card">
+                    <div class="card-header">
+                        <h5>Request Latency</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="chart-container">
+                            <canvas id="latency-chart"></canvas>
+                        </div>
+                    </div>
                 </div>
-                <div class="api-links">
-                    <a href="http://localhost:5555/api/v1/docs" target="_blank" class="api-link">API Documentation (Swagger UI)</a>
-                    <a href="/api/docs" target="_blank" class="api-link">API Documentation (JSON)</a>
+            </div>
+        </div>
+
+        <!-- Pod Status -->
+        <div class="row mt-4">
+            <div class="col-12">
+                <div class="card metric-card">
+                    <div class="card-header">
+                        <h5>Pod Status</h5>
+                    </div>
+                    <div class="card-body">
+                        <table class="table">
+                            <thead>
+                                <tr>
+                                    <th>Pod Name</th>
+                                    <th>Status</th>
+                                    <th>IP</th>
+                                    <th>Node</th>
+                                    <th>Start Time</th>
+                                </tr>
+                            </thead>
+                            <tbody id="pod-status">
+                                <tr>
+                                    <td colspan="5">Loading...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
         </div>
     </div>
 
     <script>
+        let storageChart = null;
+        let networkChart = null;
+        let latencyChart = null;
+
+        function initCharts() {
+            // Storage Chart
+            const storageCtx = document.getElementById('storage-chart').getContext('2d');
+            storageChart = new Chart(storageCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Used', 'Available'],
+                    datasets: [{
+                        data: [0, 0],
+                        backgroundColor: ['#dc3545', '#28a745']
+                    }]
+                }
+            });
+
+            // Network Chart
+            const networkCtx = document.getElementById('network-chart').getContext('2d');
+            networkChart = new Chart(networkCtx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Bytes In',
+                        data: [],
+                        borderColor: '#007bff'
+                    }, {
+                        label: 'Bytes Out',
+                        data: [],
+                        borderColor: '#28a745'
+                    }]
+                },
+                options: {
+                    scales: {
+                        y: {
+                            beginAtZero: true
+                        }
+                    }
+                }
+            });
+
+            // Latency Chart
+            const latencyCtx = document.getElementById('latency-chart').getContext('2d');
+            latencyChart = new Chart(latencyCtx, {
+                type: 'bar',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Request Latency (ms)',
+                        data: [],
+                        backgroundColor: '#17a2b8'
+                    }]
+                },
+                options: {
+                    scales: {
+                        y: {
+                            beginAtZero: true
+                        }
+                    }
+                }
+            });
+        }
+
         function updateMetrics() {
             fetch('/api/metrics')
                 .then(response => response.json())
                 .then(data => {
-                    document.getElementById('timestamp').textContent = data.timestamp;
+                    // Update Storage
                     document.getElementById('total-storage').textContent = data.storage.total_storage;
                     document.getElementById('used-storage').textContent = data.storage.used_storage;
                     document.getElementById('available-storage').textContent = data.storage.available_storage;
 
-                    const podsTable = document.getElementById('pods-table');
-                    podsTable.innerHTML = '';
-                    data.pods.forEach(pod => {
-                        const row = document.createElement('tr');
-                        row.innerHTML = `
+                    // Update Storage Chart
+                    const used = parseFloat(data.storage.used_storage);
+                    const available = parseFloat(data.storage.available_storage);
+                    storageChart.data.datasets[0].data = [used, available];
+                    storageChart.update();
+
+                    // Update Network I/O
+                    document.getElementById('bytes-in').textContent = data.network.bytes_in;
+                    document.getElementById('bytes-out').textContent = data.network.bytes_out;
+                    document.getElementById('total-bytes').textContent = data.network.total_bytes;
+
+                    // Update Network Chart
+                    const timestamp = new Date().toLocaleTimeString();
+                    networkChart.data.labels.push(timestamp);
+                    networkChart.data.datasets[0].data.push(parseFloat(data.network.bytes_in));
+                    networkChart.data.datasets[1].data.push(parseFloat(data.network.bytes_out));
+                    if (networkChart.data.labels.length > 10) {
+                        networkChart.data.labels.shift();
+                        networkChart.data.datasets[0].data.shift();
+                        networkChart.data.datasets[1].data.shift();
+                    }
+                    networkChart.update();
+
+                    // Update Latency Chart
+                    latencyChart.data.labels = data.latency.map(l => `${l.method} ${l.endpoint}`);
+                    latencyChart.data.datasets[0].data = data.latency.map(l => parseFloat(l.latency));
+                    latencyChart.update();
+
+                    // Update Pod Status
+                    const podStatus = document.getElementById('pod-status');
+                    podStatus.innerHTML = data.pods.map(pod => `
+                        <tr>
                             <td>${pod.name}</td>
-                            <td>${pod.status}</td>
+                            <td><span class="badge ${pod.status === 'Running' ? 'bg-success' : 'bg-danger'}">${pod.status}</span></td>
                             <td>${pod.ip}</td>
                             <td>${pod.node}</td>
                             <td>${pod.start_time}</td>
-                        `;
-                        podsTable.appendChild(row);
-                    });
+                        </tr>
+                    `).join('');
                 })
                 .catch(error => console.error('Error fetching metrics:', error));
         }
 
-        function checkServiceStatus(service) {
-            const indicator = document.getElementById(`${service}-indicator`);
-            const statusText = document.getElementById(`${service}-status-text`);
-            
-            const endpoint = service === 'api' ? '/api/status' : '/web-ui/status';
-            
-            fetch(endpoint)
-                .then(response => {
-                    if (!response.ok) {
-                        throw new Error(`HTTP error! status: ${response.status}`);
-                    }
-                    return response.json();
-                })
-                .then(data => {
-                    if (data.status && data.status.toLowerCase() === 'available') {
-                        indicator.className = 'status-indicator status-up';
-                        statusText.textContent = 'Available';
-                    } else {
-                        indicator.className = 'status-indicator status-down';
-                        statusText.textContent = data.error || 'Not Available';
-                    }
-                })
-                .catch((error) => {
-                    console.error('Service check error:', error);
-                    indicator.className = 'status-indicator status-down';
-                    statusText.textContent = 'Not Available';
-                });
-        }
-
-        function updateStatus() {
-            checkServiceStatus('api');
-            checkServiceStatus('web-ui');
-        }
-
-        function showTab(tabId) {
-            // Hide all tabs
-            document.querySelectorAll('.tab-content').forEach(tab => {
-                tab.classList.remove('active');
-            });
-            document.querySelectorAll('.nav-tab').forEach(tab => {
-                tab.classList.remove('active');
-            });
-
-            // Show selected tab
-            document.getElementById(tabId).classList.add('active');
-            event.target.classList.add('active');
-
-            // Check service status when switching to respective tabs
-            if (tabId === 'web-ui') {
-                checkServiceStatus('web-ui');
-            } else if (tabId === 'api') {
-                checkServiceStatus('api');
-            }
-        }
-
-        // Update metrics and check service status every 10 seconds
+        // Initialize charts and start polling
+        initCharts();
         updateMetrics();
-        updateStatus();
-
-        // Set up periodic updates
-        setInterval(updateMetrics, 10000);
-        setInterval(updateStatus, 10000);
+        setInterval(updateMetrics, 5000);
     </script>
 </body>
 </html>

@@ -5,10 +5,31 @@ import os
 import ssl
 import urllib3
 import requests
+import time
 from flask_cors import CORS
+from prometheus_client import Counter, Histogram, start_http_server
 
 # Disable SSL warnings
 urllib3.disable_warnings()
+
+# Initialize Prometheus metrics
+REQUEST_COUNT = Counter(
+    'dfs_request_total',
+    'Total number of requests by endpoint and method',
+    ['endpoint', 'method', 'status']
+)
+
+REQUEST_LATENCY = Histogram(
+    'dfs_request_latency_seconds',
+    'Request latency in seconds',
+    ['endpoint', 'method']
+)
+
+NETWORK_IO = Counter(
+    'dfs_network_bytes',
+    'Network I/O in bytes',
+    ['direction']  # 'in' or 'out'
+)
 
 app = Flask(__name__)
 CORS(app, resources={
@@ -22,16 +43,32 @@ CORS(app, resources={
 })
 
 @app.before_request
-def handle_preflight():
-    if request.method == "OPTIONS":
-        response = Response()
-        response.headers.add("Access-Control-Allow-Origin", request.headers.get("Origin", "*"))
-        response.headers.add("Access-Control-Allow-Methods", "DELETE, GET, POST, PUT, OPTIONS")
-        response.headers.add("Access-Control-Allow-Headers", "Content-Type, Accept, Authorization, X-Amz-Date, X-Api-Key, X-Amz-Security-Token")
-        response.headers.add("Access-Control-Expose-Headers", "ETag, x-amz-request-id, x-amz-id-2")
-        response.headers.add("Access-Control-Allow-Credentials", "true")
-        response.headers.add("Access-Control-Max-Age", "3600")
-        return response
+def before_request():
+    request.start_time = time.time()
+    if request.content_length:
+        NETWORK_IO.labels(direction='in').inc(request.content_length)
+
+@app.after_request
+def after_request(response):
+    # Record request latency
+    latency = time.time() - request.start_time
+    REQUEST_LATENCY.labels(
+        endpoint=request.endpoint or 'unknown',
+        method=request.method
+    ).observe(latency)
+    
+    # Record request count
+    REQUEST_COUNT.labels(
+        endpoint=request.endpoint or 'unknown',
+        method=request.method,
+        status=response.status_code
+    ).inc()
+    
+    # Record outgoing network bytes
+    if response.content_length:
+        NETWORK_IO.labels(direction='out').inc(response.content_length)
+    
+    return response
 
 # Configure Kubernetes client
 try:
@@ -133,6 +170,43 @@ def get_pod_metrics():
         print(f"Error getting pod metrics: {e}")
         return []
 
+def get_network_metrics():
+    """Get network I/O metrics"""
+    try:
+        in_bytes = NETWORK_IO.labels(direction='in')._value.get()
+        out_bytes = NETWORK_IO.labels(direction='out')._value.get()
+        
+        return {
+            'bytes_in': f'{in_bytes / (1024*1024):.2f}MB',
+            'bytes_out': f'{out_bytes / (1024*1024):.2f}MB',
+            'total_bytes': f'{(in_bytes + out_bytes) / (1024*1024):.2f}MB'
+        }
+    except Exception as e:
+        print(f"Error getting network metrics: {e}")
+        return {
+            'bytes_in': '0MB',
+            'bytes_out': '0MB',
+            'total_bytes': '0MB'
+        }
+
+def get_latency_metrics():
+    """Get request latency metrics"""
+    try:
+        latencies = []
+        for sample in REQUEST_LATENCY.collect()[0].samples:
+            if sample.name.endswith('_sum'):
+                endpoint = dict(sample.labels)['endpoint']
+                method = dict(sample.labels)['method']
+                latencies.append({
+                    'endpoint': endpoint,
+                    'method': method,
+                    'latency': f'{sample.value*1000:.2f}ms'  # Convert to milliseconds
+                })
+        return latencies
+    except Exception as e:
+        print(f"Error getting latency metrics: {e}")
+        return []
+
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -142,6 +216,8 @@ def metrics():
     return jsonify({
         'pods': get_pod_metrics(),
         'storage': get_storage_metrics(),
+        'network': get_network_metrics(),
+        'latency': get_latency_metrics(),
         'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     })
 
@@ -274,4 +350,5 @@ def api_status():
         }), 503
 
 if __name__ == '__main__':
+    start_http_server(8000)
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
