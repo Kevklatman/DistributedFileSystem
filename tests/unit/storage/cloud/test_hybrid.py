@@ -1,6 +1,6 @@
 """Unit tests for hybrid cloud management."""
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 import io
 from datetime import datetime
 from src.api.storage.cloud.hybrid import (
@@ -10,7 +10,7 @@ from src.api.storage.cloud.hybrid import (
     RoutingStrategy,
     ProviderMetrics
 )
-from src.api.storage.cloud.providers import CloudStorageProvider
+from tests.test_utils import create_mock_provider
 
 class TestHybridCloudManager(unittest.TestCase):
     """Test cases for hybrid cloud management."""
@@ -19,10 +19,10 @@ class TestHybridCloudManager(unittest.TestCase):
         """Set up test environment."""
         self.manager = HybridCloudManager(RoutingStrategy.BALANCED)
         
-        # Create mock providers
-        self.aws_provider = Mock(spec=CloudStorageProvider)
-        self.azure_provider = Mock(spec=CloudStorageProvider)
-        self.gcp_provider = Mock(spec=CloudStorageProvider)
+        # Create mock providers with different characteristics
+        self.aws_provider = create_mock_provider(success=True, latency=50)
+        self.azure_provider = create_mock_provider(success=True, latency=40)
+        self.gcp_provider = create_mock_provider(success=True, latency=60)
         
         # Add providers with different priorities and costs
         self.manager.add_provider("aws", self.aws_provider, ProviderPriority.PRIMARY, 0.023)

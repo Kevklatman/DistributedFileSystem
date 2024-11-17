@@ -1,6 +1,6 @@
 """Hybrid cloud management implementation."""
 from typing import Dict, List, Optional, Union, BinaryIO
-from enum import Enum
+from enum import Enum, IntEnum
 import logging
 from datetime import datetime
 from .providers import CloudStorageProvider, AWSS3Provider, AzureBlobProvider, GCPStorageProvider
@@ -10,17 +10,17 @@ from .config import TransferConfig
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-class ProviderPriority(Enum):
+class ProviderPriority(IntEnum):
     """Priority levels for providers."""
     PRIMARY = 1
     SECONDARY = 2
     FALLBACK = 3
 
-class ProviderHealth(Enum):
+class ProviderHealth(IntEnum):
     """Health status of providers."""
-    HEALTHY = "healthy"
-    DEGRADED = "degraded"
-    UNHEALTHY = "unhealthy"
+    HEALTHY = 1
+    DEGRADED = 2
+    UNHEALTHY = 3
 
 class RoutingStrategy(Enum):
     """Strategies for routing requests."""
@@ -116,16 +116,17 @@ class HybridCloudManager:
             # Consider all factors with weights
             def score(item):
                 name, metrics = item
-                latency_score = sum(metrics.latency_ms) / len(metrics.latency_ms) if metrics.latency_ms else 1000
-                health_score = len(ProviderHealth) - metrics.health_status.value
+                latency_score = (sum(metrics.latency_ms) / len(metrics.latency_ms) if metrics.latency_ms else 1000) / 100
+                health_score = metrics.health_status.value
                 priority_score = self.priorities[name].value
-                cost_score = metrics.cost_per_gb
+                cost_score = metrics.cost_per_gb * 10  # Scale cost to be comparable
                 
+                # Lower score is better
                 return (
-                    0.3 * (latency_score / 100) +
+                    0.3 * latency_score +
                     0.3 * health_score +
                     0.2 * priority_score +
-                    0.2 * (cost_score / 0.1)
+                    0.2 * cost_score
                 )
             
             return min(self.metrics.items(), key=score)[0]
@@ -209,9 +210,14 @@ class HybridCloudManager:
     
     def get_provider_health(self) -> Dict[str, Dict]:
         """Get health metrics for all providers."""
+        health_names = {
+            ProviderHealth.HEALTHY: "healthy",
+            ProviderHealth.DEGRADED: "degraded",
+            ProviderHealth.UNHEALTHY: "unhealthy"
+        }
         return {
             name: {
-                "health": metrics.health_status.value,
+                "health": health_names[metrics.health_status],
                 "error_count": metrics.error_count,
                 "success_count": metrics.success_count,
                 "last_error": metrics.last_error,
