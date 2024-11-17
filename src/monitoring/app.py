@@ -352,7 +352,15 @@ def api_status():
 
 if __name__ == '__main__':
     try:
-        # Start the Flask app first
+        # Start Prometheus metrics server first
+        metrics_port = 9091
+        try:
+            start_http_server(metrics_port)
+            print(f"Prometheus metrics server started on port {metrics_port}")
+        except Exception as e:
+            print(f"Warning: Could not start Prometheus metrics server: {e}")
+            
+        # Start the Flask app
         app.run(host='0.0.0.0', port=5001, debug=True)
     except OSError as e:
         print(f"Failed to start server: {e}")
