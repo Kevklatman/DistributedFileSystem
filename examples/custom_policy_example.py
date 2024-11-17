@@ -63,11 +63,10 @@ class CustomPolicyExample:
     def evaluate_data_placement(self, file_path: str, access_pattern: dict):
         """Evaluate data placement based on access patterns"""
         volume = Volume(
-            id="custom-vol-01",
             name="Custom Volume",
-            size_bytes=1024 * 1024 * 1024 * 1000,  # 1TB
+            size_gb=1000,  # 1TB
             primary_pool_id="pool-1",
-            tiering_policy=TieringPolicy(enabled=True)
+            cloud_tiering_enabled=True
         )
         
         temp_data = DataTemperature(

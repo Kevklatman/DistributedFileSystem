@@ -3,20 +3,20 @@ Hybrid Policy Engine combining ML-based and manual policy decisions
 """
 from typing import Dict, Optional, Any, List, Union
 from dataclasses import dataclass, field
-from enum import Enum
 from datetime import datetime
 import logging
 from pathlib import Path
 import json
 
-from .models import Volume, StorageLocation, TieringPolicy, ReplicationPolicy, PolicyMode
-from .tiering_manager import TierType, DataTemperature
-
-class PolicyMode(Enum):
-    MANUAL = "manual"
-    ML = "ml"
-    HYBRID = "hybrid"
-    SUPERVISED = "supervised"
+from .models import (
+    Volume,
+    StorageLocation,
+    TieringPolicy,
+    ReplicationPolicy,
+    PolicyMode,
+    TierType,
+    DataTemperature
+)
 
 @dataclass
 class PolicyDecision:

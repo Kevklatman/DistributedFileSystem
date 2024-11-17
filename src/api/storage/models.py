@@ -10,6 +10,12 @@ class PolicyMode(Enum):
     HYBRID = "hybrid"
     SUPERVISED = "supervised"
 
+class TierType(Enum):
+    PERFORMANCE = "performance"  # NVMe/SSD
+    CAPACITY = "capacity"      # HDD
+    COLD = "cold"             # S3/Azure Blob
+    ARCHIVE = "archive"       # Glacier/Archive
+
 @dataclass
 class StorageLocation:
     """Represents a storage location either on-premises or in cloud"""
@@ -40,6 +46,14 @@ class CompressionState:
     space_saved: float = 0.0  # Space saved in GB
 
 @dataclass
+class DataTemperature:
+    """Tracks data temperature metrics"""
+    access_frequency: int  # Number of accesses in measurement period
+    days_since_last_access: int
+    size_bytes: int
+    current_tier: TierType
+
+@dataclass
 class StoragePool:
     """Physical or cloud storage resources that can be allocated"""
     name: str
@@ -55,13 +69,14 @@ class StoragePool:
     created_at: datetime = field(default_factory=datetime.now)
 
 @dataclass
-class DataTemperature:
-    """Tracks data temperature for intelligent tiering"""
-    last_access: datetime
-    access_count: int = 0
-    access_pattern: Literal["random", "sequential"] = "random"
-    predicted_next_access: Optional[datetime] = None
-    temperature: Literal["hot", "warm", "cold", "frozen"] = "warm"
+class TieringPolicy:
+    """Defines data tiering behavior"""
+    enabled: bool = True
+    auto_tiering: bool = True
+    target_tier: Optional[str] = None
+    min_size_mb: int = 100
+    min_age_days: int = 30
+    exclude_patterns: List[str] = field(default_factory=list)
 
 @dataclass
 class Volume:
@@ -77,17 +92,8 @@ class Volume:
     compression_enabled: bool = True
     deduplication_enabled: bool = True
     data_temperature: Dict[str, DataTemperature] = field(default_factory=dict)
+    tiering_policy: TieringPolicy = field(default_factory=lambda: TieringPolicy())
     created_at: datetime = field(default_factory=datetime.now)
-
-@dataclass
-class TieringPolicy:
-    """Defines data tiering behavior"""
-    enabled: bool = True
-    auto_tiering: bool = True
-    target_tier: Optional[str] = None
-    min_size_mb: int = 100
-    min_age_days: int = 30
-    exclude_patterns: List[str] = field(default_factory=list)
 
 @dataclass
 class CloudTieringPolicy:

@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from pathlib import Path
 import json
 import logging
-from enum import Enum
 
 from .models import (
     Volume,
@@ -15,15 +14,10 @@ from .models import (
     StorageLocation,
     TieringPolicy,
     DataTemperature,
-    PolicyMode
+    PolicyMode,
+    TierType
 )
 from .policy_engine import HybridPolicyEngine
-
-class TierType(Enum):
-    PERFORMANCE = "performance"  # NVMe/SSD
-    CAPACITY = "capacity"      # HDD
-    COLD = "cold"             # S3/Azure Blob
-    ARCHIVE = "archive"       # Glacier/Archive
 
 @dataclass
 class TierCost:
