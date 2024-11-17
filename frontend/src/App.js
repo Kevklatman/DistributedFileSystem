@@ -78,40 +78,40 @@ const parseXMLResponse = (xmlString) => {
                                    .replace(/&lt;/g, '<')
                                    .replace(/&gt;/g, '>')
                                    .replace(/&amp;/g, '&');
-    
+
     console.log('XML Parsing - Unescaped XML:', unescapedXML);
-    
+
     const parser = new DOMParser();
     const xmlDoc = parser.parseFromString(unescapedXML, "text/xml");
-    
+
     // Debug logging
     console.log('XML Parsing - Raw XML:', xmlString);
     console.log('XML Parsing - Parsed Doc:', xmlDoc);
-    
+
     // Check for parsing errors
     const parserError = xmlDoc.getElementsByTagName('parsererror');
     if (parserError.length > 0) {
       console.error('XML Parsing Error:', parserError[0].textContent);
       return [];
     }
-    
+
     // Get all Contents elements
     const contents = xmlDoc.getElementsByTagName('Contents');
     console.log('XML Parsing - Contents elements:', contents.length);
-    
+
     const objects = [];
-    
+
     for (let i = 0; i < contents.length; i++) {
       const content = contents[i];
       console.log('XML Parsing - Processing content:', content);
-      
+
       const key = content.getElementsByTagName('Key')[0]?.textContent;
       const lastModified = content.getElementsByTagName('LastModified')[0]?.textContent;
       const size = content.getElementsByTagName('Size')[0]?.textContent;
       const storageClass = content.getElementsByTagName('StorageClass')[0]?.textContent;
-      
+
       console.log('XML Parsing - Extracted values:', { key, lastModified, size, storageClass });
-      
+
       if (key) {
         objects.push({
           Key: key,
@@ -122,7 +122,7 @@ const parseXMLResponse = (xmlString) => {
         });
       }
     }
-    
+
     console.log('XML Parsing - Final objects:', objects);
     return objects;
   } catch (error) {
@@ -198,7 +198,7 @@ function App() {
         }
       });
       console.log('Buckets response:', response.data);
-      
+
       // Handle both response formats
       let bucketList = [];
       if (response.data.buckets) {
@@ -216,7 +216,7 @@ function App() {
         console.error('Unexpected response format:', response.data);
         bucketList = [];
       }
-      
+
       setBuckets(bucketList);
     } catch (error) {
       console.error('Error fetching buckets:', error.response || error);
@@ -241,11 +241,11 @@ function App() {
       });
 
       console.log('Files response:', response.data);
-      
+
       // Parse XML response
       const parser = new DOMParser();
       const xmlDoc = parser.parseFromString(response.data, "text/xml");
-      
+
       // Check for parsing errors
       const parserError = xmlDoc.getElementsByTagName('parsererror');
       if (parserError.length > 0) {
@@ -253,11 +253,11 @@ function App() {
         setFiles([]);
         return;
       }
-      
+
       // Get all Contents elements
       const contents = xmlDoc.getElementsByTagName('Contents');
       console.log('Found contents:', contents.length);
-      
+
       const objects = [];
       for (let i = 0; i < contents.length; i++) {
         const content = contents[i];
@@ -265,7 +265,7 @@ function App() {
         const lastModified = content.getElementsByTagName('LastModified')[0]?.textContent;
         const size = content.getElementsByTagName('Size')[0]?.textContent;
         const storageClass = content.getElementsByTagName('StorageClass')[0]?.textContent;
-        
+
         if (key) {
           objects.push({
             Key: key,
@@ -276,7 +276,7 @@ function App() {
           });
         }
       }
-      
+
       console.log('Parsed objects:', objects);
       setFiles(objects);
     } catch (error) {
@@ -557,13 +557,13 @@ function App() {
 
       const response = await axios.delete(url);
       console.log('Delete response:', response);
-      
+
       // Close the menu after successful deletion
       handleFileMenuClose();
-      
+
       // Refresh the file list
       await fetchFiles();
-      
+
       setSnackbar({
         open: true,
         message: 'File deleted successfully',

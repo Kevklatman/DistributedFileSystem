@@ -13,8 +13,7 @@ resources:
   - storage-node-deployment.yaml
   - csi-driver.yaml
   - test-pvc.yaml
-  - monitoring/service-monitor.yaml
-  - monitoring/grafana-dashboard-cm.yaml
+  - test-pod.yaml
 
 commonLabels:
   app: dfs-node

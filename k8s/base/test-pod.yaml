@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: test-dfs-pod
+  namespace: default
+spec:
+  containers:
+  - name: test-container
+    image: busybox
+    command: ["sh", "-c", "while true; do echo 'Testing DFS volume...' >> /data/test.log; sleep 30; done"]
+    volumeMounts:
+    - name: dfs-volume
+      mountPath: /data
+  volumes:
+  - name: dfs-volume
+    persistentVolumeClaim:
+      claimName: test-dfs-pvc
