@@ -51,6 +51,76 @@
                 </div>
             </div>
         </div>
+        
+        <!-- Dashboard Section -->
+        <div class="row mt-4">
+            <div class="col-12">
+                <h2>System Dashboard</h2>
+                <div class="row">
+                    <!-- System Health -->
+                    <div class="col-md-3">
+                        <div class="card">
+                            <div class="card-header">System Health</div>
+                            <div class="card-body">
+                                <p>CPU: <span id="cpu-usage">-</span></p>
+                                <p>Memory: <span id="memory-usage">-</span></p>
+                                <p>I/O Latency: <span id="io-latency">-</span></p>
+                                <p>Network: <span id="network-bandwidth">-</span></p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Storage Metrics -->
+                    <div class="col-md-3">
+                        <div class="card">
+                            <div class="card-header">Storage</div>
+                            <div class="card-body">
+                                <p>Usage: <span id="storage-usage">-</span></p>
+                                <p>Dedup Ratio: <span id="dedup-ratio">-</span></p>
+                                <p>Compression: <span id="compression-ratio">-</span></p>
+                                <p>IOPS: <span id="iops">-</span></p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Cost Analysis -->
+                    <div class="col-md-3">
+                        <div class="card">
+                            <div class="card-header">Cost Analysis</div>
+                            <div class="card-body">
+                                <p>Monthly Cost: <span id="total-cost">-</span></p>
+                                <p>Total Savings: <span id="total-savings">-</span></p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Policy Metrics -->
+                    <div class="col-md-3">
+                        <div class="card">
+                            <div class="card-header">Policy Engine</div>
+                            <div class="card-body">
+                                <p>ML Accuracy: <span id="ml-accuracy">-</span></p>
+                                <p>Data Moved (24h): <span id="data-moved">-</span></p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Recommendations -->
+                <div class="row mt-3">
+                    <div class="col-12">
+                        <div class="card">
+                            <div class="card-header">System Recommendations</div>
+                            <div class="card-body">
+                                <div id="recommendations">
+                                    <!-- Recommendations will be dynamically inserted here -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- Version Modal -->

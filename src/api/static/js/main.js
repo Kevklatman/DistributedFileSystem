@@ -155,6 +155,58 @@ async function deleteObjectVersion(bucketName, objectKey, versionId) {
     }
 }
 
+// Dashboard Metrics functions
+async function fetchDashboardMetrics() {
+    try {
+        const response = await fetch('/api/v1/dashboard/metrics');
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const metrics = await response.json();
+        updateDashboardUI(metrics);
+    } catch (error) {
+        console.error('Error fetching metrics:', error);
+    }
+}
+
+function updateDashboardUI(metrics) {
+    // System Health
+    document.getElementById('cpu-usage').textContent = `${metrics.health.cpu_usage.toFixed(1)}%`;
+    document.getElementById('memory-usage').textContent = `${metrics.health.memory_usage.toFixed(1)}%`;
+    document.getElementById('io-latency').textContent = `${metrics.health.io_latency_ms.toFixed(1)} ms`;
+    document.getElementById('network-bandwidth').textContent = `${metrics.health.network_bandwidth_mbps.toFixed(1)} Mbps`;
+    
+    // Storage Metrics
+    document.getElementById('storage-usage').textContent = `${metrics.storage.usage_percent.toFixed(1)}%`;
+    document.getElementById('dedup-ratio').textContent = `${metrics.storage.dedup_ratio.toFixed(2)}x`;
+    document.getElementById('compression-ratio').textContent = `${metrics.storage.compression_ratio.toFixed(2)}x`;
+    document.getElementById('iops').textContent = metrics.storage.iops;
+    
+    // Cost Metrics
+    document.getElementById('total-cost').textContent = `$${metrics.cost.total_cost_month.toFixed(2)}`;
+    document.getElementById('total-savings').textContent = `$${metrics.cost.total_savings.toFixed(2)}`;
+    
+    // Policy Metrics
+    document.getElementById('ml-accuracy').textContent = `${(metrics.policy.ml_policy_accuracy * 100).toFixed(1)}%`;
+    document.getElementById('data-moved').textContent = `${metrics.policy.data_moved_24h_gb.toFixed(1)} GB`;
+    
+    // Update recommendations
+    const recsContainer = document.getElementById('recommendations');
+    recsContainer.innerHTML = '';
+    metrics.recommendations.forEach(rec => {
+        const recElement = document.createElement('div');
+        recElement.className = `alert alert-${rec.severity}`;
+        recElement.innerHTML = `
+            <h5>${rec.title}</h5>
+            <p>${rec.description}</p>
+            <ul>
+                ${rec.suggestions.map(s => `<li>${s}</li>`).join('')}
+            </ul>
+        `;
+        recsContainer.appendChild(recElement);
+    });
+}
+
 // UI update functions
 async function refreshBuckets() {
     try {
@@ -364,6 +416,10 @@ async function deleteVersion(objectKey, versionId) {
         alert('Error deleting version: ' + error.message);
     }
 }
+
+// Start periodic metrics updates
+setInterval(fetchDashboardMetrics, 30000); // Update every 30 seconds
+fetchDashboardMetrics(); // Initial fetch
 
 // Initialize
 refreshBuckets();
