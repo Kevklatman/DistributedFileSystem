@@ -196,6 +196,8 @@ function updateDashboardUI(metrics) {
             'dedup-ratio': metrics.storage.dedup_ratio.toFixed(2) + 'x',
             'compression-ratio': metrics.storage.compression_ratio.toFixed(2) + 'x',
             'iops': metrics.storage.iops,
+            'bytes-in': formatSize(metrics.storage.bytes_in),
+            'bytes-out': formatSize(metrics.storage.bytes_out),
             'total-cost': '$' + metrics.cost.total_cost_month.toFixed(2),
             'total-savings': '$' + metrics.cost.total_savings.toFixed(2),
             'ml-accuracy': (metrics.policy.ml_policy_accuracy * 100).toFixed(1) + '%',
