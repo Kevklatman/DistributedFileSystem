@@ -54,10 +54,10 @@ class ActiveNode:
 
                 # Check heartbeat age
                 heartbeat_age = (now - state.last_heartbeat).total_seconds()
-                
+
                 # Check node metrics
                 node_metrics = await self.get_node_metrics(state)
-                
+
                 if heartbeat_age > 30 or not node_metrics:
                     # Node appears to be down
                     failed_nodes.append(state)
@@ -266,13 +266,13 @@ class ActiveNode:
         """Rebalance cluster after node failures or degradation"""
         try:
             self.logger.info("Starting cluster rebalance")
-            
+
             # Get current data distribution
             distribution = await self.get_data_distribution()
-            
+
             # Calculate ideal distribution
             ideal_distribution = self.calculate_ideal_distribution(distribution)
-            
+
             # Generate migration plan
             migration_plan = self.generate_migration_plan(
                 distribution,
@@ -280,7 +280,7 @@ class ActiveNode:
                 failed_nodes,
                 degraded_nodes
             )
-            
+
             # Execute migrations in parallel with rate limiting
             async with asyncio.Semaphore(5) as semaphore:  # Limit concurrent migrations
                 migration_tasks = []
@@ -289,11 +289,11 @@ class ActiveNode:
                         source, target, data_id, semaphore
                     )
                     migration_tasks.append(task)
-                
+
                 await asyncio.gather(*migration_tasks)
-            
+
             self.logger.info("Cluster rebalance completed")
-            
+
         except Exception as e:
             self.logger.error(f"Cluster rebalance failed: {str(e)}")
 
@@ -364,7 +364,7 @@ class ActiveNode:
 
             # Start parallel writes
             write_futures = []
-            
+
             # Local write first to ensure durability
             try:
                 local_path = self.data_dir / data_id
@@ -397,7 +397,7 @@ class ActiveNode:
 
                 # Check results
                 successful_writes = sum(
-                    1 for task in done 
+                    1 for task in done
                     if task.result().get('status') == 'success'
                 )
 
@@ -489,7 +489,7 @@ class ActiveNode:
         try:
             data_id = request.match_info['data_id']
             consistency = request.query.get('consistency', ConsistencyLevel.QUORUM.value)
-            
+
             # Check if we should handle this read
             if not self.load_manager.can_handle_read():
                 alternate_node = self.find_least_loaded_node()
@@ -617,7 +617,7 @@ class ActiveNode:
 
             # Return the most recent version from quorum
             latest_result = max(read_results, key=lambda r: (r.version, r.timestamp))
-            
+
             # Schedule async repair if versions differ
             if not all(r.version == latest_result.version for r in read_results):
                 asyncio.create_task(
@@ -691,12 +691,12 @@ class ActiveNode:
         try:
             # Get all active nodes
             active_nodes = self.get_active_nodes()
-            
+
             # Check version map first for efficiency
             nodes_in_map = set(
                 self.consistency_manager.version_map.get(data_id, {}).keys()
             )
-            
+
             # Filter active nodes that have the data
             return [
                 node for node in active_nodes
@@ -761,6 +761,328 @@ class ActiveNode:
         for node_id in inactive_nodes:
             del self.cluster_nodes[node_id]
 
+    async def write_data(self, data_id: str, content: bytes, consistency_level: str = "strong") -> Dict[str, Any]:
+        """Write data with parallel replication and load balancing"""
+        try:
+            # Generate version info
+            version = self.consistency_manager.generate_version()
+            checksum = hashlib.sha256(content).hexdigest()
+
+            # Select target nodes based on load and health
+            target_nodes = await self.select_write_targets(
+                data_size=len(content),
+                min_nodes=self.quorum_size
+            )
+
+            if len(target_nodes) < self.quorum_size:
+                raise InsufficientNodesError(
+                    f"Not enough healthy nodes available. Need {self.quorum_size}, got {len(target_nodes)}"
+                )
+
+            # Prepare write operation
+            write_op = WriteOperation(
+                data_id=data_id,
+                content=content,
+                version=version,
+                checksum=checksum,
+                timestamp=datetime.now(),
+                consistency_level=consistency_level
+            )
+
+            # Execute parallel writes with load-aware routing
+            results = await self.execute_parallel_write(write_op, target_nodes)
+
+            # Validate results based on consistency level
+            success = await self.validate_write_results(results, consistency_level)
+
+            if not success:
+                await self.rollback_write(write_op, target_nodes)
+                raise WriteFailureError("Failed to achieve required write consistency")
+
+            # Update metadata and return success
+            await self.update_write_metadata(write_op, results)
+            return {
+                "status": "success",
+                "version": version,
+                "nodes": [node.node_id for node in target_nodes],
+                "timestamp": write_op.timestamp.isoformat()
+            }
+
+        except Exception as e:
+            self.logger.error(f"Write operation failed: {str(e)}")
+            raise
+
+    async def select_write_targets(self, data_size: int, min_nodes: int) -> List[NodeState]:
+        """Select optimal nodes for write operation based on load and health"""
+        try:
+            # Get all healthy nodes
+            healthy_nodes = [
+                node for node in self.get_active_nodes()
+                if (
+                    node.status == "active" and
+                    node.available_storage >= data_size * 1.5  # Include headroom
+                )
+            ]
+
+            if len(healthy_nodes) < min_nodes:
+                raise InsufficientNodesError(
+                    f"Not enough healthy nodes. Need {min_nodes}, got {len(healthy_nodes)}"
+                )
+
+            # Score nodes based on multiple factors
+            scored_nodes = []
+            for node in healthy_nodes:
+                # Get real-time metrics
+                metrics = await self.get_node_metrics(node)
+                if not metrics:
+                    continue
+
+                # Calculate composite score
+                score = self.calculate_node_write_score(node, metrics, data_size)
+                scored_nodes.append((score, node))
+
+            # Sort by score and select top nodes
+            selected_nodes = [
+                node for _, node in sorted(
+                    scored_nodes,
+                    key=lambda x: x[0],
+                    reverse=True
+                )[:min_nodes]
+            ]
+
+            return selected_nodes
+
+        except Exception as e:
+            self.logger.error(f"Failed to select write targets: {str(e)}")
+            raise
+
+    def calculate_node_write_score(self, node: NodeState, metrics: Dict[str, float],
+                                 data_size: int) -> float:
+        """Calculate node score for write operations"""
+        try:
+            # Base capacity score (0-1)
+            storage_score = node.available_storage / node.total_storage
+
+            # Load score (0-1, inverse of load)
+            cpu_score = 1 - (metrics.get('cpu_usage', 0) / 100)
+            memory_score = 1 - (metrics.get('memory_usage', 0) / 100)
+
+            # Network health score (0-1)
+            network_score = 1 - min(1.0, node.network_latency / 1000.0)
+
+            # Recent error rate (0-1, inverse of error rate)
+            error_score = 1 - min(1.0, metrics.get('error_rate', 0) * 20)
+
+            # Write queue length score (0-1, inverse of queue length)
+            queue_score = 1 - min(1.0, len(node.write_queue) / 100)
+
+            # Weight factors
+            weights = {
+                'storage': 0.25,
+                'cpu': 0.2,
+                'memory': 0.15,
+                'network': 0.2,
+                'error': 0.1,
+                'queue': 0.1
+            }
+
+            # Calculate composite score
+            score = (
+                storage_score * weights['storage'] +
+                cpu_score * weights['cpu'] +
+                memory_score * weights['memory'] +
+                network_score * weights['network'] +
+                error_score * weights['error'] +
+                queue_score * weights['queue']
+            )
+
+            # Apply geographic penalty if different region
+            if node.region != self.region:
+                score *= 0.8  # 20% penalty for cross-region
+
+            return score
+
+        except Exception as e:
+            self.logger.error(f"Failed to calculate node score: {str(e)}")
+            return 0.0
+
+    async def execute_parallel_write(self, write_op: WriteOperation,
+                                   target_nodes: List[NodeState]) -> List[Dict[str, Any]]:
+        """Execute write operation in parallel across target nodes"""
+        try:
+            # Prepare write tasks
+            write_tasks = []
+            for node in target_nodes:
+                task = self.write_to_node(node, write_op)
+                write_tasks.append(task)
+
+            # Execute writes in parallel with timeout
+            results = []
+            try:
+                done, pending = await asyncio.wait(
+                    write_tasks,
+                    timeout=30.0,  # 30 second timeout
+                    return_when=asyncio.ALL_COMPLETED
+                )
+
+                # Cancel any pending tasks
+                for task in pending:
+                    task.cancel()
+
+                # Collect results
+                results = [task.result() for task in done]
+
+            except asyncio.TimeoutError:
+                self.logger.error("Parallel write operation timed out")
+                # Cancel all tasks
+                for task in write_tasks:
+                    task.cancel()
+                raise WriteTimeoutError("Write operation timed out")
+
+            return results
+
+        except Exception as e:
+            self.logger.error(f"Failed to execute parallel write: {str(e)}")
+            raise
+
+    async def write_to_node(self, node: NodeState, write_op: WriteOperation) -> Dict[str, Any]:
+        """Write data to a single node with retries"""
+        max_retries = 3
+        retry_delay = 1.0  # seconds
+
+        for attempt in range(max_retries):
+            try:
+                # Check node health before write
+                if not await self.is_node_healthy(node):
+                    raise NodeUnhealthyError(f"Node {node.node_id} is unhealthy")
+
+                # Add to node's write queue
+                node.write_queue.append(write_op)
+
+                try:
+                    # Perform write operation
+                    async with aiohttp.ClientSession() as session:
+                        async with session.post(
+                            f"http://{node.address}/write",
+                            data={
+                                'data_id': write_op.data_id,
+                                'content': write_op.content,
+                                'version': write_op.version,
+                                'checksum': write_op.checksum,
+                                'timestamp': write_op.timestamp.isoformat()
+                            },
+                            timeout=10.0
+                        ) as response:
+                            if response.status == 200:
+                                result = await response.json()
+                                return {
+                                    'node_id': node.node_id,
+                                    'status': 'success',
+                                    'version': write_op.version,
+                                    'timestamp': write_op.timestamp.isoformat()
+                                }
+                            else:
+                                raise WriteFailureError(
+                                    f"Write to node {node.node_id} failed with status {response.status}"
+                                )
+
+                finally:
+                    # Remove from write queue
+                    node.write_queue.remove(write_op)
+
+            except Exception as e:
+                self.logger.warning(
+                    f"Write attempt {attempt + 1} to node {node.node_id} failed: {str(e)}"
+                )
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(retry_delay * (attempt + 1))
+                else:
+                    raise
+
+        raise WriteFailureError(f"Write to node {node.node_id} failed after {max_retries} attempts")
+
+    async def validate_write_results(self, results: List[Dict[str, Any]],
+                                   consistency_level: str) -> bool:
+        """Validate write results based on consistency level"""
+        try:
+            successful_writes = len([r for r in results if r.get('status') == 'success'])
+
+            if consistency_level == "strong":
+                # All nodes must succeed
+                return successful_writes == len(results)
+            elif consistency_level == "quorum":
+                # Majority must succeed
+                return successful_writes >= (len(results) // 2 + 1)
+            else:  # eventual consistency
+                # At least one write must succeed
+                return successful_writes >= 1
+
+        except Exception as e:
+            self.logger.error(f"Failed to validate write results: {str(e)}")
+            return False
+
+    async def rollback_write(self, write_op: WriteOperation, nodes: List[NodeState]) -> None:
+        """Rollback a failed write operation"""
+        try:
+            rollback_tasks = []
+            for node in nodes:
+                task = self.rollback_node_write(node, write_op)
+                rollback_tasks.append(task)
+
+            # Execute rollbacks in parallel
+            await asyncio.gather(*rollback_tasks, return_exceptions=True)
+
+        except Exception as e:
+            self.logger.error(f"Failed to rollback write: {str(e)}")
+
+    async def rollback_node_write(self, node: NodeState, write_op: WriteOperation) -> None:
+        """Rollback write on a single node"""
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    f"http://{node.address}/rollback",
+                    data={
+                        'data_id': write_op.data_id,
+                        'version': write_op.version
+                    },
+                    timeout=5.0
+                ) as response:
+                    if response.status != 200:
+                        self.logger.error(
+                            f"Failed to rollback write on node {node.node_id}"
+                        )
+
+        except Exception as e:
+            self.logger.error(
+                f"Error during write rollback on node {node.node_id}: {str(e)}"
+            )
+
+    async def update_write_metadata(self, write_op: WriteOperation,
+                                  results: List[Dict[str, Any]]) -> None:
+        """Update metadata after successful write"""
+        try:
+            successful_nodes = [
+                r['node_id'] for r in results
+                if r.get('status') == 'success'
+            ]
+
+            # Update version map
+            await self.consistency_manager.update_version_map(
+                write_op.data_id,
+                write_op.version,
+                successful_nodes
+            )
+
+            # Update load statistics
+            for node_id in successful_nodes:
+                self.load_manager.record_write_operation(
+                    node_id,
+                    len(write_op.content)
+                )
+
+        except Exception as e:
+            self.logger.error(f"Failed to update write metadata: {str(e)}")
+
 class ConsistencyError(Exception):
     """Raised when consistency requirements cannot be met"""
     pass
@@ -771,3 +1093,13 @@ class ReadResult:
     content: bytes
     version: int
     timestamp: datetime
+
+@dataclass
+class WriteOperation:
+    """Write operation metadata"""
+    data_id: str
+    content: bytes
+    version: int
+    checksum: str
+    timestamp: datetime
+    consistency_level: str
