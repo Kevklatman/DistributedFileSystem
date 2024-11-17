@@ -10,6 +10,35 @@ import logging
 logger = logging.getLogger(__name__)
 
 class StorageBackend(ABC):
+    def __init__(self):
+        self.io_metrics = {
+            'bytes_in': 0,
+            'bytes_out': 0,
+            'latency_ms': 0,
+            'iops': 0,
+            'bandwidth_mbps': 0,
+            'throughput_mbps': 0
+        }
+        self._start_time = datetime.datetime.now()
+
+    def _update_io_metrics(self, bytes_in=0, bytes_out=0, latency_ms=0):
+        """Update I/O metrics"""
+        self.io_metrics['bytes_in'] += bytes_in
+        self.io_metrics['bytes_out'] += bytes_out
+        self.io_metrics['latency_ms'] = latency_ms  # Use latest latency
+
+        # Calculate rates
+        time_diff = (datetime.datetime.now() - self._start_time).total_seconds()
+        if time_diff > 0:
+            total_bytes = self.io_metrics['bytes_in'] + self.io_metrics['bytes_out']
+            self.io_metrics['bandwidth_mbps'] = (total_bytes * 8) / (time_diff * 1000000)  # Convert to Mbps
+            self.io_metrics['throughput_mbps'] = total_bytes / (time_diff * 1000000)  # MB/s
+            self.io_metrics['iops'] = int((self.io_metrics['bytes_in'] + self.io_metrics['bytes_out']) / (time_diff * 1024))  # Operations per second
+
+    def get_io_metrics(self):
+        """Get current I/O metrics"""
+        return self.io_metrics
+
     @abstractmethod
     def create_bucket(self, bucket_name):
         pass
@@ -95,6 +124,7 @@ class StorageBackend(ABC):
 
 class LocalStorageBackend(StorageBackend):
     def __init__(self, fs_manager):
+        super().__init__()
         self.fs_manager = fs_manager
         self.buckets = {}  # In-memory bucket storage
         self.multipart_uploads = {}  # Store multipart upload data
@@ -169,50 +199,78 @@ class LocalStorageBackend(StorageBackend):
         return True, None
 
     def put_object(self, bucket_name, object_key, data):
+        start_time = datetime.datetime.now()
+        
         if bucket_name not in self.buckets:
             return False, "Bucket does not exist"
 
-        # Initialize versions dict for bucket if needed
-        if bucket_name not in self.versions:
-            self.versions[bucket_name] = {}
-        if object_key not in self.versions[bucket_name]:
-            self.versions[bucket_name][object_key] = []
+        try:
+            # Track incoming bytes
+            data_size = len(data)
+            self._update_io_metrics(bytes_in=data_size)
 
-        # Generate version ID if versioning is enabled
-        version_id = None
-        if self.versioning.get(bucket_name):
-            version_id = self._generate_version_id()
-            # Store the current version
-            self.versions[bucket_name][object_key].append({
-                'version_id': version_id,
-                'data': data,
-                'size': len(data),
-                'last_modified': datetime.datetime.now(datetime.timezone.utc)
-            })
-        else:
-            # If versioning is disabled, just keep the latest version
-            self.versions[bucket_name][object_key] = [{
-                'version_id': 'latest',
-                'data': data,
-                'size': len(data),
-                'last_modified': datetime.datetime.now(datetime.timezone.utc)
-            }]
+            # Initialize versions dict for bucket if needed
+            if bucket_name not in self.versions:
+                self.versions[bucket_name] = {}
+            if object_key not in self.versions[bucket_name]:
+                self.versions[bucket_name][object_key] = []
 
-        # Update the object size in buckets
-        self.buckets[bucket_name]['objects'][object_key] = len(data)
-        return True, version_id
+            # Generate version ID if versioning is enabled
+            version_id = None
+            if self.versioning.get(bucket_name):
+                version_id = self._generate_version_id()
+                # Store the current version
+                self.versions[bucket_name][object_key].append({
+                    'version_id': version_id,
+                    'data': data,
+                    'size': data_size,
+                    'last_modified': datetime.datetime.now(datetime.timezone.utc)
+                })
+            else:
+                # If versioning is disabled, just keep the latest version
+                self.versions[bucket_name][object_key] = [{
+                    'version_id': 'latest',
+                    'data': data,
+                    'size': data_size,
+                    'last_modified': datetime.datetime.now(datetime.timezone.utc)
+                }]
+
+            # Update latency
+            end_time = datetime.datetime.now()
+            latency = (end_time - start_time).total_seconds() * 1000  # Convert to milliseconds
+            self._update_io_metrics(latency_ms=latency)
+
+            return True, version_id
+        except Exception as e:
+            logger.error(f"Error putting object: {e}")
+            return False, str(e)
 
     def get_object(self, bucket_name, object_key):
+        start_time = datetime.datetime.now()
+        
         if bucket_name not in self.buckets:
             return None, "Bucket does not exist"
-        if object_key not in self.buckets[bucket_name]['objects']:
-            return None, "Object does not exist"
-
-        # Get the latest version
-        versions = self.versions.get(bucket_name, {}).get(object_key, [])
-        if not versions:
-            return None, "Object has no versions"
-        return versions[-1]['data'], None
+            
+        try:
+            # Get the latest version
+            if bucket_name in self.versions and object_key in self.versions[bucket_name]:
+                versions = self.versions[bucket_name][object_key]
+                if versions:
+                    latest = versions[-1]
+                    data = latest['data']
+                    
+                    # Track outgoing bytes and latency
+                    self._update_io_metrics(bytes_out=len(data))
+                    end_time = datetime.datetime.now()
+                    latency = (end_time - start_time).total_seconds() * 1000
+                    self._update_io_metrics(latency_ms=latency)
+                    
+                    return data, None
+            
+            return None, "Object not found"
+        except Exception as e:
+            logger.error(f"Error getting object: {e}")
+            return None, str(e)
 
     def delete_object(self, bucket_name, object_key):
         if bucket_name not in self.buckets:
@@ -466,6 +524,7 @@ class LocalStorageBackend(StorageBackend):
 
 class AWSStorageBackend(StorageBackend):
     def __init__(self):
+        super().__init__()
         if not all([current_config['access_key'], current_config['secret_key']]):
             raise ValueError(
                 'AWS credentials not found. Please set AWS_ACCESS_KEY and AWS_SECRET_KEY '
@@ -610,16 +669,35 @@ class AWSStorageBackend(StorageBackend):
             return None, str(e)
 
     def put_object(self, bucket_name, object_key, data):
+        start_time = datetime.datetime.now()
+        
         try:
             self.s3.put_object(Bucket=bucket_name, Key=object_key, Body=data)
+            
+            # Track incoming bytes and latency
+            self._update_io_metrics(bytes_in=len(data))
+            end_time = datetime.datetime.now()
+            latency = (end_time - start_time).total_seconds() * 1000
+            self._update_io_metrics(latency_ms=latency)
+            
             return True, None
         except Exception as e:
             return False, str(e)
 
     def get_object(self, bucket_name, object_key):
+        start_time = datetime.datetime.now()
+        
         try:
             response = self.s3.get_object(Bucket=bucket_name, Key=object_key)
-            return response['Body'].read(), None
+            data = response['Body'].read()
+            
+            # Track outgoing bytes and latency
+            self._update_io_metrics(bytes_out=len(data))
+            end_time = datetime.datetime.now()
+            latency = (end_time - start_time).total_seconds() * 1000
+            self._update_io_metrics(latency_ms=latency)
+            
+            return data, None
         except Exception as e:
             return None, str(e)
 

@@ -209,16 +209,20 @@ def get_dashboard_metrics():
     """Get all dashboard metrics"""
     try:
         logger.debug('Fetching dashboard metrics')
-
+        
+        # Get storage backend metrics
+        storage = get_storage_backend(fs_manager)
+        io_metrics = storage.get_io_metrics()
+        
         # Get policy metrics
         policy_metrics = get_policy_metrics()
-
+        
         metrics = {
             'health': {
-                'cpu_usage': 45.2,
-                'memory_usage': 62.8,
-                'io_latency_ms': 2.5,
-                'network_bandwidth_mbps': 850.0,
+                'cpu_usage': 45.2,  # TODO: Get from system
+                'memory_usage': 62.8,  # TODO: Get from system
+                'io_latency_ms': io_metrics['latency_ms'],
+                'network_bandwidth_mbps': io_metrics['bandwidth_mbps'],
                 'error_count': 0,
                 'warning_count': 2,
                 'status': 'healthy',
@@ -231,8 +235,10 @@ def get_dashboard_metrics():
                 'usage_percent': 45.0,
                 'dedup_ratio': 2.5,
                 'compression_ratio': 3.0,
-                'iops': 15000,
-                'throughput_mbps': 750.0,
+                'iops': io_metrics['iops'],
+                'throughput_mbps': io_metrics['throughput_mbps'],
+                'bytes_in': io_metrics['bytes_in'],
+                'bytes_out': io_metrics['bytes_out'],
                 'last_updated': datetime.datetime.now().isoformat()
             },
             'cost': {
@@ -269,6 +275,7 @@ def get_dashboard_metrics():
                 }
             ]
         }
+        
         logger.debug(f'Returning metrics: {metrics}')
         return jsonify(metrics)
     except Exception as e:
