@@ -35,37 +35,44 @@ def handle_preflight():
 
 # Configure Kubernetes client
 try:
-    # Try to load the local kubeconfig
+    # Try to load the local kubeconfig first
     config.load_kube_config()
-    
-    # Configure client with Docker Desktop's Kubernetes API server
-    configuration = client.Configuration.get_default_copy()
-    configuration.verify_ssl = False
-    configuration.host = "https://kubernetes.docker.internal:6443"
-    configuration.debug = True
-    
-    api_client = client.ApiClient(configuration)
-    v1 = client.CoreV1Api(api_client)
-    print("Successfully connected to Kubernetes API")
-except Exception as e:
-    print(f"Error configuring Kubernetes client: {e}")
-    v1 = None
+except:
+    try:
+        # If local config fails, try in-cluster config
+        config.load_incluster_config()
+    except:
+        print("Failed to load both local and in-cluster Kubernetes config")
+        v1 = None
+
+# Create the API client if config was loaded
+if 'v1' not in locals():
+    try:
+        v1 = client.CoreV1Api()
+        print("Successfully connected to Kubernetes API")
+    except Exception as e:
+        print(f"Error creating Kubernetes client: {e}")
+        v1 = None
 
 def get_storage_metrics():
     """Get storage metrics from PersistentVolumeClaims"""
     try:
         if not v1:
-            raise Exception("Kubernetes client not configured")
+            print("Kubernetes client not configured, returning default values")
+            return {
+                'total_storage': '0GB',
+                'used_storage': '0GB',
+                'available_storage': '0GB'
+            }
             
         pvcs = v1.list_persistent_volume_claim_for_all_namespaces()
         total_storage = 0
-        used_storage = 0
         
         for pvc in pvcs.items:
             if pvc.spec.resources.requests.get('storage'):
                 # Convert storage string (e.g., "1Gi") to bytes
                 storage_str = pvc.spec.resources.requests['storage']
-                storage_value = int(storage_str[:-2])
+                storage_value = int(''.join(filter(str.isdigit, storage_str)))
                 if storage_str.endswith('Gi'):
                     storage_bytes = storage_value * 1024 * 1024 * 1024
                 elif storage_str.endswith('Mi'):
@@ -87,18 +94,27 @@ def get_storage_metrics():
     except Exception as e:
         print(f"Error getting storage metrics: {e}")
         return {
-            'total_storage': 'N/A',
-            'used_storage': 'N/A',
-            'available_storage': 'N/A'
+            'total_storage': '0GB',
+            'used_storage': '0GB',
+            'available_storage': '0GB'
         }
 
 def get_pod_metrics():
     """Get metrics for all pods in the distributed-fs namespace"""
     try:
         if not v1:
-            raise Exception("Kubernetes client not configured")
+            print("Kubernetes client not configured, returning empty pod list")
+            return []
             
-        pods = v1.list_namespaced_pod(namespace='distributed-fs')
+        try:
+            pods = v1.list_namespaced_pod(namespace='distributed-fs')
+        except client.rest.ApiException as e:
+            if e.status == 404:
+                # Namespace doesn't exist, try default namespace
+                pods = v1.list_namespaced_pod(namespace='default')
+            else:
+                raise
+                
         pod_metrics = []
         
         for pod in pods.items:
@@ -129,47 +145,133 @@ def metrics():
         'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     })
 
-# Proxy routes for other services
-@app.route('/web-ui')
-@app.route('/web-ui/<path:path>')
-def web_ui_proxy(path=''):
+@app.route('/api/health')
+def api_health():
     try:
-        headers = {key: value for key, value in request.headers if key != 'Host'}
-        response = requests.request(
-            method=request.method,
-            url=f'http://localhost:3000/{path}',
-            headers=headers,
-            data=request.get_data(),
-            cookies=request.cookies,
-            verify=False
-        )
-        proxy_response = Response(response.content, response.status_code)
-        for key, value in response.headers.items():
-            if key.lower() not in ['content-length', 'connection', 'content-encoding']:
-                proxy_response.headers[key] = value
-        return proxy_response
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        response = requests.get('http://localhost:5555/api/v1/health', timeout=5)
+        if response.status_code == 200:
+            return jsonify(response.json()), 200
+        return jsonify({'status': 'not available', 'error': f'API returned status {response.status_code}'}), 503
+    except requests.exceptions.RequestException as e:
+        return jsonify({'status': 'not available', 'error': str(e)}), 503
+
+@app.route('/api/docs')
+def api_docs():
+    try:
+        response = requests.get('http://localhost:5555/api/v1/swagger.json', timeout=5)
+        if response.status_code == 200:
+            return response.json(), 200
+        return jsonify({'error': f'API documentation not available (status {response.status_code})'}), 503
+    except requests.exceptions.RequestException as e:
+        return jsonify({'error': str(e)}), 503
 
 @app.route('/api/<path:path>')
 def api_proxy(path):
     try:
-        headers = {key: value for key, value in request.headers if key != 'Host'}
+        # Don't modify health check path
+        if path == 'health':
+            target_url = f'http://localhost:5555/api/v1/health'
+        else:
+            target_url = f'http://localhost:5555/api/v1/{path}'
+            
+        headers = {key: value for key, value in request.headers if key.lower() != 'host'}
+        
         response = requests.request(
             method=request.method,
-            url=f'http://localhost:5555/{path}',
+            url=target_url,
             headers=headers,
             data=request.get_data(),
             cookies=request.cookies,
-            verify=False
+            timeout=10
         )
-        proxy_response = Response(response.content, response.status_code)
-        for key, value in response.headers.items():
-            if key.lower() not in ['content-length', 'connection', 'content-encoding']:
-                proxy_response.headers[key] = value
-        return proxy_response
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        
+        excluded_headers = ['content-length', 'connection', 'content-encoding']
+        headers = [(k, v) for k, v in response.raw.headers.items() if k.lower() not in excluded_headers]
+        
+        return Response(response.content, response.status_code, headers)
+    except requests.exceptions.RequestException as e:
+        return jsonify({'error': str(e)}), 503
+
+@app.route('/web-ui')
+@app.route('/web-ui/<path:path>')
+def web_ui_proxy(path=''):
+    try:
+        target_url = f'http://localhost:3000/{path}'
+        headers = {
+            key: value for key, value 
+            in request.headers.items() 
+            if key.lower() not in ['host', 'content-length']
+        }
+        
+        response = requests.request(
+            method=request.method,
+            url=target_url,
+            headers=headers,
+            data=request.get_data(),
+            cookies=request.cookies,
+            timeout=5,
+            allow_redirects=True
+        )
+        
+        # Only forward specific headers we want
+        allowed_headers = [
+            'content-type',
+            'cache-control',
+            'etag',
+            'date',
+            'last-modified'
+        ]
+        
+        headers = {
+            k: v for k, v in response.headers.items()
+            if k.lower() in allowed_headers
+        }
+        
+        # Ensure we're returning text/html for the main page
+        if not path and 'content-type' not in headers:
+            headers['content-type'] = 'text/html; charset=utf-8'
+            
+        return Response(
+            response.content,
+            response.status_code,
+            headers
+        )
+    except requests.exceptions.RequestException as e:
+        return jsonify({'error': str(e)}), 503
+
+@app.route('/web-ui/status')
+def web_ui_status():
+    """Check Web UI status"""
+    try:
+        response = requests.get('http://localhost:3000/', timeout=5)
+        if response.status_code == 200:
+            return jsonify({'status': 'available'}), 200
+        return jsonify({
+            'status': 'not available',
+            'error': f'Web UI returned status {response.status_code}'
+        }), 503
+    except requests.exceptions.RequestException as e:
+        return jsonify({
+            'status': 'not available',
+            'error': str(e)
+        }), 503
+
+@app.route('/api/status')
+def api_status():
+    """Check API status"""
+    try:
+        response = requests.get('http://localhost:5555/api/v1/health', timeout=5)
+        if response.status_code == 200:
+            return jsonify(response.json()), 200
+        return jsonify({
+            'status': 'not available',
+            'error': f'API returned status {response.status_code}'
+        }), 503
+    except requests.exceptions.RequestException as e:
+        return jsonify({
+            'status': 'not available',
+            'error': str(e)
+        }), 503
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))

@@ -161,6 +161,26 @@
             background-color: #ffc107;
             color: #000;
         }
+        .api-links {
+            margin: 20px 0;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .api-link {
+            display: inline-block;
+            padding: 8px 16px;
+            background-color: #007bff;
+            color: white;
+            text-decoration: none;
+            border-radius: 4px;
+            transition: background-color 0.2s;
+        }
+        .api-link:hover {
+            background-color: #0056b3;
+            text-decoration: none;
+            color: white;
+        }
     </style>
 </head>
 <body>
@@ -223,7 +243,19 @@
                     <span class="status-indicator" id="web-ui-indicator"></span>
                     Web UI Service Status: <span id="web-ui-status-text">Checking...</span>
                 </div>
-                <iframe src="/web-ui" id="web-ui-frame"></iframe>
+                <div class="web-ui-container">
+                    <div id="web-ui-error" style="display: none;" class="alert alert-warning">
+                        Unable to load Web UI in iframe. 
+                        <a href="http://localhost:3000" target="_blank" class="btn btn-primary">Open in new tab</a>
+                    </div>
+                    <iframe 
+                        src="/web-ui" 
+                        id="web-ui-frame"
+                        onload="this.style.display='block'"
+                        onerror="document.getElementById('web-ui-error').style.display='block';this.style.display='none'"
+                        style="display: none;"
+                    ></iframe>
+                </div>
             </div>
         </div>
 
@@ -233,7 +265,10 @@
                     <span class="status-indicator" id="api-indicator"></span>
                     API Service Status: <span id="api-status-text">Checking...</span>
                 </div>
-                <iframe src="/api/docs" id="api-frame"></iframe>
+                <div class="api-links">
+                    <a href="http://localhost:5555/api/v1/swagger" target="_blank" class="api-link">API Documentation (Swagger UI)</a>
+                    <a href="/api/docs" target="_blank" class="api-link">API Documentation (JSON)</a>
+                </div>
             </div>
         </div>
     </div>
@@ -265,30 +300,38 @@
                 .catch(error => console.error('Error fetching metrics:', error));
         }
 
-        function checkServiceStatus(service, port) {
+        function checkServiceStatus(service) {
             const indicator = document.getElementById(`${service}-indicator`);
             const statusText = document.getElementById(`${service}-status-text`);
             
-            const endpoint = service === 'api' ? `/api/v1/health` : '';
+            const endpoint = service === 'api' ? '/api/status' : '/web-ui/status';
             
-            fetch(`http://localhost:${port}${endpoint}`)
-                .then(response => response.json())
+            fetch(endpoint)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response.json();
+                })
                 .then(data => {
-                    if (service === 'api' && data.status === 'available') {
+                    if (data.status && data.status.toLowerCase() === 'available') {
                         indicator.className = 'status-indicator status-up';
                         statusText.textContent = 'Available';
-                    } else if (service === 'web-ui') {
-                        indicator.className = 'status-indicator status-up';
-                        statusText.textContent = 'Running';
                     } else {
                         indicator.className = 'status-indicator status-down';
-                        statusText.textContent = 'Not Available';
+                        statusText.textContent = data.error || 'Not Available';
                     }
                 })
-                .catch(() => {
+                .catch((error) => {
+                    console.error('Service check error:', error);
                     indicator.className = 'status-indicator status-down';
                     statusText.textContent = 'Not Available';
                 });
+        }
+
+        function updateStatus() {
+            checkServiceStatus('api');
+            checkServiceStatus('web-ui');
         }
 
         function showTab(tabId) {
@@ -306,19 +349,19 @@
 
             // Check service status when switching to respective tabs
             if (tabId === 'web-ui') {
-                checkServiceStatus('web-ui', 3000);
+                checkServiceStatus('web-ui');
             } else if (tabId === 'api') {
-                checkServiceStatus('api', 5555);
+                checkServiceStatus('api');
             }
         }
 
-        // Update metrics every 10 seconds
+        // Update metrics and check service status every 10 seconds
         updateMetrics();
-        setInterval(updateMetrics, 10000);
+        updateStatus();
 
-        // Initial service status check
-        checkServiceStatus('web-ui', 3000);
-        checkServiceStatus('api', 5555);
+        // Set up periodic updates
+        setInterval(updateMetrics, 10000);
+        setInterval(updateStatus, 10000);
     </script>
 </body>
 </html>
