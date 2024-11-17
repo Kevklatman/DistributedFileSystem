@@ -21,7 +21,7 @@ ENV FLASK_APP=app.py
 ENV FLASK_ENV=production
 
 # Expose port
-EXPOSE 5000
+EXPOSE 8000
 
 # Run the application with Gunicorn
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "4", "--threads", "2", "--worker-class", "gthread", "--log-level", "debug", "--access-logfile", "-", "--error-logfile", "-", "--chdir", "/app/api", "app:app"]
+CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "4", "--threads", "2", "--worker-class", "gthread", "--log-level", "debug", "--access-logfile", "-", "--error-logfile", "-", "--chdir", "/app/api", "app:app"]
