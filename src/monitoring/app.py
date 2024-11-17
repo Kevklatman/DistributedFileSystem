@@ -350,6 +350,54 @@ def api_status():
             'error': str(e)
         }), 503
 
+@app.route('/formatted_metrics')
+def formatted_metrics():
+    """Custom metrics endpoint that formats Prometheus metrics for readability"""
+    from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
+    from io import StringIO
+    import pprint
+
+    # Get raw metrics
+    raw_metrics = generate_latest().decode('utf-8')
+    
+    # Parse and format metrics
+    formatted_metrics = []
+    current_metric = []
+    
+    for line in raw_metrics.split('\n'):
+        if line.startswith('# HELP'):
+            if current_metric:
+                formatted_metrics.append('\n'.join(current_metric))
+                formatted_metrics.append('-' * 80 + '\n')  # Separator
+            current_metric = []
+            # Format help line
+            name = line.split()[2]
+            help_text = ' '.join(line.split()[3:])
+            current_metric.append(f"\n📊 Metric: {name}")
+            current_metric.append(f"📝 Description: {help_text}")
+        elif line.startswith('# TYPE'):
+            type_text = line.split()[3]
+            current_metric.append(f"📈 Type: {type_text}")
+        elif line and not line.startswith('#'):
+            # Format metric values
+            parts = line.split()
+            if len(parts) >= 1:
+                metric_name = parts[0].split('{')[0]
+                if '{' in line:
+                    labels = line[line.index('{')+1:line.index('}')]
+                    value = line.split()[-1]
+                    current_metric.append(f"   └─ {labels}: {value}")
+                else:
+                    value = parts[-1]
+                    current_metric.append(f"   └─ Value: {value}")
+
+    # Add the last metric group
+    if current_metric:
+        formatted_metrics.append('\n'.join(current_metric))
+    
+    # Return formatted metrics with text/plain content type
+    return Response('\n'.join(formatted_metrics), mimetype='text/plain')
+
 if __name__ == '__main__':
     try:
         # Start Prometheus metrics server first
