@@ -256,7 +256,7 @@ async function showVersions(objectKey) {
 }
 
 // Event handlers
-document.getElementById('versioningSwitch').addEventListener('change', async function(e) {
+document.getElementById('versioningSwitch').addEventListener('change', async function (e) {
     try {
         await setVersioning(currentBucket, e.target.checked);
     } catch (error) {
