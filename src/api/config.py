@@ -8,8 +8,8 @@ load_dotenv()
 STORAGE_ENV = os.getenv('STORAGE_ENV', 'local')
 
 # API Configuration
-API_HOST = os.getenv('API_HOST', 'localhost')
-API_PORT = int(os.getenv('API_PORT', 5555))
+API_HOST = os.getenv('API_HOST', '0.0.0.0')  # Change to 0.0.0.0 to allow external connections
+API_PORT = int(os.getenv('API_PORT', 8001))  # Change default port to 8001
 DEBUG = os.getenv('DEBUG', 'True').lower() == 'true'
 
 # AWS Configuration

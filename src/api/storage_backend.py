@@ -131,9 +131,18 @@ class LocalStorageBackend(StorageBackend):
         self.buckets = {}  # In-memory bucket storage
         self.node_status = {}  # Track node status
         self.node_last_seen = {}  # Track last seen time for each node
+        self.multipart_uploads = {}  # Track multipart uploads
+        self.versions = {}  # Track object versions
+        self.versioning = {}  # Track versioning status
         
         # Create root directory for buckets if it doesn't exist
-        self.fs_manager.createDirectory('/buckets')
+        try:
+            if not self.fs_manager.createDirectory('/buckets'):
+                logger.error("Failed to create root buckets directory")
+                raise RuntimeError("Failed to create root buckets directory")
+        except Exception as e:
+            logger.error(f"Error initializing storage backend: {e}")
+            raise
         
         # Initialize buckets from filesystem
         self._init_buckets_from_fs()
@@ -230,7 +239,9 @@ class LocalStorageBackend(StorageBackend):
                     if bucket_name:
                         self.buckets[bucket_name] = {
                             'name': bucket_name,
-                            'creation_date': datetime.datetime.now().isoformat()
+                            'creation_date': datetime.datetime.now().isoformat(),
+                            'objects': {},  # Store object metadata
+                            'versioning': False  # Versioning disabled by default
                         }
         except Exception as e:
             logger.error(f"Error initializing buckets from filesystem: {e}")
@@ -238,24 +249,38 @@ class LocalStorageBackend(StorageBackend):
     def create_bucket(self, bucket_name, consistency_level='eventual'):
         """Create a new bucket"""
         try:
-            if consistency_level == 'strong' and not self._check_consistency(consistency_level):
-                return False, "Strong consistency requirement not met: some nodes are down"
-                
+            # Validate bucket name
             if not bucket_name or not re.match(r'^[a-zA-Z0-9.\-_]{1,255}$', bucket_name):
-                return False, "Invalid bucket name"
-                
+                logger.error(f"Invalid bucket name: {bucket_name}")
+                return False, "Invalid bucket name - must be 1-255 characters and contain only letters, numbers, dots, hyphens, and underscores"
+            
+            # Check if bucket already exists
             if bucket_name in self.buckets:
+                logger.error(f"Bucket already exists: {bucket_name}")
                 return False, "Bucket already exists"
-                
+            
+            # Check consistency requirements
+            if consistency_level == 'strong' and not self._check_consistency(consistency_level):
+                logger.error("Strong consistency requirement not met")
+                return False, "Strong consistency requirement not met: some nodes are down"
+            
+            # Create bucket directory
             bucket_path = f'/buckets/{bucket_name}'
             if not self.fs_manager.createDirectory(bucket_path):
+                logger.error(f"Failed to create bucket directory: {bucket_path}")
                 return False, "Failed to create bucket directory"
-                
+            
+            # Initialize bucket metadata
             self.buckets[bucket_name] = {
                 'name': bucket_name,
-                'creation_date': datetime.datetime.now().isoformat()
+                'creation_date': datetime.datetime.now().isoformat(),
+                'objects': {},  # Store object metadata
+                'versioning': False  # Versioning disabled by default
             }
+            
+            logger.info(f"Successfully created bucket: {bucket_name}")
             return True, None
+            
         except Exception as e:
             logger.error(f"Error creating bucket: {e}")
             return False, str(e)

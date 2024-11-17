@@ -30,9 +30,6 @@ CORS(app, resources={r"/*": {"origins": ["http://localhost:3000", "http://localh
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
-# Set storage environment
-os.environ['STORAGE_ENV'] = 'local'
-
 # Initialize filesystem manager and storage backend
 fs_manager = FileSystemManager()
 storage_backend = get_storage_backend(fs_manager)
@@ -293,33 +290,37 @@ def get_dashboard_metrics():
 # Decorate existing routes with API documentation
 @s3_ns.route('/buckets')
 class BucketList(Resource):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.storage = storage_backend
+
     @s3_ns.doc('list_buckets')
     @s3_ns.response(200, 'Success')
     def get(self):
         """List all buckets"""
-        consistency = request.headers.get('X-Consistency-Level', 'eventual')
-        success, buckets = storage_backend.list_buckets(consistency_level=consistency)
-        
-        if not success:
-            return {'error': buckets}, 503 if 'consistency' in buckets else 500
+        try:
+            buckets, error = self.storage.list_buckets()
+            if error:
+                return {'error': error}, 500
             
-        # Ensure buckets is a list and contains valid data
-        if buckets is None:
-            buckets = []
-        elif not isinstance(buckets, list):
-            buckets = list(buckets)
-
-        # Convert bucket objects to dictionaries
-        bucket_list = []
-        for bucket in buckets:
-            if isinstance(bucket, dict):
-                bucket_list.append(bucket)
-            else:
-                # Handle case where bucket might be a string or other object
-                bucket_list.append({'Name': str(bucket)})
-
-        logger.debug("Found buckets: %s", bucket_list)
-        return bucket_list, 200
+            # Convert bucket objects to dictionaries if needed
+            if buckets is None:
+                buckets = []
+            elif not isinstance(buckets, list):
+                buckets = list(buckets)
+            
+            # Format buckets for response
+            bucket_list = []
+            for bucket in buckets:
+                if isinstance(bucket, dict):
+                    bucket_list.append(bucket)
+                else:
+                    bucket_list.append({'Name': str(bucket)})
+            
+            return {'Buckets': bucket_list}, 200
+        except Exception as e:
+            logger.error(f"Error listing buckets: {e}")
+            return {'error': str(e)}, 500
 
 @s3_ns.route('/buckets/<string:bucket_name>')
 @s3_ns.param('bucket_name', 'The bucket name')
