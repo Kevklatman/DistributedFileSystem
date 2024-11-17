@@ -66,6 +66,8 @@ class CacheStore:
         Returns:
             Version number of cached entry
         """
+        # Only mark as dirty if EVENTUAL consistency is explicitly requested
+        provided_consistency = consistency is not None
         consistency = consistency or self._consistency_level
         
         with self._write_lock if consistency == ConsistencyLevel.STRONG else self._lock:
@@ -75,7 +77,7 @@ class CacheStore:
                 value=value,
                 timestamp=datetime.now(),
                 version=version,
-                dirty=consistency == ConsistencyLevel.EVENTUAL,  # Only EVENTUAL is dirty
+                dirty=provided_consistency and consistency == ConsistencyLevel.EVENTUAL,
                 session_id=session_id
             )
             
@@ -150,7 +152,7 @@ class CacheStore:
             self._cache.clear()
             self._dirty_keys.clear()
             
-    def get_stats(self) -> Dict[str, int]:
+    def get_stats(self) -> Dict[str, Any]:
         """Get cache statistics.
         
         Returns:
@@ -160,7 +162,8 @@ class CacheStore:
             return {
                 "size": len(self._cache),
                 "max_size": self._max_size,
-                "dirty_entries": len(self._dirty_keys)
+                "dirty_entries": len(self._dirty_keys),
+                "consistency_level": self._consistency_level.value
             }
             
     def get_dirty_entries(self) -> Dict[str, Tuple[Any, int]]:
