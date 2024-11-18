@@ -83,77 +83,142 @@ CORS(app, resources={
     }
 })
 
+# Configuration
+STORAGE_PATH = os.getenv('DFS_STORAGE_PATH', os.path.expanduser('~'))
+POLICY_CONFIG_PATH = os.getenv('DFS_POLICY_CONFIG', os.path.join(os.path.expanduser('~'), 'dfs_policy.json'))
+KUBERNETES_ENABLED = os.getenv('DFS_KUBERNETES_ENABLED', 'false').lower() == 'true'
+
 # Store previous network counters for calculating deltas
 previous_net_io = psutil.net_io_counters()
 previous_timestamp = time.time()
 
-def update_system_metrics():
-    """Update system metrics including CPU and memory"""
-    global previous_net_io, previous_timestamp
+def get_storage_metrics():
+    """Get storage metrics from the filesystem"""
     try:
-        # CPU metrics
-        CPU_USAGE.set(psutil.cpu_percent(interval=1))
+        # Get disk usage statistics for the root directory
+        disk_usage = psutil.disk_usage('/')
 
-        # Memory metrics
-        memory = psutil.virtual_memory()
-        MEMORY_USAGE.labels(type='total').set(memory.total)
-        MEMORY_USAGE.labels(type='used').set(memory.used)
-        MEMORY_USAGE.labels(type='available').set(memory.available)
+        # Calculate storage metrics
+        total_gb = disk_usage.total / (1024 * 1024 * 1024)  # Convert to GB
+        used_gb = disk_usage.used / (1024 * 1024 * 1024)
+        free_gb = disk_usage.free / (1024 * 1024 * 1024)
 
-        # Storage metrics
-        storage = get_storage_metrics()
+        # Get disk I/O statistics
+        disk_io = psutil.disk_io_counters()
 
-        # Update storage metrics
-        STORAGE_TOTAL.set(storage["total_storage_gb"] * (1024 * 1024 * 1024))
-        STORAGE_USED.set(storage["used_storage_gb"] * (1024 * 1024 * 1024))
-        STORAGE_AVAILABLE.set(storage["free_storage_gb"] * (1024 * 1024 * 1024))
+        # Example compression and dedup ratios
+        compression_ratio = 1.2  # Example ratio
+        dedup_ratio = 1.3       # Example ratio
 
-        # Network metrics - calculate bytes/sec
-        current_net_io = psutil.net_io_counters()
-        current_timestamp = time.time()
-        time_delta = current_timestamp - previous_timestamp
+        # Get IOPS and throughput
+        iops = get_iops_metrics()
+        throughput = get_throughput_metrics()
 
-        if time_delta > 0:
-            bytes_in = int((current_net_io.bytes_recv - previous_net_io.bytes_recv) / time_delta)
-            bytes_out = int((current_net_io.bytes_sent - previous_net_io.bytes_sent) / time_delta)
-
-            NETWORK_IO.labels(direction='in').inc(bytes_in)
-            NETWORK_IO.labels(direction='out').inc(bytes_out)
-
-        # Update previous values
-        previous_net_io = current_net_io
-        previous_timestamp = current_timestamp
-
+        return {
+            "total_storage_gb": round(total_gb, 2),
+            "used_storage_gb": round(used_gb, 2),
+            "free_storage_gb": round(free_gb, 2),
+            "storage_usage_percent": round(disk_usage.percent, 2),
+            "compression_ratio": compression_ratio,
+            "dedup_ratio": dedup_ratio,
+            "iops": iops,
+            "throughput": throughput
+        }
     except Exception as e:
-        print(f"Error updating system metrics: {e}", file=sys.stderr)
+        print(f"Error getting storage metrics: {e}")
+        return {
+            "total_storage_gb": 0,
+            "used_storage_gb": 0,
+            "free_storage_gb": 0,
+            "storage_usage_percent": 0,
+            "compression_ratio": 1.0,
+            "dedup_ratio": 1.0,
+            "iops": {"read": 0, "write": 0},
+            "throughput": {"read_mbps": 0, "write_mbps": 0}
+        }
+
+def get_policy_metrics():
+    """Get policy metrics from configuration"""
+    try:
+        if os.path.exists(POLICY_CONFIG_PATH):
+            with open(POLICY_CONFIG_PATH, 'r') as f:
+                policy_data = json.load(f)
+        else:
+            print(f"Policy file not found at {POLICY_CONFIG_PATH}, using default values")
+            policy_data = {}
+
+        return {
+            "policy_distribution": {
+                "hot": policy_data.get("hot", 0),
+                "warm": policy_data.get("warm", 0),
+                "cold": policy_data.get("cold", 0)
+            },
+            "total_policies": policy_data.get("total", 0),
+            "ml_policy_accuracy": policy_data.get("accuracy", 0),
+            "policy_changes_24h": policy_data.get("changes_24h", 0),
+            "data_moved_24h_gb": policy_data.get("data_moved_gb", 0)
+        }
+    except Exception as e:
+        print(f"Error getting policy metrics: {e}")
+        return {
+            "policy_distribution": {"hot": 0, "warm": 0, "cold": 0},
+            "total_policies": 0,
+            "ml_policy_accuracy": 0,
+            "policy_changes_24h": 0,
+            "data_moved_24h_gb": 0
+        }
 
 def update_pod_metrics():
-    """Update pod metrics from Kubernetes"""
+    """Update pod metrics from Kubernetes if enabled"""
+    if not KUBERNETES_ENABLED:
+        return
+
     try:
-        config.load_kube_config()
         v1 = client.CoreV1Api()
-        pods = v1.list_namespaced_pod(namespace='default')  # Changed to 'default' namespace
-
-        # Clear existing pod metrics
-        for item in REGISTRY.collect():
-            if item.name == 'dfs_pod_status':
-                for metric in item.samples:
-                    POD_STATUS.remove(*[l for l in metric.labels.values()])
-
-        # Set new pod metrics
+        pods = v1.list_namespaced_pod(namespace='default')
         for pod in pods.items:
             POD_STATUS.labels(
                 pod_name=pod.metadata.name,
                 status=pod.status.phase,
                 ip=pod.status.pod_ip or 'None',
                 node=pod.spec.node_name or 'None'
-            ).set(1)
+            ).set(1 if pod.status.phase == 'Running' else 0)
     except Exception as e:
-        print(f"Error updating pod metrics: {e}", file=sys.stderr)
+        print(f"Error updating pod metrics: {e}")
+
+def update_system_metrics():
+    """Update system metrics"""
+    try:
+        # Get CPU and memory metrics
+        cpu_percent = psutil.cpu_percent(interval=1)
+        memory = psutil.virtual_memory()
+
+        # Update Prometheus metrics
+        CPU_USAGE.set(cpu_percent)
+        MEMORY_USAGE.labels(type='total').set(memory.total)
+        MEMORY_USAGE.labels(type='used').set(memory.used)
+        MEMORY_USAGE.labels(type='available').set(memory.available)
+
+        # Get storage metrics
+        storage = get_storage_metrics()
+
+        # Update storage metrics (convert GB to bytes)
+        bytes_per_gb = 1024 * 1024 * 1024
+        STORAGE_TOTAL.set(storage["total_storage_gb"] * bytes_per_gb)
+        STORAGE_USED.set(storage["used_storage_gb"] * bytes_per_gb)
+        STORAGE_AVAILABLE.set(storage["free_storage_gb"] * bytes_per_gb)
+
+        # Update network metrics
+        net_io = psutil.net_io_counters()
+        NETWORK_IO.labels(direction='in').inc(net_io.bytes_recv)
+        NETWORK_IO.labels(direction='out').inc(net_io.bytes_sent)
+
+    except Exception as e:
+        print(f"Error updating system metrics: {e}")
 
 @app.before_request
 def before_request():
-    update_system_metrics()  # Now includes CPU and memory
+    update_system_metrics()
     update_pod_metrics()
     request.start_time = time.time()
 
@@ -206,106 +271,6 @@ if 'v1' not in locals():
 @app.route('/')
 def index():
     return render_template('index.html')
-
-def get_policy_metrics():
-    """Get policy metrics from configuration"""
-    try:
-        # Get project root directory
-        policy_file = Path("/app/config/policy_overrides.json")
-
-        if not policy_file.exists():
-            print(f"Policy file not found at {policy_file}")
-            return {
-                "policy_distribution": {"hot": 0, "warm": 0, "cold": 0},
-                "total_policies": 0,
-                "ml_policy_accuracy": 0,
-                "policy_changes_24h": 0,
-                "data_moved_24h_gb": 0
-            }
-
-        with open(policy_file, 'r') as f:
-            policy_data = json.load(f)
-
-        # Calculate policy distribution
-        tier_counts = {"performance": 0, "capacity": 0, "cold": 0}
-        for override in policy_data.get("path_overrides", []):
-            tier = override.get("tier")
-            if tier in tier_counts:
-                tier_counts[tier] += 1
-
-        total_policies = len(policy_data.get("path_overrides", []))
-
-        return {
-            "policy_distribution": {
-                "hot": round((tier_counts["performance"] / total_policies * 100) if total_policies > 0 else 0),
-                "warm": round((tier_counts["capacity"] / total_policies * 100) if total_policies > 0 else 0),
-                "cold": round((tier_counts["cold"] / total_policies * 100) if total_policies > 0 else 0)
-            },
-            "total_policies": total_policies,
-            "ml_policy_accuracy": policy_data.get("ml_accuracy", 0),
-            "policy_changes_24h": policy_data.get("changes_24h", 0),
-            "data_moved_24h_gb": policy_data.get("data_moved_gb", 0)
-        }
-    except Exception as e:
-        print(f"Error getting policy metrics: {e}")
-        return {
-            "policy_distribution": {"hot": 0, "warm": 0, "cold": 0},
-            "total_policies": 0,
-            "ml_policy_accuracy": 0,
-            "policy_changes_24h": 0,
-            "data_moved_24h_gb": 0
-        }
-
-def get_storage_metrics():
-    """Get storage metrics from the filesystem"""
-    try:
-        # Get storage path from environment or use default
-        storage_path = os.getenv('DFS_STORAGE_PATH', os.path.expanduser('~'))
-
-        # Get disk usage statistics for the root directory if storage path doesn't exist
-        if not os.path.exists(storage_path):
-            storage_path = '/'
-        
-        disk_usage = psutil.disk_usage(storage_path)
-
-        # Calculate storage metrics
-        total_gb = disk_usage.total / (1024 * 1024 * 1024)  # Convert to GB
-        used_gb = disk_usage.used / (1024 * 1024 * 1024)
-        free_gb = disk_usage.free / (1024 * 1024 * 1024)
-
-        # Get disk I/O statistics
-        disk_io = psutil.disk_io_counters()
-        
-        # Calculate compression and dedup ratios (simplified for demo)
-        compression_ratio = 1.2  # Example ratio
-        dedup_ratio = 1.3       # Example ratio
-
-        # Get IOPS and throughput
-        iops = get_iops_metrics()
-        throughput = get_throughput_metrics()
-
-        return {
-            "total_storage_gb": round(total_gb, 2),
-            "used_storage_gb": round(used_gb, 2),
-            "free_storage_gb": round(free_gb, 2),
-            "storage_usage_percent": round(disk_usage.percent, 2),
-            "compression_ratio": compression_ratio,
-            "dedup_ratio": dedup_ratio,
-            "iops": iops,
-            "throughput": throughput
-        }
-    except Exception as e:
-        print(f"Error getting storage metrics: {e}")
-        return {
-            "total_storage_gb": 0,
-            "used_storage_gb": 0,
-            "free_storage_gb": 0,
-            "storage_usage_percent": 0,
-            "compression_ratio": 1.0,
-            "dedup_ratio": 1.0,
-            "iops": {"read": 0, "write": 0},
-            "throughput": {"read_mbps": 0, "write_mbps": 0}
-        }
 
 def get_iops_metrics():
     """Get IOPS metrics from disk IO counters"""
