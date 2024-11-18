@@ -19,7 +19,9 @@ An S3-compatible distributed file system with support for edge computing, implem
 
 ## API Endpoints
 
-### S3-Compatible Operations
+### S3-Compatible Operations (Port 8001)
+
+All S3-compatible operations are available at `http://localhost:8001`
 
 #### Bucket Operations
 - `GET /` - List all buckets
@@ -153,6 +155,16 @@ Example error response:
 }
 ```
 
+### Service Ports
+
+The system runs several services on different ports:
+
+- `8001`: S3-compatible API (bucket and object operations)
+- `5001`: Monitoring and metrics API
+- `8089`: Locust load testing UI
+- `9090`: Prometheus metrics visualization
+- `3000`: Grafana dashboards
+
 ### Authentication
 
 #### API Key Authentication
@@ -164,7 +176,7 @@ Example error response:
 
 Example:
 ```bash
-curl -H "X-Api-Key: your-api-key" http://localhost:5555/api/v1/health
+curl -H "X-Api-Key: your-api-key" http://localhost:5001/api/v1/health
 ```
 
 #### CORS Support
