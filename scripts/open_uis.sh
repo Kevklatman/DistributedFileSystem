@@ -3,6 +3,7 @@
 # Colors for output
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
+YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 echo -e "${BLUE}Opening DFS Web UIs...${NC}"
@@ -11,7 +12,9 @@ echo -e "${BLUE}Opening DFS Web UIs...${NC}"
 open_url() {
     local url=$1
     local name=$2
-    if curl -s --head "$url" > /dev/null; then
+    echo -e "${YELLOW}Checking $name at: $url${NC}"
+    curl -v "$url" 2>&1 | grep "< HTTP"
+    if [ $? -eq 0 ]; then
         echo -e "${GREEN}✓${NC} Opening $name: $url"
         open "$url"
     else

@@ -62,16 +62,19 @@ An S3-compatible distributed file system with support for edge computing, implem
   - Request/response schemas and examples
 
 #### Metrics and Monitoring
-- `GET /api/v1/metrics/policy` - Policy engine metrics
-  - Active policy count and evaluation rates
-  - Policy override statistics
-  - Cache performance metrics
-  - Data placement decisions
-
-- `GET /api/v1/metrics/dashboard` - System dashboard metrics
-  - Storage utilization metrics
+- `GET /metrics` - Prometheus metrics endpoint
+  - Raw metrics in Prometheus format
+  - System performance metrics
   - Request throughput and latency
   - Error rates and types
+  - Storage utilization metrics
+  - Node health status
+
+- `GET /api/dashboard/metrics` - Dashboard metrics
+  - Formatted JSON metrics for dashboard UI
+  - System performance metrics
+  - Storage utilization
+  - Request throughput and latency
   - Node health status
   - Edge node performance metrics
 

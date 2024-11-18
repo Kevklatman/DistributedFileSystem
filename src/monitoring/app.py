@@ -14,6 +14,7 @@ from pathlib import Path
 import json
 import socket
 import atexit
+import traceback
 
 # Disable SSL warnings
 urllib3.disable_warnings()
@@ -70,18 +71,37 @@ POD_STATUS = Gauge(
     ['pod_name', 'status', 'ip', 'node']
 )
 
-app = Flask(__name__)
-CORS(app, resources={
-    r"/*": {
-        "origins": [
-            "http://localhost:3000",  # React dev server
-            "http://localhost:5000",  # Local Flask server
-            "http://localhost:5001",  # Docker Flask server
-        ],
-        "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-        "allow_headers": ["Content-Type", "Authorization"]
-    }
-})
+# Initialize Flask app with CORS and templates
+app = Flask(__name__, 
+           template_folder=os.path.join(os.path.dirname(os.path.abspath(__file__)), 'templates'),
+           static_folder=os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static'))
+CORS(app)
+
+# Add error handlers
+@app.errorhandler(404)
+def not_found_error(error):
+    print(f"404 Error: {error}", file=sys.stderr)
+    return jsonify({'error': 'Resource not found'}), 404
+
+@app.errorhandler(500)
+def internal_error(error):
+    print(f"500 Error: {error}", file=sys.stderr)
+    return jsonify({'error': 'Internal server error'}), 500
+
+@app.errorhandler(503)
+def service_unavailable_error(error):
+    print(f"503 Error: {error}", file=sys.stderr)
+    return jsonify({'error': 'Service temporarily unavailable'}), 503
+
+# Add request logging
+@app.before_request
+def log_request_info():
+    print(f"Request: {request.method} {request.path}", file=sys.stderr)
+
+@app.after_request
+def log_response_info(response):
+    print(f"Response: {response.status}", file=sys.stderr)
+    return response
 
 # Environment Configuration
 STORAGE_PATH = os.getenv('DFS_STORAGE_PATH', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'storage'))
@@ -107,8 +127,12 @@ if not os.path.exists(POLICY_CONFIG_PATH):
             "target_availability": 0.99999
         }
     }
-    with open(POLICY_CONFIG_PATH, 'w') as f:
-        json.dump(default_policy, f, indent=4)
+    try:
+        with open(POLICY_CONFIG_PATH, 'w') as f:
+            json.dump(default_policy, f, indent=4)
+        print(f"Created default policy file at {POLICY_CONFIG_PATH}")
+    except Exception as e:
+        print(f"Error creating policy file: {e}", file=sys.stderr)
 
 # Store previous network counters for calculating deltas
 previous_net_io = psutil.net_io_counters()
@@ -160,28 +184,26 @@ def get_storage_metrics():
 def get_policy_metrics():
     """Get policy metrics from configuration"""
     try:
-        with open(POLICY_CONFIG_PATH, 'r') as f:
-            policy_data = json.load(f)
-
-        return {
-            "compression_enabled": policy_data["storage_policies"]["compression_enabled"],
-            "deduplication_enabled": policy_data["storage_policies"]["deduplication_enabled"],
-            "max_file_size_gb": policy_data["storage_policies"]["max_file_size_gb"],
-            "retention_days": policy_data["storage_policies"]["retention_days"],
-            "min_replicas": policy_data["distribution_policies"]["min_replicas"],
-            "max_replicas": policy_data["distribution_policies"]["max_replicas"],
-            "target_availability": policy_data["distribution_policies"]["target_availability"]
-        }
+        if os.path.exists(POLICY_CONFIG_PATH):
+            with open(POLICY_CONFIG_PATH, 'r') as f:
+                policy = json.load(f)
+                return policy.get('storage_policies', {})
+        else:
+            # Return default policy if file doesn't exist
+            return {
+                "compression_enabled": True,
+                "deduplication_enabled": True,
+                "max_file_size_gb": 10,
+                "retention_days": 30
+            }
     except Exception as e:
-        print(f"Policy file not found or invalid: {e}")
+        print(f"Error reading policy file: {e}", file=sys.stderr)
+        # Return default policy on error
         return {
             "compression_enabled": True,
             "deduplication_enabled": True,
             "max_file_size_gb": 10,
-            "retention_days": 30,
-            "min_replicas": 2,
-            "max_replicas": 5,
-            "target_availability": 0.99999
+            "retention_days": 30
         }
 
 def update_pod_metrics():
@@ -232,61 +254,148 @@ def update_system_metrics():
     except Exception as e:
         print(f"Error updating system metrics: {e}")
 
-@app.before_request
-def before_request():
-    update_system_metrics()
-    update_pod_metrics()
-    request.start_time = time.time()
-
-@app.after_request
-def after_request(response):
-    if request.path != '/formatted_metrics':  # Don't track metrics about getting metrics
-        latency = time.time() - request.start_time
-        REQUESTS.labels(
-            endpoint=request.endpoint or 'unknown',
-            method=request.method,
-            status=response.status_code
-        ).inc()
-
-        LATENCY.labels(
-            endpoint=request.endpoint or 'unknown',
-            method=request.method
-        ).observe(latency)
-
-        # Track response size
-        response_size = len(response.get_data())
-        NETWORK_IO.labels(direction='out').inc(response_size)
-
-        # Track request size
-        request_size = len(request.get_data())
-        NETWORK_IO.labels(direction='in').inc(request_size)
-
-    return response
-
-# Configure Kubernetes client
-try:
-    # Try to load the local kubeconfig first
-    config.load_kube_config()
-except:
-    try:
-        # If local config fails, try in-cluster config
-        config.load_incluster_config()
-    except:
-        print("Failed to load both local and in-cluster Kubernetes config")
-        v1 = None
-
-# Create the API client if config was loaded
-if 'v1' not in locals():
-    try:
-        v1 = client.CoreV1Api()
-        print("Successfully connected to Kubernetes API")
-    except Exception as e:
-        print(f"Error creating Kubernetes client: {e}")
-        v1 = None
-
+# Basic routes
 @app.route('/')
 def index():
+    """Serve the main dashboard page"""
     return render_template('index.html')
+
+@app.route('/metrics')
+def metrics():
+    """Prometheus metrics endpoint"""
+    try:
+        print("Entering metrics endpoint", file=sys.stderr)
+        return Response(generate_latest(), mimetype='text/plain')
+    except Exception as e:
+        print(f"Error in metrics: {str(e)}", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
+        return jsonify({'error': str(e)}), 503
+
+@app.route('/api/dashboard/metrics')
+def dashboard_metrics():
+    """Dashboard metrics endpoint"""
+    try:
+        print("Entering dashboard_metrics endpoint", file=sys.stderr)
+        metrics_data = get_metrics()
+        return jsonify({
+            'metrics': metrics_data,
+            'timestamp': datetime.now().isoformat()
+        })
+    except Exception as e:
+        print(f"Error in dashboard_metrics: {str(e)}", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
+        return jsonify({'error': str(e)}), 503
+
+@app.route('/api/docs')
+def api_docs():
+    """API Documentation endpoint"""
+    try:
+        print("Entering api_docs endpoint", file=sys.stderr)
+        docs = {
+            "openapi": "3.0.0",
+            "info": {
+                "title": "DFS Monitoring API",
+                "version": "1.0.0",
+                "description": "API for the Distributed File System Monitoring Service"
+            },
+            "servers": [
+                {
+                    "url": "http://localhost:5001",
+                    "description": "Local development server"
+                }
+            ],
+            "paths": {
+                "/": {
+                    "get": {
+                        "summary": "Monitoring Dashboard",
+                        "description": "Returns the main monitoring dashboard UI",
+                        "responses": {
+                            "200": {
+                                "description": "HTML dashboard page"
+                            }
+                        }
+                    }
+                },
+                "/api/dashboard/metrics": {
+                    "get": {
+                        "summary": "Dashboard Metrics",
+                        "description": "Returns comprehensive system metrics",
+                        "responses": {
+                            "200": {
+                                "description": "System metrics in JSON format",
+                                "content": {
+                                    "application/json": {
+                                        "schema": {
+                                        "type": "object",
+                                        "properties": {
+                                            "metrics": {
+                                                "type": "object"
+                                            },
+                                            "timestamp": {
+                                                "type": "string",
+                                                "format": "date-time"
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "/metrics": {
+                    "get": {
+                        "summary": "Prometheus Metrics",
+                        "description": "Returns metrics in Prometheus format",
+                        "responses": {
+                            "200": {
+                                "description": "Metrics in Prometheus text format",
+                                "content": {
+                                    "text/plain": {
+                                        "schema": {
+                                            "type": "string"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "/api/v1/health": {
+                    "get": {
+                        "summary": "Health check endpoint",
+                        "description": "Returns the health status of the service",
+                        "responses": {
+                            "200": {
+                                "description": "Health status in JSON format",
+                                "content": {
+                                    "application/json": {
+                                        "schema": {
+                                            "type": "object",
+                                            "properties": {
+                                                "status": {
+                                                    "type": "string"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        print("Returning API docs", file=sys.stderr)
+        return jsonify(docs)
+    except Exception as e:
+        print(f"Error in api_docs: {str(e)}", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
+        return jsonify({'error': str(e)}), 503
+
+@app.route('/api/v1/health')
+def health_check():
+    """Health check endpoint"""
+    return jsonify({'status': 'healthy'})
 
 def get_iops_metrics():
     """Get IOPS metrics from disk IO counters"""
@@ -317,9 +426,8 @@ def get_throughput_metrics():
         print(f"Error getting throughput metrics: {e}")
     return {"read_mbps": 0, "write_mbps": 0}
 
-@app.route('/api/dashboard/metrics')
-def api_metrics():
-    """API endpoint for dashboard metrics"""
+def get_metrics():
+    """Get comprehensive system metrics"""
     try:
         current_time = datetime.now().isoformat()
 
@@ -390,7 +498,7 @@ def api_metrics():
                 "category": "policy",
                 "severity": "info",
                 "title": "Policy Distribution",
-                "description": f"Current policy distribution: {policy['compression_enabled']}, {policy['deduplication_enabled']}",
+                "description": f"Current policy distribution: {policy.get('compression_enabled', False)}, {policy.get('deduplication_enabled', False)}",
                 "suggestions": [
                     "Review policy patterns for optimal data placement",
                     "Consider consolidating similar policies"
@@ -399,272 +507,16 @@ def api_metrics():
             }
         ]
 
-        return jsonify({
+        return {
             "health": health,
             "storage": storage_metrics,
             "cost": cost,
             "policy": policy,
             "recommendations": recommendations
-        })
-
-    except Exception as e:
-        print(f"Error in api_metrics: {e}", file=sys.stderr)
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/api/health')
-def api_health():
-    try:
-        response = requests.get('http://localhost:5555/api/v1/health', timeout=5)
-        if response.status_code == 200:
-            return jsonify(response.json()), 200
-        return jsonify({'status': 'not available', 'error': f'API returned status {response.status_code}'}), 503
-    except requests.exceptions.RequestException as e:
-        return jsonify({'status': 'not available', 'error': str(e)}), 503
-
-@app.route('/api/docs')
-def api_docs():
-    """API Documentation endpoint"""
-    try:
-        # Return static API documentation
-        return jsonify({
-            "openapi": "3.0.0",
-            "info": {
-                "title": "DFS Monitoring API",
-                "version": "1.0.0",
-                "description": "API for the Distributed File System Monitoring Service"
-            },
-            "paths": {
-                "/": {
-                    "get": {
-                        "summary": "Monitoring Dashboard",
-                        "description": "Returns the main monitoring dashboard UI"
-                    }
-                },
-                "/api/dashboard/metrics": {
-                    "get": {
-                        "summary": "Dashboard Metrics",
-                        "description": "Returns comprehensive system metrics including health, storage, cost, and recommendations"
-                    }
-                },
-                "/metrics": {
-                    "get": {
-                        "summary": "Prometheus Metrics",
-                        "description": "Returns metrics in Prometheus format"
-                    }
-                },
-                "/api/v1/metrics": {
-                    "get": {
-                        "summary": "Formatted Metrics",
-                        "description": "Returns human-readable formatted metrics"
-                    }
-                }
-            }
-        }), 200
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/api/v1/metrics')
-def formatted_api_metrics():
-    """Human-readable formatted metrics endpoint"""
-    try:
-        # Update metrics before returning
-        update_system_metrics()
-        update_pod_metrics()
-
-        # Get raw metrics and format them
-        raw_metrics = generate_latest(REGISTRY).decode('utf-8')
-        formatted_data = {}
-
-        # Parse and format the raw metrics
-        for line in raw_metrics.split('\n'):
-            if line and not line.startswith('#'):
-                try:
-                    name, value = line.split(' ')
-                    formatted_data[name] = float(value)
-                except:
-                    continue
-
-        return jsonify({
-            'metrics': formatted_data,
-            'timestamp': datetime.now().isoformat()
-        })
-    except Exception as e:
-        print(f"Error formatting metrics: {e}", file=sys.stderr)
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/api/dashboard/metrics')
-def dashboard_metrics():
-    """Dashboard metrics endpoint"""
-    try:
-        return jsonify(api_metrics())
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/metrics')
-def prometheus_metrics():
-    """Prometheus metrics endpoint"""
-    try:
-        # Update metrics before returning
-        update_system_metrics()
-        update_pod_metrics()
-
-        # Return metrics directly
-        return Response(generate_latest(), mimetype=CONTENT_TYPE_LATEST)
-    except Exception as e:
-        print(f"Error generating metrics: {e}", file=sys.stderr)
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/api/<path:path>')
-def api_proxy(path):
-    try:
-        # Don't modify health check path
-        if path == 'health':
-            target_url = f'http://localhost:5555/api/v1/health'
-        else:
-            target_url = f'http://localhost:5555/api/v1/{path}'
-
-        headers = {key: value for key, value in request.headers if key.lower() != 'host'}
-
-        response = requests.request(
-            method=request.method,
-            url=target_url,
-            headers=headers,
-            data=request.get_data(),
-            cookies=request.cookies,
-            timeout=10
-        )
-
-        excluded_headers = ['content-length', 'connection', 'content-encoding']
-        headers = [(k, v) for k, v in response.raw.headers.items() if k.lower() not in excluded_headers]
-
-        return Response(response.content, response.status_code, headers)
-    except requests.exceptions.RequestException as e:
-        return jsonify({'error': str(e)}), 503
-
-@app.route('/web-ui')
-@app.route('/web-ui/<path:path>')
-def web_ui_proxy(path=''):
-    try:
-        target_url = f'http://localhost:3000/{path}'
-        headers = {
-            key: value for key, value
-            in request.headers.items()
-            if key.lower() not in ['host', 'content-length']
         }
-
-        response = requests.request(
-            method=request.method,
-            url=target_url,
-            headers=headers,
-            data=request.get_data(),
-            cookies=request.cookies,
-            timeout=5,
-            allow_redirects=True
-        )
-
-        # Only forward specific headers we want
-        allowed_headers = [
-            'content-type',
-            'cache-control',
-            'etag',
-            'date',
-            'last-modified'
-        ]
-
-        headers = {
-            k: v for k, v in response.headers.items()
-            if k.lower() in allowed_headers
-        }
-
-        # Ensure we're returning text/html for the main page
-        if not path and 'content-type' not in headers:
-            headers['content-type'] = 'text/html; charset=utf-8'
-
-        return Response(
-            response.content,
-            response.status_code,
-            headers
-        )
-    except requests.exceptions.RequestException as e:
-        return jsonify({'error': str(e)}), 503
-
-@app.route('/web-ui/status')
-def web_ui_status():
-    """Check Web UI status"""
-    try:
-        response = requests.get('http://localhost:3000/', timeout=5)
-        if response.status_code == 200:
-            return jsonify({'status': 'available'}), 200
-        return jsonify({
-            'status': 'not available',
-            'error': f'Web UI returned status {response.status_code}'
-        }), 503
-    except requests.exceptions.RequestException as e:
-        return jsonify({
-            'status': 'not available',
-            'error': str(e)
-        }), 503
-
-@app.route('/api/status')
-def api_status():
-    """Check API status"""
-    try:
-        response = requests.get('http://localhost:5555/api/v1/health', timeout=5)
-        if response.status_code == 200:
-            return jsonify(response.json()), 200
-        return jsonify({
-            'status': 'not available',
-            'error': f'API returned status {response.status_code}'
-        }), 503
-    except requests.exceptions.RequestException as e:
-        return jsonify({
-            'status': 'not available',
-            'error': str(e)
-        }), 503
-
-@app.route('/formatted_metrics')
-def formatted_metrics():
-    """Custom metrics endpoint that formats Prometheus metrics for readability"""
-    # Use the same registry as the Prometheus server
-    raw_metrics = generate_latest(REGISTRY).decode('utf-8')
-
-    # Parse and format metrics
-    formatted_metrics = []
-    current_metric = []
-
-    for line in raw_metrics.split('\n'):
-        if line.startswith('# HELP'):
-            if current_metric:
-                formatted_metrics.append('\n'.join(current_metric))
-                formatted_metrics.append('-' * 80 + '\n')  # Separator
-            current_metric = []
-            # Format help line
-            name = line.split()[2]
-            help_text = ' '.join(line.split()[3:])
-            current_metric.append(f"\n📊 Metric: {name}")
-            current_metric.append(f"📝 Description: {help_text}")
-        elif line.startswith('# TYPE'):
-            type_text = line.split()[3]
-            current_metric.append(f"📈 Type: {type_text}")
-        elif line and not line.startswith('#'):
-            # Format metric values
-            parts = line.split()
-            if len(parts) >= 1:
-                metric_name = parts[0].split('{')[0]
-                if '{' in line:
-                    labels = line[line.index('{')+1:line.index('}')]
-                    value = line.split()[-1]
-                    current_metric.append(f"   └─ {labels}: {value}")
-                else:
-                    value = parts[-1]
-                    current_metric.append(f"   └─ Value: {value}")
-
-    # Add the last metric group
-    if current_metric:
-        formatted_metrics.append('\n'.join(current_metric))
-
-    # Return formatted metrics with text/plain content type
-    return Response('\n'.join(formatted_metrics), mimetype='text/plain')
+    except Exception as e:
+        print(f"Error in get_metrics: {e}", file=sys.stderr)
+        return {'error': str(e)}
 
 def is_port_in_use(port):
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -676,25 +528,9 @@ def cleanup():
     sys.exit(0)
 
 if __name__ == '__main__':
-    # Register cleanup function
-    atexit.register(cleanup)
-
     try:
-        # Check if ports are already in use
-        if is_port_in_use(9091):
-            print("Error: Port 9091 is already in use. Please free up the port and try again.")
-            sys.exit(1)
-        if is_port_in_use(5000):
-            print("Error: Port 5000 is already in use. Please free up the port and try again.")
-            sys.exit(1)
-
-        # Start Prometheus metrics server first
-        metrics_port = 9091
-        start_http_server(metrics_port)
-        print(f"Prometheus metrics server started on port {metrics_port}")
-
-        # Start Flask app without debug mode
-        app.run(host='0.0.0.0', port=5000, debug=False, use_reloader=False)
+        # Start Flask app
+        app.run(host='0.0.0.0', port=5000, debug=False)
     except Exception as e:
         print(f"Error starting server: {e}")
         sys.exit(1)
