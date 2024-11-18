@@ -1,13 +1,21 @@
 # Distributed File System
 
-An S3-compatible distributed file system implemented in Python. Supports both local storage and AWS S3 backends.
+An S3-compatible distributed file system with support for edge computing, implemented in Python. Supports local storage, AWS S3, and distributed node backends.
 
 ## Features
 
 - S3-compatible API
-- Multiple storage backends (Local and AWS S3)
-- Easy switching between backends via environment variables
-- Docker support
+- Multiple storage backends:
+  - Local filesystem
+  - AWS S3
+  - Distributed node storage
+- Edge computing support
+- Policy-based data placement
+- Versioning support
+- Multipart uploads
+- Monitoring and metrics
+- Container Storage Interface (CSI) driver
+- Kubernetes integration
 
 ## API Endpoints
 
@@ -43,36 +51,161 @@ An S3-compatible distributed file system implemented in Python. Supports both lo
 
 #### System Operations
 - `GET /api/v1/health` - Health check endpoint
-- `GET /api/v1/docs` - API documentation (Swagger UI)
+  - Returns system health status and component availability
+  - Includes storage backend connectivity
+  - Reports API service status
+  - Provides edge node health information
+
+- `GET /api/v1/docs` - Interactive API documentation (Swagger UI)
+  - Complete OpenAPI/Swagger specification
+  - Interactive endpoint testing
+  - Request/response schemas and examples
 
 #### Metrics and Monitoring
-- `GET /api/v1/metrics/policy` - Get policy engine metrics
-- `GET /api/v1/metrics/dashboard` - Get system dashboard metrics
+- `GET /api/v1/metrics/policy` - Policy engine metrics
+  - Active policy count and evaluation rates
+  - Policy override statistics
+  - Cache performance metrics
+  - Data placement decisions
+
+- `GET /api/v1/metrics/dashboard` - System dashboard metrics
+  - Storage utilization metrics
+  - Request throughput and latency
+  - Error rates and types
+  - Node health status
+  - Edge node performance metrics
 
 ### Response Formats
-- Success responses are returned in XML format for S3-compatible endpoints
-- Management API endpoints return JSON responses
-- Error responses include:
-  - Error Code
-  - Error Message
-  - Request ID
+
+#### S3-Compatible Endpoints
+- XML format responses (S3-compatible)
+- Standard S3 response headers
+- Versioning metadata support
+- Error response format matches S3 spec
+
+Example bucket listing:
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<ListAllMyBucketsResult>
+    <Buckets>
+        <Bucket>
+            <Name>my-bucket</Name>
+            <CreationDate>2023-01-01T00:00:00.000Z</CreationDate>
+        </Bucket>
+    </Buckets>
+    <Owner>
+        <ID>DFSOwner</ID>
+        <DisplayName>DFS System</DisplayName>
+    </Owner>
+</ListAllMyBucketsResult>
+```
+
+#### Management API Endpoints
+- JSON format responses
+- Request correlation IDs
+- Detailed error information
+- Pagination support for list operations
+
+Example health check response:
+```json
+{
+    "status": "healthy",
+    "components": {
+        "storage": "operational",
+        "api": "operational",
+        "policy_engine": "operational",
+        "edge_nodes": {
+            "edge1": "operational",
+            "edge2": "operational"
+        }
+    },
+    "metrics": {
+        "uptime": "10d 4h 30m",
+        "requests_per_second": 150.5,
+        "error_rate_percent": 0.01,
+        "edge_node_count": 2,
+        "storage_nodes": 3
+    }
+}
+```
+
+#### Error Responses
+All error responses include:
+- Error Code: Unique error identifier
+- Message: Human-readable description
+- RequestId: Request correlation ID
+- Resource: Affected resource identifier
+- TimeStamp: Error occurrence time (ISO 8601)
+
+Example error response:
+```json
+{
+    "error": {
+        "code": "NoSuchBucket",
+        "message": "The specified bucket does not exist",
+        "requestId": "5FF5C0C1-5484-4D41-9C08-C47F3CE1175E",
+        "resource": "/my-bucket",
+        "timestamp": "2023-12-25T12:00:00Z"
+    }
+}
+```
 
 ### Authentication
-- API Key authentication via `X-Api-Key` header
-- CORS enabled for web interface
+
+#### API Key Authentication
+- Required for all non-public endpoints
+- Passed via `X-Api-Key` header
+- Configurable via environment variables
+- Role-based access control
+- Support for multiple API keys with different permissions
+
+Example:
+```bash
+curl -H "X-Api-Key: your-api-key" http://localhost:5555/api/v1/health
+```
+
+#### CORS Support
+- Web interface compatibility
+- Configurable allowed origins
+- Preflight request handling
+- Secure credential handling
+
+Supported configurations:
+- Origins: Configurable via CORS_ORIGINS env var
+- Methods: GET, POST, PUT, DELETE, HEAD, OPTIONS
+- Headers: Content-Type, Accept, Authorization, X-Api-Key
+- Exposed Headers: ETag, X-Request-Id
+- Credentials: Supported with secure handling
+- Max Age: 3600 seconds
 
 ## Setup
 
+### Prerequisites
+
+1. System Requirements:
+   - 4GB RAM minimum (8GB recommended)
+   - 20GB free disk space
+   - x86_64 or ARM64 architecture
+   - Network bandwidth: 100Mbps minimum
+
+2. Software Requirements:
+   - Python 3.8+
+   - Docker 20.10+ and Docker Compose v2.0+
+   - Git
+   - Kubernetes 1.20+ (for distributed deployment)
+
+### Installation
+
 1. Clone the repository:
 ```bash
-git clone https://github.com/Kevklatman/DistributedFileSystem.git
+git clone https://github.com/yourusername/DistributedFileSystem.git
 cd DistributedFileSystem
 ```
 
-2. Create and activate a virtual environment:
+2. Create virtual environment:
 ```bash
 python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+source venv/bin/activate  # On Windows: .\venv\Scripts\activate
 ```
 
 3. Install dependencies:
@@ -83,104 +216,254 @@ pip install -r requirements.txt
 4. Configure environment:
 ```bash
 cp .env.example .env
-# Edit .env with your settings
+# Edit .env with your configuration
 ```
 
-## Running
+### Deployment Options
 
-### Local Development
+#### Single Node Deployment
+
+1. Local Development:
 ```bash
-python -m flask run --host=0.0.0.0 --port=5555
+# Start the API server
+flask run --host=0.0.0.0 --port=5555 --debug
+
+# Access the API at http://localhost:5555
+# Access Swagger UI at http://localhost:5555/api/v1/docs
 ```
 
-### Docker
+2. Production Deployment:
 ```bash
-docker build -t dfs .
-docker run -p 5555:5555 dfs
+# Start with Gunicorn
+gunicorn --bind 0.0.0.0:5555 \
+    --workers 4 \
+    --threads 2 \
+    --worker-class gthread \
+    --log-level info \
+    'src.api.app:create_app()'
 ```
 
-## Configuration
+#### Distributed Deployment
 
-Set the following environment variables in `.env`:
-
+1. Using Docker Compose:
 ```bash
-# Storage backend ('local' or 'aws')
-STORAGE_ENV=local
+# Start the entire distributed system
+docker-compose up -d
 
-# AWS credentials (if using aws backend)
-AWS_ACCESS_KEY=your-key
-AWS_SECRET_KEY=your-secret
-AWS_REGION=us-east-1
+# Start specific components
+docker-compose up -d node1 node2 node3  # Core nodes
+docker-compose up -d edge1 edge2        # Edge nodes
+docker-compose up -d monitoring         # Monitoring stack
+```
 
-# API settings
+2. Kubernetes Deployment:
+```bash
+# Apply base configuration
+kubectl apply -f k8s/base/
+
+# Apply environment-specific overlay
+kubectl apply -k k8s/overlays/dev/  # or prod, staging
+```
+
+3. Accessing Components:
+- Core Nodes:
+  - Node 1: http://localhost:8001
+  - Node 2: http://localhost:8002
+  - Node 3: http://localhost:8003
+- Edge Nodes:
+  - Edge 1: http://localhost:8011
+  - Edge 2: http://localhost:8012
+- Monitoring:
+  - Prometheus: http://localhost:9090
+  - Grafana: http://localhost:3001 (default: admin/admin)
+  - Load Testing UI: http://localhost:8089
+
+### Configuration
+
+#### Environment Variables
+
+1. Basic Configuration:
+```bash
+# API Settings
 API_HOST=0.0.0.0
 API_PORT=5555
+DEBUG=True
+
+# Storage Backend
+STORAGE_ENV=local  # Options: local, aws, distributed
+STORAGE_PATH=/path/to/storage
+
+# Authentication
+API_KEY=your-api-key
+CORS_ORIGINS=http://localhost:3000,http://localhost:5000
+```
+
+2. Distributed Settings:
+```bash
+# Node Configuration
+NODE_ID=node1
+NODE_TYPE=core  # Options: core, edge
+QUORUM_SIZE=2
+
+# Edge Node Settings
+DEVICE_TYPE=mobile  # Options: mobile, iot
+PROCESSING_POWER=0.7  # Range: 0.0-1.0
+BATTERY_LEVEL=80     # Range: 0-100
+BANDWIDTH_LIMIT=1000  # KB/s
+```
+
+3. Cloud Provider Settings:
+```bash
+# AWS Configuration
+AWS_ACCESS_KEY=your-access-key
+AWS_SECRET_KEY=your-secret-key
+AWS_REGION=us-east-1
+
+# Optional: GCP Configuration
+GOOGLE_CLOUD_PROJECT=your-project
+GOOGLE_APPLICATION_CREDENTIALS=/path/to/credentials.json
+
+# Optional: Azure Configuration
+AZURE_STORAGE_CONNECTION_STRING=your-connection-string
 ```
 
 ## Testing
 
+### Unit Tests
+
+1. Run all tests:
 ```bash
-# Create a bucket
-curl -X PUT http://localhost:5555/my-bucket
-
-# Upload a file
-curl -X PUT -d "Hello World" http://localhost:5555/my-bucket/hello.txt
-
-# Download a file
-curl http://localhost:5555/my-bucket/hello.txt
-
-# List buckets
-curl http://localhost:5555/
+pytest
 ```
+
+2. Run specific test categories:
+```bash
+pytest tests/unit                # Unit tests
+pytest tests/integration        # Integration tests
+pytest tests/api               # API tests
+pytest tests/edge             # Edge node tests
+```
+
+3. Test options:
+```bash
+pytest -v                      # Verbose output
+pytest -k "test_pattern"      # Run tests matching pattern
+pytest --cov=src              # Run with coverage
+pytest --cov-report=html      # Generate coverage report
+```
+
+### Load Testing
+
+1. Start the Locust load testing UI:
+```bash
+docker-compose up -d locust
+```
+
+2. Access the Locust UI at http://localhost:8089:
+   - Set number of users
+   - Set spawn rate
+   - Choose test scenario
+   - Monitor real-time metrics
+
+3. Available test scenarios:
+   - Basic operations (upload/download)
+   - Mixed workload
+   - Edge node stress test
+   - Consistency test
+   - Network partition simulation
+   - Recovery testing
+
+4. Custom test scenarios:
+```bash
+# Run custom test script
+locust -f tests/load/custom_scenario.py
+
+# Headless mode
+locust -f tests/load/custom_scenario.py --headless -u 100 -r 10
+```
+
+### Monitoring
+
+1. Start monitoring stack:
+```bash
+docker-compose up -d prometheus grafana
+```
+
+2. Access monitoring:
+   - Prometheus: http://localhost:9090
+   - Grafana: http://localhost:3001 (default: admin/admin)
+
+3. Available dashboards:
+   - System Overview
+     - Request rates and latencies
+     - Error rates and types
+     - Storage utilization
+   - Node Performance
+     - CPU and memory usage
+     - Network I/O
+     - Disk operations
+   - Edge Computing
+     - Edge node status
+     - Processing metrics
+     - Battery levels
+     - Network conditions
+   - Storage Metrics
+     - Object counts
+     - Bucket sizes
+     - Backend performance
+   - API Metrics
+     - Endpoint usage
+     - Response times
+     - Error distribution
+   - Policy Engine
+     - Policy evaluations
+     - Cache performance
+     - Override statistics
 
 ## Project Structure
 
 ```
 .
-├── API/                    # S3-compatible API service
-├── buckets/               # Local bucket storage directory
-├── config/                # System configuration files
-├── csi-driver/            # Container Storage Interface driver (Go)
-│   ├── cmd/              # CSI driver commands
-│   └── pkg/              # Driver implementation packages
-├── data/                  # Persistent data storage
-├── docs/                  # Architecture and design documentation
-│   └── *.mermaid         # System architecture diagrams
-├── examples/              # Usage examples and demos
-│   ├── custom_policy_example.py
-│   ├── dashboard_example.py
-│   └── policy_scenarios.py
-├── frontend/             # React-based web interface
-│   ├── public/          # Static assets
-│   └── src/             # Frontend source code
-├── k8s/                  # Kubernetes configurations
-│   ├── base/            # Base Kubernetes manifests
-│   └── overlays/        # Environment-specific overlays
-├── src/                  # Core Python source code
-│   ├── api/             # API implementation and routes
-│   ├── csi/             # CSI driver integration
-│   ├── monitoring/      # Prometheus/Grafana integration
-│   ├── storage/         # Storage backend implementations
-│   └── web/             # Web service implementations
-├── storage-node/        # Storage node service (Go)
-│   ├── cmd/            # Storage node commands
-│   └── pkg/            # Storage implementation
-├── tests/               # Test suites and fixtures
-├── docker-compose.yml   # Multi-service Docker composition
-├── Dockerfile           # API service Dockerfile
-├── Dockerfile.storage-node # Storage node Dockerfile
-├── requirements.txt     # Production Python dependencies
-└── requirements-test.txt # Testing dependencies
+├── API/                 # S3-compatible API service
+├── buckets/            # Local bucket storage directory
+├── config/             # System configuration files
+├── csi-driver/         # Container Storage Interface driver
+│   ├── cmd/           # CSI driver commands
+│   └── pkg/           # Driver implementation
+├── data/              # Persistent data storage
+├── docs/              # Documentation
+│   └── diagrams/     # Architecture diagrams
+├── examples/          # Usage examples
+├── frontend/          # Web interface
+│   ├── public/       # Static assets
+│   └── src/          # Frontend source
+├── k8s/               # Kubernetes configs
+│   ├── base/         # Base manifests
+│   └── overlays/     # Environment overlays
+├── src/               # Core source code
+│   ├── api/          # API implementation
+│   ├── edge/         # Edge computing
+│   ├── monitoring/   # Metrics collection
+│   ├── policy/       # Policy engine
+│   └── storage/      # Storage backends
+├── tests/             # Test suites
+│   ├── unit/         # Unit tests
+│   ├── integration/  # Integration tests
+│   ├── edge/         # Edge tests
+│   └── load/         # Load tests
+├── docker-compose.yml # Docker composition
+├── Dockerfile        # Main Dockerfile
+└── requirements.txt  # Dependencies
 ```
 
 ## Contributing
 
 1. Fork the repository
-2. Create a feature branch
-3. Commit your changes
-4. Push to the branch
-5. Create a Pull Request
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
