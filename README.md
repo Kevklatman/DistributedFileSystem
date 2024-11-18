@@ -219,6 +219,32 @@ cp .env.example .env
 # Edit .env with your configuration
 ```
 
+### Quick Start
+
+To start the entire development environment with one command:
+```bash
+./scripts/start_dev.sh
+```
+
+This script will:
+1. Check if Docker is running
+2. Create necessary data directories
+3. Start all core and edge nodes
+4. Start monitoring services (Prometheus, Grafana)
+5. Start load testing UI
+6. Display access URLs for all services
+
+To stop all services:
+```bash
+docker-compose down
+```
+
+To view logs:
+```bash
+docker-compose logs -f          # All services
+docker-compose logs -f node1    # Specific service
+```
+
 ### Deployment Options
 
 #### Single Node Deployment
