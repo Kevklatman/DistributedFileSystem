@@ -11,15 +11,55 @@ An S3-compatible distributed file system implemented in Python. Supports both lo
 
 ## API Endpoints
 
-All endpoints follow the S3 API specification:
+### S3-Compatible Operations
 
+#### Bucket Operations
 - `GET /` - List all buckets
 - `PUT /<bucket>` - Create a bucket
 - `DELETE /<bucket>` - Delete a bucket
 - `GET /<bucket>` - List objects in bucket
+- `PUT /<bucket>?versioning` - Configure bucket versioning
+- `GET /<bucket>?versioning` - Get bucket versioning status
+
+#### Object Operations
 - `PUT /<bucket>/<key>` - Upload an object
 - `GET /<bucket>/<key>` - Download an object
 - `DELETE /<bucket>/<key>` - Delete an object
+- `HEAD /<bucket>/<key>` - Get object metadata
+
+#### Multipart Upload Operations
+- `POST /<bucket>/<key>?uploads` - Initiate multipart upload
+- `PUT /<bucket>/<key>?partNumber=<number>&uploadId=<id>` - Upload part
+- `POST /<bucket>/<key>?uploadId=<id>` - Complete multipart upload
+- `DELETE /<bucket>/<key>?uploadId=<id>` - Abort multipart upload
+- `GET /<bucket>?uploads` - List multipart uploads
+
+#### Versioning Operations
+- `GET /<bucket>/<key>?versionId=<id>` - Get specific object version
+- `DELETE /<bucket>/<key>?versionId=<id>` - Delete specific version
+- `GET /<bucket>?versions` - List all object versions
+
+### Management API
+
+#### System Operations
+- `GET /api/v1/health` - Health check endpoint
+- `GET /api/v1/docs` - API documentation (Swagger UI)
+
+#### Metrics and Monitoring
+- `GET /api/v1/metrics/policy` - Get policy engine metrics
+- `GET /api/v1/metrics/dashboard` - Get system dashboard metrics
+
+### Response Formats
+- Success responses are returned in XML format for S3-compatible endpoints
+- Management API endpoints return JSON responses
+- Error responses include:
+  - Error Code
+  - Error Message
+  - Request ID
+
+### Authentication
+- API Key authentication via `X-Api-Key` header
+- CORS enabled for web interface
 
 ## Setup
 
