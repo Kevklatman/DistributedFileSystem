@@ -3,23 +3,57 @@
 # Colors for output
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
+RED='\033[0;31m'
 NC='\033[0m' # No Color
 
 echo -e "${BLUE}Starting DFS Development Environment...${NC}"
 
 # Check if Docker is running
 if ! docker info > /dev/null 2>&1; then
-    echo "Docker is not running. Please start Docker first."
+    echo -e "${RED}Docker is not running. Please start Docker first.${NC}"
     exit 1
 fi
+
+# Function to check if port is in use
+check_port() {
+    lsof -i :$1 > /dev/null 2>&1
+    return $?
+}
+
+# Check and cleanup ports
+check_and_cleanup_ports() {
+    local ports=(8001 8002 8003 8011 8012 9090 3001 8089)
+    local has_conflict=false
+
+    echo -e "${BLUE}Checking ports...${NC}"
+    for port in "${ports[@]}"; do
+        if check_port $port; then
+            echo -e "${RED}Port $port is in use${NC}"
+            has_conflict=true
+        fi
+    done
+
+    if $has_conflict; then
+        echo -e "${BLUE}Attempting to clean up existing containers...${NC}"
+        docker-compose down
+        docker rm -f $(docker ps -a | grep "distributed-file-system" | awk '{print $1}') 2>/dev/null || true
+        
+        # Double check ports after cleanup
+        for port in "${ports[@]}"; do
+            if check_port $port; then
+                echo -e "${RED}Port $port is still in use by another process. Please free this port before continuing.${NC}"
+                exit 1
+            fi
+        done
+    fi
+}
 
 # Create necessary directories if they don't exist
 echo -e "${BLUE}Setting up directories...${NC}"
 mkdir -p data/node{1,2,3} data/edge{1,2}
 
-# Stop any existing containers
-echo -e "${BLUE}Cleaning up existing containers...${NC}"
-docker-compose down
+# Check and cleanup ports
+check_and_cleanup_ports
 
 # Start the distributed system
 echo -e "${BLUE}Starting distributed system...${NC}"
