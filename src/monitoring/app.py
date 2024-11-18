@@ -162,7 +162,7 @@ def get_policy_metrics():
     try:
         with open(POLICY_CONFIG_PATH, 'r') as f:
             policy_data = json.load(f)
-        
+
         return {
             "compression_enabled": policy_data["storage_policies"]["compression_enabled"],
             "deduplication_enabled": policy_data["storage_policies"]["deduplication_enabled"],
@@ -423,13 +423,96 @@ def api_health():
 
 @app.route('/api/docs')
 def api_docs():
+    """API Documentation endpoint"""
     try:
-        response = requests.get('http://localhost:5555/api/v1/swagger.json', timeout=5)
-        if response.status_code == 200:
-            return response.json(), 200
-        return jsonify({'error': f'API documentation not available (status {response.status_code})'}), 503
-    except requests.exceptions.RequestException as e:
-        return jsonify({'error': str(e)}), 503
+        # Return static API documentation
+        return jsonify({
+            "openapi": "3.0.0",
+            "info": {
+                "title": "DFS Monitoring API",
+                "version": "1.0.0",
+                "description": "API for the Distributed File System Monitoring Service"
+            },
+            "paths": {
+                "/": {
+                    "get": {
+                        "summary": "Monitoring Dashboard",
+                        "description": "Returns the main monitoring dashboard UI"
+                    }
+                },
+                "/api/dashboard/metrics": {
+                    "get": {
+                        "summary": "Dashboard Metrics",
+                        "description": "Returns comprehensive system metrics including health, storage, cost, and recommendations"
+                    }
+                },
+                "/metrics": {
+                    "get": {
+                        "summary": "Prometheus Metrics",
+                        "description": "Returns metrics in Prometheus format"
+                    }
+                },
+                "/api/v1/metrics": {
+                    "get": {
+                        "summary": "Formatted Metrics",
+                        "description": "Returns human-readable formatted metrics"
+                    }
+                }
+            }
+        }), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/v1/metrics')
+def formatted_api_metrics():
+    """Human-readable formatted metrics endpoint"""
+    try:
+        # Update metrics before returning
+        update_system_metrics()
+        update_pod_metrics()
+
+        # Get raw metrics and format them
+        raw_metrics = generate_latest(REGISTRY).decode('utf-8')
+        formatted_data = {}
+
+        # Parse and format the raw metrics
+        for line in raw_metrics.split('\n'):
+            if line and not line.startswith('#'):
+                try:
+                    name, value = line.split(' ')
+                    formatted_data[name] = float(value)
+                except:
+                    continue
+
+        return jsonify({
+            'metrics': formatted_data,
+            'timestamp': datetime.now().isoformat()
+        })
+    except Exception as e:
+        print(f"Error formatting metrics: {e}", file=sys.stderr)
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/dashboard/metrics')
+def dashboard_metrics():
+    """Dashboard metrics endpoint"""
+    try:
+        return jsonify(api_metrics())
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/metrics')
+def prometheus_metrics():
+    """Prometheus metrics endpoint"""
+    try:
+        # Update metrics before returning
+        update_system_metrics()
+        update_pod_metrics()
+
+        # Return metrics directly
+        return Response(generate_latest(), mimetype=CONTENT_TYPE_LATEST)
+    except Exception as e:
+        print(f"Error generating metrics: {e}", file=sys.stderr)
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/<path:path>')
 def api_proxy(path):
@@ -582,20 +665,6 @@ def formatted_metrics():
 
     # Return formatted metrics with text/plain content type
     return Response('\n'.join(formatted_metrics), mimetype='text/plain')
-
-@app.route('/metrics')
-def metrics():
-    """Prometheus metrics endpoint"""
-    try:
-        # Update metrics before returning
-        update_system_metrics()
-        update_pod_metrics()
-
-        # Generate and return metrics in Prometheus format
-        return Response(generate_latest(), mimetype='text/plain')
-    except Exception as e:
-        print(f"Error generating metrics: {e}")
-        return Response(status=500)
 
 def is_port_in_use(port):
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:

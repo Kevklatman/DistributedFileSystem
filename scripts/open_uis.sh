@@ -39,7 +39,9 @@ open_url "http://localhost:8089" "Locust Load Testing"
 
 # Open API Documentation and Metrics
 echo -e "\n${BLUE}Opening API Documentation & Metrics...${NC}"
+open_url "http://localhost:5001/api/docs" "API Documentation (Swagger)"
 open_url "http://localhost:5001/api/dashboard/metrics" "Dashboard Metrics API"
-open_url "http://localhost:5001/api/docs" "API Documentation"
+open_url "http://localhost:5001/metrics" "Raw Prometheus Metrics"
+open_url "http://localhost:5001/api/v1/metrics" "Formatted Metrics"
 
 echo -e "\n${GREEN}All available UIs have been opened in your browser!${NC}"
