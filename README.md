@@ -234,12 +234,35 @@ This script will:
 5. Start load testing UI
 6. Display access URLs for all services
 
-To stop all services:
+To open all web interfaces in your default browser:
+```bash
+./scripts/open_uis.sh
+```
+
+### Available Web Interfaces
+
+#### Core API Nodes
+- Node 1: http://localhost:8001
+- Node 2: http://localhost:8002
+- Node 3: http://localhost:8003
+
+#### Edge Computing Nodes
+- Edge 1: http://localhost:8011
+- Edge 2: http://localhost:8012
+
+#### Monitoring & Testing
+- Grafana Dashboard: http://localhost:3001 (default login: admin/admin)
+- Prometheus Metrics: http://localhost:9090
+- Load Testing UI: http://localhost:8089
+
+### Management Commands
+
+Stop all services:
 ```bash
 docker-compose down
 ```
 
-To view logs:
+View logs:
 ```bash
 docker-compose logs -f          # All services
 docker-compose logs -f node1    # Specific service
