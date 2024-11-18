@@ -406,12 +406,52 @@ class BucketOperations(Resource):
 @s3_ns.route('/buckets/<string:bucket_name>/objects')
 @s3_ns.param('bucket_name', 'The bucket name')
 class ObjectList(Resource):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.storage = storage_backend
+
     @s3_ns.doc('list_objects')
-    @s3_ns.response(200, 'Success', [object_model])
-    @s3_ns.response(404, 'Bucket not found', error_model)
+    @s3_ns.response(200, 'Success')
     def get(self, bucket_name):
         """List objects in a bucket"""
-        return s3_handler.list_objects(bucket_name)
+        try:
+            objects, error = self.storage.list_objects(bucket_name)
+            if error:
+                return {'error': error}, 500
+
+            if objects is None:
+                objects = []
+
+            # Format objects for response
+            object_list = []
+            for obj in objects:
+                if isinstance(obj, dict):
+                    # Normalize field names
+                    formatted_obj = {
+                        'Key': obj.get('Key') or obj.get('key'),
+                        'LastModified': obj.get('LastModified') or obj.get('last_modified'),
+                        'Size': obj.get('Size') or obj.get('size', 0),
+                        'StorageClass': obj.get('StorageClass') or obj.get('storage_class', 'STANDARD')
+                    }
+                    object_list.append(formatted_obj)
+                else:
+                    # Handle string or other basic types
+                    object_list.append({
+                        'Key': str(obj),
+                        'LastModified': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                        'Size': 0,
+                        'StorageClass': 'STANDARD'
+                    })
+
+            return {
+                'Name': bucket_name,
+                'Contents': object_list,
+                'IsTruncated': False
+            }, 200
+
+        except Exception as e:
+            logger.error(f"Error listing objects: {e}")
+            return {'error': str(e)}, 500
 
 @s3_ns.route('/buckets/<string:bucket_name>/objects/<path:object_key>')
 @s3_ns.param('bucket_name', 'The bucket name')

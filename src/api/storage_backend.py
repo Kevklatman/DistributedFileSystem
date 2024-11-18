@@ -717,7 +717,7 @@ class AWSStorageBackend(StorageBackend):
             print(f"Error getting bucket region: {str(e)}")
             return self.s3
 
-    def list_objects(self, bucket_name):
+    def list_objects(self, bucket_name, consistency_level='eventual'):
         """List objects in a bucket, handling region-specific requirements."""
         try:
             # Get the appropriate client for this bucket
@@ -727,10 +727,22 @@ class AWSStorageBackend(StorageBackend):
             response = client.list_objects_v2(Bucket=bucket_name)
 
             objects = response.get('Contents', [])
-            return [{'Key': obj['Key'], 'Size': obj['Size'], 'LastModified': obj['LastModified']} for obj in objects]
+            formatted_objects = []
+            for obj in objects:
+                # Convert datetime to ISO format string
+                last_modified = obj['LastModified']
+                if hasattr(last_modified, 'isoformat'):
+                    last_modified = last_modified.isoformat()
+
+                formatted_objects.append({
+                    'Key': obj['Key'],
+                    'Size': obj['Size'],
+                    'LastModified': last_modified
+                })
+            return formatted_objects, None
         except Exception as e:
             print(f"Error listing objects: {str(e)}")
-            raise
+            return None, str(e)
 
     def create_bucket(self, bucket_name, consistency_level='eventual'):
         try:

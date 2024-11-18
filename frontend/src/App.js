@@ -244,12 +244,25 @@ function App() {
             console.log('Files response:', response.data);
 
             let fileList = [];
-            if (response.data && Array.isArray(response.data)) {
-                fileList = response.data;
-            } else if (response.data && response.data.Contents) {
-                fileList = response.data.Contents;
+            if (response.data && Array.isArray(response.data.Contents)) {
+                fileList = response.data.Contents.map(file => ({
+                    Key: file.Key,
+                    LastModified: file.LastModified,
+                    Size: parseInt(file.Size, 10) || 0,
+                    StorageClass: file.StorageClass || 'STANDARD',
+                    Name: file.Key.split('/').pop() || file.Key
+                }));
+            } else if (Array.isArray(response.data)) {
+                fileList = response.data.map(file => ({
+                    Key: file.Key || file.key,
+                    LastModified: file.LastModified || file.lastModified,
+                    Size: parseInt(file.Size || file.size, 10) || 0,
+                    StorageClass: file.StorageClass || file.storageClass || 'STANDARD',
+                    Name: (file.Key || file.key).split('/').pop() || file.Key || file.key
+                }));
             }
 
+            console.log('Processed files:', fileList);
             setFiles(fileList);
         } catch (error) {
             console.error('Error fetching files:', error);
