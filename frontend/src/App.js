@@ -37,7 +37,7 @@ import {
 import axios from 'axios';
 import DashboardMetrics from './components/DashboardMetrics';
 
-const API_URL = 'http://localhost:5555';
+const API_URL = 'http://localhost:5001';
 const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB chunks for multipart upload
 
 // Configure axios defaults

@@ -71,11 +71,13 @@ POD_STATUS = Gauge(
 app = Flask(__name__)
 CORS(app, resources={
     r"/*": {
-        "origins": ["http://localhost:3000", "http://localhost:5000", "http://localhost:5555"],
+        "origins": [
+            "http://localhost:3000",  # React dev server
+            "http://localhost:5000",  # Local Flask server
+            "http://localhost:5001",  # Docker Flask server
+        ],
         "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-        "allow_headers": ["Content-Type", "Accept", "Authorization", "X-Amz-Date", "X-Api-Key", "X-Amz-Security-Token"],
-        "expose_headers": ["ETag", "x-amz-request-id", "x-amz-id-2"],
-        "supports_credentials": True
+        "allow_headers": ["Content-Type", "Authorization"]
     }
 })
 
@@ -110,7 +112,7 @@ def update_system_metrics():
         if time_delta > 0:
             bytes_in = int((current_net_io.bytes_recv - previous_net_io.bytes_recv) / time_delta)
             bytes_out = int((current_net_io.bytes_sent - previous_net_io.bytes_sent) / time_delta)
-            
+
             NETWORK_IO.labels(direction='in').inc(bytes_in)
             NETWORK_IO.labels(direction='out').inc(bytes_out)
 
@@ -206,7 +208,7 @@ def get_policy_metrics():
     try:
         # Get project root directory
         policy_file = Path("/app/config/policy_overrides.json")
-        
+
         if not policy_file.exists():
             print(f"Policy file not found at {policy_file}")
             return {
@@ -216,19 +218,19 @@ def get_policy_metrics():
                 "policy_changes_24h": 0,
                 "data_moved_24h_gb": 0
             }
-            
+
         with open(policy_file, 'r') as f:
             policy_data = json.load(f)
-            
+
         # Calculate policy distribution
         tier_counts = {"performance": 0, "capacity": 0, "cold": 0}
         for override in policy_data.get("path_overrides", []):
             tier = override.get("tier")
             if tier in tier_counts:
                 tier_counts[tier] += 1
-                
+
         total_policies = len(policy_data.get("path_overrides", []))
-        
+
         return {
             "policy_distribution": {
                 "hot": round((tier_counts["performance"] / total_policies * 100) if total_policies > 0 else 0),
@@ -255,20 +257,20 @@ def get_storage_metrics():
     try:
         # Get storage path from environment or use default
         storage_path = "/app/storage"
-        
+
         # Get disk usage statistics
         disk_usage = psutil.disk_usage(storage_path)
-        
+
         # Calculate storage metrics
         total_gb = disk_usage.total / (1024 * 1024 * 1024)  # Convert to GB
         used_gb = disk_usage.used / (1024 * 1024 * 1024)
         free_gb = disk_usage.free / (1024 * 1024 * 1024)
-        
+
         # Calculate actual vs logical size for compression ratio
         actual_size = sum(os.path.getsize(os.path.join(dirpath, filename))
                          for dirpath, dirnames, filenames in os.walk(storage_path)
                          for filename in filenames)
-        
+
         # Read dedup stats from tracking file
         dedup_stats_file = Path("/app/storage/.dedup_stats")
         if dedup_stats_file.exists():
@@ -279,13 +281,13 @@ def get_storage_metrics():
         else:
             logical_size = actual_size
             dedup_ratio = 1.0
-            
+
         # Calculate compression ratio (assuming some compression is applied)
         compression_ratio = logical_size / actual_size if actual_size > 0 else 1.0
-        
+
         iops = get_iops_metrics()
         throughput = get_throughput_metrics()
-        
+
         return {
             "total_storage_gb": round(total_gb, 2),
             "used_storage_gb": round(used_gb, 2),
@@ -345,17 +347,17 @@ def api_metrics():
     """API endpoint for dashboard metrics"""
     try:
         current_time = datetime.now().isoformat()
-        
+
         # Get system metrics
         cpu_percent = psutil.cpu_percent(interval=1)
         memory = psutil.virtual_memory()
         net_io = psutil.net_io_counters()
         disk_io = psutil.disk_io_counters()
         storage = get_storage_metrics()
-        
+
         # Calculate network bandwidth in Mbps
         network_bandwidth = (net_io.bytes_sent + net_io.bytes_recv) * 8 / (1024 * 1024)  # Convert to Mbps
-        
+
         # Health metrics
         health = {
             "cpu_usage": round(cpu_percent, 1),
@@ -367,7 +369,7 @@ def api_metrics():
             "status": "healthy" if cpu_percent < 80 and memory.percent < 80 else "warning",
             "last_updated": current_time
         }
-        
+
         # Storage metrics
         storage_metrics = {
             "total_capacity_gb": storage["total_storage_gb"],
@@ -382,7 +384,7 @@ def api_metrics():
             "bytes_out": int(net_io.bytes_sent),
             "last_updated": current_time
         }
-        
+
         # Cost metrics
         cost = {
             "total_cost_month": 1250.0,
@@ -392,10 +394,10 @@ def api_metrics():
             "total_savings": 950.0,
             "last_updated": current_time
         }
-        
+
         # Get policy metrics
         policy = get_policy_metrics()
-        
+
         # Generate recommendations based on metrics
         recommendations = [
             {
@@ -421,7 +423,7 @@ def api_metrics():
                 "created_at": current_time
             }
         ]
-        
+
         return jsonify({
             "health": health,
             "storage": storage_metrics,
@@ -429,7 +431,7 @@ def api_metrics():
             "policy": policy,
             "recommendations": recommendations
         })
-        
+
     except Exception as e:
         print(f"Error in api_metrics: {e}", file=sys.stderr)
         return jsonify({'error': str(e)}), 500
@@ -613,7 +615,7 @@ def metrics():
         # Update metrics before returning
         update_system_metrics()
         update_pod_metrics()
-        
+
         # Generate and return metrics in Prometheus format
         return Response(generate_latest(), mimetype='text/plain')
     except Exception as e:
