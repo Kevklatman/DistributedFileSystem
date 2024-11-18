@@ -12,6 +12,8 @@ import sys
 import psutil
 from pathlib import Path
 import json
+import socket
+import atexit
 
 # Disable SSL warnings
 urllib3.disable_warnings()
@@ -622,15 +624,35 @@ def metrics():
         print(f"Error generating metrics: {e}")
         return Response(status=500)
 
+def is_port_in_use(port):
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        return s.connect_ex(('localhost', port)) == 0
+
+def cleanup():
+    print("Cleaning up...")
+    # Any cleanup code here if needed
+    sys.exit(0)
+
 if __name__ == '__main__':
+    # Register cleanup function
+    atexit.register(cleanup)
+
     try:
+        # Check if ports are already in use
+        if is_port_in_use(9091):
+            print("Error: Port 9091 is already in use. Please free up the port and try again.")
+            sys.exit(1)
+        if is_port_in_use(5000):
+            print("Error: Port 5000 is already in use. Please free up the port and try again.")
+            sys.exit(1)
+
         # Start Prometheus metrics server first
         metrics_port = 9091
         start_http_server(metrics_port)
         print(f"Prometheus metrics server started on port {metrics_port}")
 
-        # Start Flask app
-        app.run(host='0.0.0.0', port=5000)
+        # Start Flask app without debug mode
+        app.run(host='0.0.0.0', port=5000, debug=False, use_reloader=False)
     except Exception as e:
         print(f"Error starting server: {e}")
         sys.exit(1)
