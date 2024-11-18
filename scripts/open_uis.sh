@@ -32,6 +32,7 @@ open_url "http://localhost:8012" "Edge Node 2"
 
 # Open Monitoring UIs
 echo -e "\n${BLUE}Opening Monitoring UIs...${NC}"
+open_url "http://localhost:5001" "DFS Monitoring Dashboard"
 open_url "http://localhost:3001" "Grafana Dashboard (login: admin/admin)"
 open_url "http://localhost:9090" "Prometheus Metrics"
 open_url "http://localhost:8089" "Locust Load Testing"
