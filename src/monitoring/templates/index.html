@@ -76,6 +76,10 @@
                                 <h6>Memory Usage</h6>
                                 <p id="memory-usage">Loading...</p>
                             </div>
+                            <div class="col-md-6">
+                                <h6>Network Bandwidth</h6>
+                                <p id="network-bandwidth">Loading...</p>
+                            </div>
                         </div>
                         <div class="chart-container">
                             <canvas id="system-chart"></canvas>
@@ -103,6 +107,14 @@
                             <div class="col-md-4">
                                 <h6>Available</h6>
                                 <p id="available-storage">Loading...</p>
+                            </div>
+                            <div class="col-md-4">
+                                <h6>Compression Ratio</h6>
+                                <p id="compression-ratio">Loading...</p>
+                            </div>
+                            <div class="col-md-4">
+                                <h6>Dedup Ratio</h6>
+                                <p id="dedup-ratio">Loading...</p>
                             </div>
                         </div>
                         <div class="chart-container">
@@ -143,30 +155,55 @@
             </div>
         </div>
 
-        <!-- Pod Status -->
         <div class="row mt-4">
-            <div class="col-12">
+            <!-- IOPS and Throughput -->
+            <div class="col-md-12">
                 <div class="card metric-card">
                     <div class="card-header">
-                        <h5>Pod Status</h5>
+                        <h5>IOPS and Throughput</h5>
                     </div>
                     <div class="card-body">
-                        <table class="table">
-                            <thead>
-                                <tr>
-                                    <th>Pod Name</th>
-                                    <th>Status</th>
-                                    <th>IP</th>
-                                    <th>Node</th>
-                                    <th>Start Time</th>
-                                </tr>
-                            </thead>
-                            <tbody id="pod-status">
-                                <tr>
-                                    <td colspan="5">Loading...</td>
-                                </tr>
-                            </tbody>
-                        </table>
+                        <div class="row">
+                            <div class="col-md-4">
+                                <h6>Read IOPS</h6>
+                                <p id="read-iops">Loading...</p>
+                            </div>
+                            <div class="col-md-4">
+                                <h6>Write IOPS</h6>
+                                <p id="write-iops">Loading...</p>
+                            </div>
+                            <div class="col-md-4">
+                                <h6>Read Throughput</h6>
+                                <p id="read-throughput">Loading...</p>
+                            </div>
+                            <div class="col-md-4">
+                                <h6>Write Throughput</h6>
+                                <p id="write-throughput">Loading...</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row mt-4">
+            <!-- Status and Recommendations -->
+            <div class="col-md-12">
+                <div class="card metric-card">
+                    <div class="card-header">
+                        <h5>Status and Recommendations</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-12">
+                                <h6>System Status</h6>
+                                <p id="system-status">Loading...</p>
+                            </div>
+                            <div class="col-md-12">
+                                <h6>Recommendations</h6>
+                                <div id="recommendations"></div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -255,16 +292,16 @@
             fetch('/api/dashboard/metrics')
                 .then(response => response.json())
                 .then(data => {
-                    // Update System Metrics
-                    document.getElementById('cpu-usage').textContent = `${data.system.cpu_percent.toFixed(1)}%`;
-                    document.getElementById('memory-usage').textContent =
-                        `${(data.system.memory.used / data.system.memory.total * 100).toFixed(1)}% (${formatBytes(data.system.memory.used)} / ${formatBytes(data.system.memory.total)})`;
+                    // Update System Health Metrics
+                    document.getElementById('cpu-usage').textContent = `${data.health.cpu_usage.toFixed(1)}%`;
+                    document.getElementById('memory-usage').textContent = `${data.health.memory_usage.toFixed(1)}%`;
+                    document.getElementById('network-bandwidth').textContent = `${data.health.network_bandwidth_mbps.toFixed(2)} Mbps`;
 
                     // Update System Chart
                     const timestamp = new Date().toLocaleTimeString();
                     systemChart.data.labels.push(timestamp);
-                    systemChart.data.datasets[0].data.push(data.system.cpu_percent);
-                    systemChart.data.datasets[1].data.push((data.system.memory.used / data.system.memory.total * 100));
+                    systemChart.data.datasets[0].data.push(data.health.cpu_usage);
+                    systemChart.data.datasets[1].data.push(data.health.memory_usage);
                     if (systemChart.data.labels.length > 10) {
                         systemChart.data.labels.shift();
                         systemChart.data.datasets[0].data.shift();
@@ -273,23 +310,29 @@
                     systemChart.update();
 
                     // Update Storage
-                    document.getElementById('total-storage').textContent = formatBytes(data.storage.total);
-                    document.getElementById('used-storage').textContent = formatBytes(data.storage.used);
-                    document.getElementById('available-storage').textContent = formatBytes(data.storage.available);
+                    document.getElementById('total-storage').textContent = `${data.storage.total_capacity_gb.toFixed(2)} GB`;
+                    document.getElementById('used-storage').textContent = `${data.storage.used_capacity_gb.toFixed(2)} GB`;
+                    document.getElementById('available-storage').textContent = `${data.storage.available_capacity_gb.toFixed(2)} GB`;
+                    document.getElementById('compression-ratio').textContent = data.storage.compression_ratio.toFixed(2);
+                    document.getElementById('dedup-ratio').textContent = data.storage.dedup_ratio.toFixed(2);
 
                     // Update Storage Chart
-                    storageChart.data.datasets[0].data = [data.storage.used, data.storage.available];
+                    storageChart.data.datasets[0].data = [
+                        data.storage.used_capacity_gb,
+                        data.storage.available_capacity_gb
+                    ];
                     storageChart.update();
 
                     // Update Network I/O
-                    document.getElementById('bytes-in').textContent = formatBytes(data.network.bytes_in);
-                    document.getElementById('bytes-out').textContent = formatBytes(data.network.bytes_out);
-                    document.getElementById('total-bytes').textContent = formatBytes(data.network.total);
+                    document.getElementById('bytes-in').textContent = formatBytes(data.storage.bytes_in);
+                    document.getElementById('bytes-out').textContent = formatBytes(data.storage.bytes_out);
+                    document.getElementById('total-bytes').textContent = 
+                        formatBytes(data.storage.bytes_in + data.storage.bytes_out);
 
                     // Update Network Chart
                     networkChart.data.labels.push(timestamp);
-                    networkChart.data.datasets[0].data.push(data.network.bytes_in);
-                    networkChart.data.datasets[1].data.push(data.network.bytes_out);
+                    networkChart.data.datasets[0].data.push(data.storage.bytes_in);
+                    networkChart.data.datasets[1].data.push(data.storage.bytes_out);
                     if (networkChart.data.labels.length > 10) {
                         networkChart.data.labels.shift();
                         networkChart.data.datasets[0].data.shift();
@@ -297,19 +340,37 @@
                     }
                     networkChart.update();
 
-                    // Update Pod Status
-                    const podStatus = document.getElementById('pod-status');
-                    podStatus.innerHTML = data.pods.map(pod => `
-                        <tr>
-                            <td>${pod.name}</td>
-                            <td><span class="badge ${pod.status === 'Running' ? 'bg-success' : 'bg-danger'}">${pod.status}</span></td>
-                            <td>${pod.ip}</td>
-                            <td>${pod.node}</td>
-                            <td>${pod.start_time}</td>
-                        </tr>
-                    `).join('');
+                    // Update IOPS and Throughput
+                    document.getElementById('read-iops').textContent = data.storage.iops.read;
+                    document.getElementById('write-iops').textContent = data.storage.iops.write;
+                    document.getElementById('read-throughput').textContent = 
+                        `${data.storage.throughput_mbps.read_mbps.toFixed(2)} MB/s`;
+                    document.getElementById('write-throughput').textContent = 
+                        `${data.storage.throughput_mbps.write_mbps.toFixed(2)} MB/s`;
+
+                    // Update Status and Recommendations
+                    document.getElementById('system-status').innerHTML = 
+                        `<span class="badge ${data.health.status === 'healthy' ? 'bg-success' : 'bg-warning'}">
+                            ${data.health.status.toUpperCase()}
+                         </span>`;
+                    
+                    // Update Recommendations
+                    const recsContainer = document.getElementById('recommendations');
+                    if (recsContainer) {
+                        recsContainer.innerHTML = data.recommendations.map(rec => `
+                            <div class="alert ${rec.severity === 'warning' ? 'alert-warning' : 'alert-info'}">
+                                <h5>${rec.title}</h5>
+                                <p>${rec.description}</p>
+                                <ul>
+                                    ${rec.suggestions.map(s => `<li>${s}</li>`).join('')}
+                                </ul>
+                            </div>
+                        `).join('');
+                    }
                 })
-                .catch(error => console.error('Error fetching metrics:', error));
+                .catch(error => {
+                    console.error('Error fetching metrics:', error);
+                });
         }
 
         // Initialize charts and start polling

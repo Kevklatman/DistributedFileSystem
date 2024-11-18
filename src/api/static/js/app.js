@@ -1,7 +1,7 @@
 // Main application code
 document.addEventListener('DOMContentLoaded', () => {
     const root = document.getElementById('root');
-    
+
     // Create main container
     const container = document.createElement('div');
     container.innerHTML = `
@@ -58,14 +58,14 @@ document.addEventListener('DOMContentLoaded', () => {
                     'Accept': 'application/json'
                 }
             });
-            
+
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
-            
+
             const data = await response.json();
             console.log('Received data:', data);
-            
+
             if (data.error) {
                 throw new Error(data.error);
             }
@@ -168,14 +168,14 @@ document.addEventListener('DOMContentLoaded', () => {
                     'Accept': 'application/json'
                 }
             });
-            
+
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
-            
+
             const data = await response.json();
             console.log('Received data:', data);
-            
+
             if (data.error) {
                 throw new Error(data.error);
             }
