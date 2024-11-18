@@ -29,7 +29,7 @@ import {
 } from '@mui/icons-material';
 import axios from 'axios';
 
-const API_URL = 'http://localhost:5555';
+const API_URL = 'http://localhost:5001';
 
 const formatBytes = (bytes) => {
   if (bytes === 0) return '0 B';
@@ -60,7 +60,7 @@ const DashboardMetrics = () => {
     const fetchMetrics = async () => {
       try {
         setLoading(true);
-        const response = await axios.get(`${API_URL}/dashboard/metrics`);
+        const response = await axios.get(`${API_URL}/api/dashboard/metrics`);
         setMetrics(response.data);
         setError(null);
       } catch (err) {

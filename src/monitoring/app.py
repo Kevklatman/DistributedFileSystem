@@ -97,7 +97,7 @@ def update_system_metrics():
         MEMORY_USAGE.labels(type='available').set(memory.available)
 
         # Storage metrics
-        storage = psutil.disk_usage('/Users/kevinklatman/Development/Code/DistributedFileSystem/storage')
+        storage = psutil.disk_usage('/app/storage')
         STORAGE_TOTAL.set(storage.total)
         STORAGE_USED.set(storage.used)
         STORAGE_AVAILABLE.set(storage.free)
@@ -205,8 +205,18 @@ def get_policy_metrics():
     """Get policy metrics from configuration"""
     try:
         # Get project root directory
-        PROJECT_ROOT = Path(__file__).parent.parent.parent
-        policy_file = PROJECT_ROOT / "config" / "policy_overrides.json"
+        policy_file = Path("/app/config/policy_overrides.json")
+        
+        if not policy_file.exists():
+            print(f"Policy file not found at {policy_file}")
+            return {
+                "policy_distribution": {"hot": 0, "warm": 0, "cold": 0},
+                "total_policies": 0,
+                "ml_policy_accuracy": 0,
+                "policy_changes_24h": 0,
+                "data_moved_24h_gb": 0
+            }
+            
         with open(policy_file, 'r') as f:
             policy_data = json.load(f)
             
@@ -226,19 +236,109 @@ def get_policy_metrics():
                 "cold": round((tier_counts["cold"] / total_policies * 100) if total_policies > 0 else 0)
             },
             "total_policies": total_policies,
-            "ml_policy_accuracy": 85.5,  # Example ML policy accuracy
-            "policy_changes_24h": 3,     # Example number of policy changes
-            "data_moved_24h_gb": 250.5   # Example amount of data moved
+            "ml_policy_accuracy": policy_data.get("ml_accuracy", 0),
+            "policy_changes_24h": policy_data.get("changes_24h", 0),
+            "data_moved_24h_gb": policy_data.get("data_moved_gb", 0)
         }
     except Exception as e:
-        print(f"Error getting policy metrics: {e}", file=sys.stderr)
+        print(f"Error getting policy metrics: {e}")
         return {
-            "policy_distribution": {"error": "Failed to load policy data"},
+            "policy_distribution": {"hot": 0, "warm": 0, "cold": 0},
             "total_policies": 0,
             "ml_policy_accuracy": 0,
             "policy_changes_24h": 0,
             "data_moved_24h_gb": 0
         }
+
+def get_storage_metrics():
+    """Get storage metrics from the filesystem"""
+    try:
+        # Get storage path from environment or use default
+        storage_path = "/app/storage"
+        
+        # Get disk usage statistics
+        disk_usage = psutil.disk_usage(storage_path)
+        
+        # Calculate storage metrics
+        total_gb = disk_usage.total / (1024 * 1024 * 1024)  # Convert to GB
+        used_gb = disk_usage.used / (1024 * 1024 * 1024)
+        free_gb = disk_usage.free / (1024 * 1024 * 1024)
+        
+        # Calculate actual vs logical size for compression ratio
+        actual_size = sum(os.path.getsize(os.path.join(dirpath, filename))
+                         for dirpath, dirnames, filenames in os.walk(storage_path)
+                         for filename in filenames)
+        
+        # Read dedup stats from tracking file
+        dedup_stats_file = Path("/app/storage/.dedup_stats")
+        if dedup_stats_file.exists():
+            with open(dedup_stats_file, 'r') as f:
+                dedup_stats = json.load(f)
+                logical_size = dedup_stats.get('logical_size', actual_size)
+                dedup_ratio = dedup_stats.get('dedup_ratio', 1.0)
+        else:
+            logical_size = actual_size
+            dedup_ratio = 1.0
+            
+        # Calculate compression ratio (assuming some compression is applied)
+        compression_ratio = logical_size / actual_size if actual_size > 0 else 1.0
+        
+        iops = get_iops_metrics()
+        throughput = get_throughput_metrics()
+        
+        return {
+            "total_storage_gb": round(total_gb, 2),
+            "used_storage_gb": round(used_gb, 2),
+            "free_storage_gb": round(free_gb, 2),
+            "storage_usage_percent": round(disk_usage.percent, 2),
+            "compression_ratio": round(compression_ratio, 2),
+            "dedup_ratio": round(dedup_ratio, 2),
+            "iops": iops,
+            "throughput": throughput
+        }
+    except Exception as e:
+        print(f"Error getting storage metrics: {e}")
+        return {
+            "total_storage_gb": 0,
+            "used_storage_gb": 0,
+            "free_storage_gb": 0,
+            "storage_usage_percent": 0,
+            "compression_ratio": 1.0,
+            "dedup_ratio": 1.0,
+            "iops": {"read": 0, "write": 0},
+            "throughput": {"read_mbps": 0, "write_mbps": 0}
+        }
+
+def get_iops_metrics():
+    """Get IOPS metrics from disk IO counters"""
+    try:
+        disk_io = psutil.disk_io_counters()
+        if disk_io:
+            return {
+                "read": disk_io.read_count,
+                "write": disk_io.write_count,
+                "total": disk_io.read_count + disk_io.write_count
+            }
+    except Exception as e:
+        print(f"Error getting IOPS metrics: {e}")
+    return {"read": 0, "write": 0, "total": 0}
+
+def get_throughput_metrics():
+    """Get throughput metrics from disk IO counters"""
+    try:
+        disk_io = psutil.disk_io_counters()
+        if disk_io:
+            # Convert bytes to MB/s
+            read_mbps = disk_io.read_bytes / (1024 * 1024)
+            write_mbps = disk_io.write_bytes / (1024 * 1024)
+            return {
+                "read_mbps": round(read_mbps, 2),
+                "write_mbps": round(write_mbps, 2),
+                "total_mbps": round(read_mbps + write_mbps, 2)
+            }
+    except Exception as e:
+        print(f"Error getting throughput metrics: {e}")
+    return {"read_mbps": 0, "write_mbps": 0, "total_mbps": 0}
 
 @app.route('/api/dashboard/metrics')
 def api_metrics():
@@ -251,7 +351,7 @@ def api_metrics():
         memory = psutil.virtual_memory()
         net_io = psutil.net_io_counters()
         disk_io = psutil.disk_io_counters()
-        storage = psutil.disk_usage('/Users/kevinklatman/Development/Code/DistributedFileSystem/storage')
+        storage = get_storage_metrics()
         
         # Calculate network bandwidth in Mbps
         network_bandwidth = (net_io.bytes_sent + net_io.bytes_recv) * 8 / (1024 * 1024)  # Convert to Mbps
@@ -269,19 +369,15 @@ def api_metrics():
         }
         
         # Storage metrics
-        total_gb = storage.total / (1024 * 1024 * 1024)  # Convert to GB
-        used_gb = storage.used / (1024 * 1024 * 1024)
-        available_gb = storage.free / (1024 * 1024 * 1024)
-        
         storage_metrics = {
-            "total_capacity_gb": round(total_gb, 2),
-            "used_capacity_gb": round(used_gb, 2),
-            "available_capacity_gb": round(available_gb, 2),
-            "usage_percent": round((storage.used / storage.total) * 100, 1),
-            "compression_ratio": 3.0,  # Example values
-            "dedup_ratio": 2.5,
-            "iops": disk_io.read_count + disk_io.write_count if disk_io else 0,
-            "throughput_mbps": round((disk_io.read_bytes + disk_io.write_bytes) * 8 / (1024 * 1024), 2) if disk_io else 0,
+            "total_capacity_gb": storage["total_storage_gb"],
+            "used_capacity_gb": storage["used_storage_gb"],
+            "available_capacity_gb": storage["free_storage_gb"],
+            "usage_percent": storage["storage_usage_percent"],
+            "compression_ratio": storage["compression_ratio"],
+            "dedup_ratio": storage["dedup_ratio"],
+            "iops": storage["iops"],
+            "throughput_mbps": storage["throughput"],
             "bytes_in": int(net_io.bytes_recv),
             "bytes_out": int(net_io.bytes_sent),
             "last_updated": current_time
@@ -510,18 +606,29 @@ def formatted_metrics():
     # Return formatted metrics with text/plain content type
     return Response('\n'.join(formatted_metrics), mimetype='text/plain')
 
+@app.route('/metrics')
+def metrics():
+    """Prometheus metrics endpoint"""
+    try:
+        # Update metrics before returning
+        update_system_metrics()
+        update_pod_metrics()
+        
+        # Generate and return metrics in Prometheus format
+        return Response(generate_latest(), mimetype='text/plain')
+    except Exception as e:
+        print(f"Error generating metrics: {e}")
+        return Response(status=500)
+
 if __name__ == '__main__':
     try:
         # Start Prometheus metrics server first
         metrics_port = 9091
-        try:
-            start_http_server(metrics_port, registry=REGISTRY)
-            print(f"Prometheus metrics server started on port {metrics_port}")
-        except Exception as e:
-            print(f"Warning: Could not start Prometheus metrics server: {e}")
+        start_http_server(metrics_port)
+        print(f"Prometheus metrics server started on port {metrics_port}")
 
-        # Start the Flask app
-        app.run(host='0.0.0.0', port=5001, debug=True)
-    except OSError as e:
-        print(f"Failed to start server: {e}")
+        # Start Flask app
+        app.run(host='0.0.0.0', port=5000)
+    except Exception as e:
+        print(f"Error starting server: {e}")
         sys.exit(1)

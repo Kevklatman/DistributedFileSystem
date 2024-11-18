@@ -75,6 +75,23 @@ services:
       - dfs_network
 
   # Load testing and monitoring
+  monitoring:
+    build:
+      context: .
+      dockerfile: src/monitoring/Dockerfile
+    ports:
+      - "5001:5000"
+    volumes:
+      - ./config:/app/config
+      - ./storage:/app/storage
+      - ~/.kube/config:/root/.kube/config
+    depends_on:
+      - node1
+      - node2
+      - node3
+    networks:
+      - dfs_network
+
   prometheus:
     image: prom/prometheus
     ports:
