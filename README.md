@@ -97,16 +97,40 @@ curl http://localhost:5555/
 
 ```
 .
-├── src/
-│   └── api/
-│       ├── app.py           # Flask application
-│       ├── config.py        # Configuration management
-│       ├── s3_api.py        # S3-compatible API implementation
-│       ├── storage_backend.py # Storage backend interfaces
-│       └── mock_fs_manager.py # Local storage implementation
-├── .env.example            # Environment template
-├── requirements.txt        # Python dependencies
-└── Dockerfile             # Docker configuration
+├── API/                    # S3-compatible API service
+├── buckets/               # Local bucket storage directory
+├── config/                # System configuration files
+├── csi-driver/            # Container Storage Interface driver (Go)
+│   ├── cmd/              # CSI driver commands
+│   └── pkg/              # Driver implementation packages
+├── data/                  # Persistent data storage
+├── docs/                  # Architecture and design documentation
+│   └── *.mermaid         # System architecture diagrams
+├── examples/              # Usage examples and demos
+│   ├── custom_policy_example.py
+│   ├── dashboard_example.py
+│   └── policy_scenarios.py
+├── frontend/             # React-based web interface
+│   ├── public/          # Static assets
+│   └── src/             # Frontend source code
+├── k8s/                  # Kubernetes configurations
+│   ├── base/            # Base Kubernetes manifests
+│   └── overlays/        # Environment-specific overlays
+├── src/                  # Core Python source code
+│   ├── api/             # API implementation and routes
+│   ├── csi/             # CSI driver integration
+│   ├── monitoring/      # Prometheus/Grafana integration
+│   ├── storage/         # Storage backend implementations
+│   └── web/             # Web service implementations
+├── storage-node/        # Storage node service (Go)
+│   ├── cmd/            # Storage node commands
+│   └── pkg/            # Storage implementation
+├── tests/               # Test suites and fixtures
+├── docker-compose.yml   # Multi-service Docker composition
+├── Dockerfile           # API service Dockerfile
+├── Dockerfile.storage-node # Storage node Dockerfile
+├── requirements.txt     # Production Python dependencies
+└── requirements-test.txt # Testing dependencies
 ```
 
 ## Contributing
