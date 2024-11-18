@@ -36,4 +36,9 @@ open_url "http://localhost:3001" "Grafana Dashboard (login: admin/admin)"
 open_url "http://localhost:9090" "Prometheus Metrics"
 open_url "http://localhost:8089" "Locust Load Testing"
 
+# Open API Documentation and Metrics
+echo -e "\n${BLUE}Opening API Documentation & Metrics...${NC}"
+open_url "http://localhost:5001/api/dashboard/metrics" "Dashboard Metrics API"
+open_url "http://localhost:5001/api/docs" "API Documentation"
+
 echo -e "\n${GREEN}All available UIs have been opened in your browser!${NC}"
