@@ -20,9 +20,18 @@ class S3ApiHandler:
                 'RequestId': hashlib.md5(datetime.datetime.now(datetime.timezone.utc).isoformat().encode()).hexdigest()
             }
         }
+        
+        accept = request.headers.get('Accept', '')
+        if 'application/json' in accept:
+            return jsonify({'error': message}), 400
+        
         return xmltodict.unparse(error, pretty=True), 400, {'Content-Type': 'application/xml'}
 
     def _success_response(self, body):
+        accept = request.headers.get('Accept', '')
+        if 'application/json' in accept:
+            return jsonify(body)
+            
         xml_str = xmltodict.unparse(body, pretty=True)
         return Response(xml_str, mimetype='application/xml')
 
@@ -55,6 +64,14 @@ class S3ApiHandler:
                 }
             }
         }
+        
+        # For JSON requests, return a simplified response
+        accept = request.headers.get('Accept', '')
+        if 'application/json' in accept:
+            return jsonify({
+                'buckets': buckets_list
+            })
+
         return self._success_response(response)
 
     def create_bucket(self, bucket_name):
@@ -111,6 +128,14 @@ class S3ApiHandler:
                     'IsTruncated': 'false'
                 }
             }
+            
+            # For JSON requests, return a simplified response
+            accept = request.headers.get('Accept', '')
+            if 'application/json' in accept:
+                return jsonify({
+                    'objects': objects_list
+                })
+
             return self._success_response(response)
         except Exception as e:
             error_message = str(e)

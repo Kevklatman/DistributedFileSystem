@@ -30,7 +30,11 @@ function getElement(id) {
 async function listBuckets() {
     try {
         console.log('Fetching buckets...');
-        const response = await fetch('/api/v1/s3/buckets');
+        const response = await fetch('/s3/', {
+            headers: {
+                'Accept': 'application/json'
+            }
+        });
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
@@ -48,121 +52,176 @@ async function createBucket() {
     if (!bucketName) return;
 
     try {
-        const response = await fetch(`/api/v1/s3/buckets/${bucketName}`, {
+        const response = await fetch(`/s3/${bucketName}`, {
             method: 'PUT'
         });
         if (!response.ok) {
-            const error = await response.json();
-            throw new Error(error.error || 'Failed to create bucket');
+            throw new Error(`HTTP error! status: ${response.status}`);
         }
+        await refreshBuckets();
         document.getElementById('newBucketName').value = '';
-        refreshBuckets();
     } catch (error) {
-        alert('Error creating bucket: ' + error.message);
+        console.error('Error creating bucket:', error);
+        alert('Failed to create bucket: ' + error.message);
     }
 }
 
 async function deleteBucket(bucketName) {
-    if (!confirm(`Are you sure you want to delete bucket "${bucketName}"?`)) return;
+    if (!confirm(`Are you sure you want to delete bucket "${bucketName}"?`)) {
+        return;
+    }
 
     try {
-        const response = await fetch(`/api/v1/s3/buckets/${bucketName}`, {
+        const response = await fetch(`/s3/${bucketName}`, {
             method: 'DELETE'
         });
         if (!response.ok) {
-            const error = await response.json();
-            throw new Error(error.error || 'Failed to delete bucket');
+            throw new Error(`HTTP error! status: ${response.status}`);
         }
-        refreshBuckets();
+        await refreshBuckets();
         if (currentBucket === bucketName) {
             currentBucket = null;
             showWelcomeMessage();
         }
     } catch (error) {
-        alert('Error deleting bucket: ' + error.message);
+        console.error('Error deleting bucket:', error);
+        alert('Failed to delete bucket: ' + error.message);
     }
 }
 
 async function listObjects(bucketName) {
-    const response = await fetch(`/api/v1/s3/buckets/${bucketName}/objects`);
-    if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+    try {
+        const response = await fetch(`/s3/${bucketName}`, {
+            headers: {
+                'Accept': 'application/json'
+            }
+        });
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const data = await response.json();
+        return data.objects || [];
+    } catch (error) {
+        console.error('Error listing objects:', error);
+        throw error;
     }
-    const data = await response.json();
-    return data.objects || [];
 }
 
 async function uploadFile(file, bucketName) {
-    const response = await fetch(`/api/v1/s3/buckets/${bucketName}/objects/${file.name}`, {
-        method: 'PUT',
-        body: file
-    });
-    if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to upload file');
+    try {
+        const response = await fetch(`/s3/${bucketName}/${file.name}`, {
+            method: 'PUT',
+            body: file
+        });
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return true;
+    } catch (error) {
+        console.error('Error uploading file:', error);
+        throw error;
     }
 }
 
 async function deleteObject(bucketName, objectKey) {
-    const response = await fetch(`/api/v1/s3/buckets/${bucketName}/objects/${objectKey}`, {
-        method: 'DELETE'
-    });
-    if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to delete object');
+    try {
+        const response = await fetch(`/s3/${bucketName}/${objectKey}`, {
+            method: 'DELETE'
+        });
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+    } catch (error) {
+        console.error('Error deleting object:', error);
+        throw error;
     }
 }
 
 async function getVersioning(bucketName) {
-    const response = await fetch(`/api/v1/s3/buckets/${bucketName}/versioning`);
-    if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+    try {
+        const response = await fetch(`/s3/${bucketName}?versioning`, {
+            headers: {
+                'Accept': 'application/json'
+            }
+        });
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const data = await response.json();
+        return data.status === 'Enabled';
+    } catch (error) {
+        console.error('Error getting versioning status:', error);
+        return false;
     }
-    const data = await response.json();
-    return data.Status === 'Enabled';
 }
 
 async function setVersioning(bucketName, enabled) {
-    const response = await fetch(`/api/v1/s3/buckets/${bucketName}/versioning`, {
-        method: 'PUT',
-        headers: {
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-            VersioningEnabled: enabled
-        })
-    });
-    if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to update versioning');
+    try {
+        const response = await fetch(`/s3/${bucketName}?versioning`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            },
+            body: JSON.stringify({
+                status: enabled ? 'Enabled' : 'Suspended'
+            })
+        });
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+    } catch (error) {
+        console.error('Error setting versioning:', error);
+        throw error;
     }
 }
 
 async function listVersions(bucketName, objectKey) {
-    const response = await fetch(`/api/v1/s3/buckets/${bucketName}/objects/${objectKey}/versions`);
-    if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+    try {
+        const response = await fetch(`/s3/${bucketName}/${objectKey}?versions`, {
+            headers: {
+                'Accept': 'application/json'
+            }
+        });
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const data = await response.json();
+        return data.versions || [];
+    } catch (error) {
+        console.error('Error listing versions:', error);
+        throw error;
     }
-    const data = await response.json();
-    return data.Versions || [];
 }
 
 async function getObjectVersion(bucketName, objectKey, versionId) {
-    const response = await fetch(`/api/v1/s3/buckets/${bucketName}/objects/${objectKey}?versionId=${versionId}`);
-    if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to get version');
+    try {
+        const response = await fetch(`/s3/${bucketName}/${objectKey}?versionId=${versionId}`, {
+            headers: {
+                'Accept': 'application/json'
+            }
+        });
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return response;
+    } catch (error) {
+        console.error('Error getting object version:', error);
+        throw error;
     }
-    return response.blob();
 }
 
 async function deleteObjectVersion(bucketName, objectKey, versionId) {
-    const response = await fetch(`/api/v1/s3/buckets/${bucketName}/objects/${objectKey}?versionId=${versionId}`, {
-        method: 'DELETE'
-    });
-    if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to delete version');
+    try {
+        const response = await fetch(`/s3/${bucketName}/${objectKey}?versionId=${versionId}`, {
+            method: 'DELETE'
+        });
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+    } catch (error) {
+        console.error('Error deleting object version:', error);
+        throw error;
     }
 }
 
@@ -170,7 +229,11 @@ async function deleteObjectVersion(bucketName, objectKey, versionId) {
 async function fetchDashboardMetrics() {
     try {
         console.log('Fetching dashboard metrics...');
-        const response = await fetch('/dashboard/metrics');
+        const response = await fetch('/dashboard/metrics', {
+            headers: {
+                'Accept': 'application/json'
+            }
+        });
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
@@ -454,7 +517,7 @@ function updateProgress(percent) {
 
 async function downloadObject(objectKey) {
     try {
-        const response = await fetch(`/api/v1/s3/buckets/${currentBucket}/objects/${objectKey}`);
+        const response = await fetch(`/s3/${currentBucket}/${objectKey}`);
         if (!response.ok) {
             const error = await response.json();
             throw new Error(error.error || 'Failed to download object');
@@ -475,17 +538,22 @@ async function downloadObject(objectKey) {
 
 async function downloadVersion(objectKey, versionId) {
     try {
-        const blob = await getObjectVersion(currentBucket, objectKey, versionId);
+        const response = await fetch(`/s3/${currentBucket}/${objectKey}?versionId=${versionId}`);
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const blob = await response.blob();
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `${objectKey}_${versionId}`;
+        a.download = objectKey;
         document.body.appendChild(a);
         a.click();
         window.URL.revokeObjectURL(url);
         document.body.removeChild(a);
     } catch (error) {
-        alert('Error downloading version: ' + error.message);
+        console.error('Error downloading version:', error);
+        alert('Failed to download version: ' + error.message);
     }
 }
 

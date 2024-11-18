@@ -527,6 +527,42 @@ def cleanup():
     # Any cleanup code here if needed
     sys.exit(0)
 
+# S3 API proxy
+@app.route('/s3/', defaults={'subpath': ''})
+@app.route('/s3/<path:subpath>')
+def s3_proxy(subpath):
+    """Proxy requests to the S3 API"""
+    try:
+        # Build the target URL - use the Docker service name
+        target_url = f'http://node1:8000/{subpath}'
+        print(f"Proxying request to: {target_url}", file=sys.stderr)
+        
+        # Forward the request
+        resp = requests.request(
+            method=request.method,
+            url=target_url,
+            headers={key: value for (key, value) in request.headers if key != 'Host'},
+            data=request.get_data(),
+            cookies=request.cookies,
+            allow_redirects=False,
+            stream=True
+        )
+        
+        # Create the response
+        excluded_headers = ['content-encoding', 'content-length', 'transfer-encoding', 'connection']
+        headers = [(name, value) for (name, value) in resp.raw.headers.items()
+                  if name.lower() not in excluded_headers]
+                  
+        print(f"Proxy response status: {resp.status_code}", file=sys.stderr)
+        
+        response = Response(resp.content, resp.status_code, headers)
+        return response
+        
+    except Exception as e:
+        print(f"Error in s3_proxy: {str(e)}", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
+        return jsonify({'error': str(e)}), 500
+
 if __name__ == '__main__':
     try:
         # Start Flask app
