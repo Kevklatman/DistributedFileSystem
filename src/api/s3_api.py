@@ -17,7 +17,7 @@ class S3ApiHandler:
             'Error': {
                 'Code': code,
                 'Message': message,
-                'RequestId': hashlib.md5(str(datetime.datetime.now()).encode()).hexdigest()
+                'RequestId': hashlib.md5(datetime.datetime.now(datetime.timezone.utc).isoformat().encode()).hexdigest()
             }
         }
         return xmltodict.unparse(error, pretty=True), 400, {'Content-Type': 'application/xml'}
@@ -33,8 +33,18 @@ class S3ApiHandler:
             if error:
                 return self._generate_error_response('InternalError', error)
 
-        buckets_list = [{'Name': name, 'CreationDate': datetime.datetime.now(datetime.timezone.utc).isoformat()}
-                       for name in buckets]
+        buckets_list = []
+        for bucket_name in buckets:
+            # Get bucket metadata from storage
+            bucket_data = self.storage.buckets.get(bucket_name, {})
+            creation_date = bucket_data.get('creation_date')
+            if not creation_date:
+                # Fallback to current time if no creation date is stored
+                creation_date = datetime.datetime.now(datetime.timezone.utc).isoformat()
+            buckets_list.append({
+                'Name': bucket_name,
+                'CreationDate': creation_date
+            })
 
         response = {
             'ListAllMyBucketsResult': {

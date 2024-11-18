@@ -444,7 +444,7 @@ function updateProgress(percent) {
     const progressContainer = fileInput.parentElement.querySelector('.progress');
     const progressBar = progressContainer.querySelector('.progress-bar');
     const progressText = progressBar.querySelector('span');
-    
+
     if (progressContainer && progressBar && progressText) {
         progressContainer.style.display = 'block';
         progressBar.style.width = percent + '%';

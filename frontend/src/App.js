@@ -32,8 +32,10 @@ import {
     History,
     Download,
     MoreVert,
+    Dashboard as DashboardIcon,
 } from '@mui/icons-material';
 import axios from 'axios';
+import DashboardMetrics from './components/DashboardMetrics';
 
 const API_URL = 'http://localhost:5555';
 const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB chunks for multipart upload
@@ -156,6 +158,7 @@ function App() {
     const [versionHistoryOpen, setVersionHistoryOpen] = useState(false);
     const [selectedFileVersions, setSelectedFileVersions] = useState([]);
     const [apiStatus, setApiStatus] = useState('Not Available');
+    const [showMetrics, setShowMetrics] = useState(false);
 
     // Add API health check
     const checkApiStatus = async () => {
@@ -199,23 +202,22 @@ function App() {
             });
             console.log('Buckets response:', response.data);
 
-            // Handle both response formats
+            // Handle response format
             let bucketList = [];
-            if (response.data.buckets) {
-                // Format from root endpoint
-                bucketList = response.data.buckets;
+            if (response.data && response.data.Buckets) {
+                bucketList = response.data.Buckets;
             } else if (Array.isArray(response.data)) {
-                // Format directly from /api/v1/s3/buckets
-                bucketList = response.data.map(bucket => {
-                    if (typeof bucket === 'string') {
-                        return { Name: bucket };
-                    }
-                    return bucket;
-                });
+                bucketList = response.data;
             } else {
                 console.error('Unexpected response format:', response.data);
                 bucketList = [];
             }
+
+            // Ensure each bucket has the required format
+            bucketList = bucketList.map(bucket => ({
+                Name: bucket.Name || bucket.name || '',
+                CreationDate: bucket.CreationDate || bucket.creation_date || new Date().toISOString()
+            }));
 
             setBuckets(bucketList);
         } catch (error) {
@@ -235,56 +237,26 @@ function App() {
             console.log(`Fetching files for bucket: ${selectedBucket}`);
             const response = await axios.get(`${API_URL}/api/v1/s3/buckets/${selectedBucket}/objects`, {
                 headers: {
-                    'Accept': 'application/xml'
-                },
-                responseType: 'text'
+                    'Accept': 'application/json'
+                }
             });
 
             console.log('Files response:', response.data);
 
-            // Parse XML response
-            const parser = new DOMParser();
-            const xmlDoc = parser.parseFromString(response.data, "text/xml");
-
-            // Check for parsing errors
-            const parserError = xmlDoc.getElementsByTagName('parsererror');
-            if (parserError.length > 0) {
-                console.error('XML Parsing Error:', parserError[0].textContent);
-                setFiles([]);
-                return;
+            let fileList = [];
+            if (response.data && Array.isArray(response.data)) {
+                fileList = response.data;
+            } else if (response.data && response.data.Contents) {
+                fileList = response.data.Contents;
             }
 
-            // Get all Contents elements
-            const contents = xmlDoc.getElementsByTagName('Contents');
-            console.log('Found contents:', contents.length);
-
-            const objects = [];
-            for (let i = 0; i < contents.length; i++) {
-                const content = contents[i];
-                const key = content.getElementsByTagName('Key')[0]?.textContent;
-                const lastModified = content.getElementsByTagName('LastModified')[0]?.textContent;
-                const size = content.getElementsByTagName('Size')[0]?.textContent;
-                const storageClass = content.getElementsByTagName('StorageClass')[0]?.textContent;
-
-                if (key) {
-                    objects.push({
-                        Key: key,
-                        LastModified: lastModified,
-                        Size: parseInt(size, 10),
-                        StorageClass: storageClass,
-                        Name: key.split('/').pop() || key
-                    });
-                }
-            }
-
-            console.log('Parsed objects:', objects);
-            setFiles(objects);
+            setFiles(fileList);
         } catch (error) {
             console.error('Error fetching files:', error);
             setFiles([]);
             setSnackbar({
                 open: true,
-                message: `Failed to fetch files: ${error.response?.data?.error || error.message}`,
+                message: error.response?.data?.error || 'Failed to fetch files',
                 severity: 'error'
             });
         }
@@ -679,128 +651,132 @@ function App() {
     };
 
     return (
-        <Box sx={{ flexGrow: 1 }}>
+        <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
             <AppBar position="static">
                 <Toolbar>
                     <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
                         Distributed File System (Production UI)
                     </Typography>
-                    <Typography variant="body2" color={apiStatus === 'Available' ? 'success.main' : 'error.main'} sx={{ mr: 2 }}>
-                        API Service Status: {apiStatus}
-                    </Typography>
+                    <IconButton color="inherit" onClick={() => setShowMetrics(!showMetrics)}>
+                        <DashboardIcon />
+                    </IconButton>
                 </Toolbar>
             </AppBar>
 
-            <Container maxWidth="lg" sx={{ mt: 4 }}>
-                <Box display="flex" gap={2}>
-                    {/* Buckets Panel */}
-                    <Paper sx={{ width: 240, p: 2 }}>
-                        <Box display="flex" alignItems="center" justifyContent="space-between" mb={2}>
-                            <Typography variant="h6">Buckets</Typography>
-                            <IconButton onClick={() => setCreateBucketOpen(true)} title="Create new bucket">
-                                <CreateNewFolder />
-                            </IconButton>
-                        </Box>
-                        <List>
-                            {buckets.map((bucket) => (
-                                <ListItem
-                                    key={bucket.Name}
-                                    secondaryAction={
-                                        <IconButton
-                                            edge="end"
-                                            aria-label="delete"
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                handleDeleteBucket(bucket.Name);
-                                            }}
-                                        >
-                                            <Delete />
-                                        </IconButton>
-                                    }
-                                >
-                                    <ListItemText
-                                        primary={bucket.Name}
-                                        sx={{
-                                            cursor: 'pointer',
-                                            bgcolor: selectedBucket === bucket.Name ? 'action.selected' : 'transparent',
-                                            borderRadius: 1,
-                                            p: 1
-                                        }}
-                                        onClick={() => handleBucketSelect(bucket.Name)}
-                                    />
-                                </ListItem>
-                            ))}
-                        </List>
-                    </Paper>
-
-                    {/* Files Panel */}
-                    <Paper sx={{ flexGrow: 1, p: 2 }}>
-                        <Box display="flex" alignItems="center" justifyContent="space-between" mb={2}>
-                            <Typography variant="h6">
-                                {selectedBucket ? `Files in ${selectedBucket}` : 'Select a bucket'}
-                            </Typography>
-                            {selectedBucket && (
-                                <Box display="flex" alignItems="center" gap={2}>
-                                    <FormControlLabel
-                                        control={
-                                            <Switch
-                                                checked={versioningEnabled}
-                                                onChange={toggleVersioning}
-                                                color="primary"
-                                            />
-                                        }
-                                        label="Versioning"
-                                    />
-                                    <Button
-                                        variant="contained"
-                                        startIcon={<CloudUpload />}
-                                        component="label"
-                                    >
-                                        Upload File
-                                        <input
-                                            type="file"
-                                            hidden
-                                            onChange={handleFileUpload}
-                                            ref={fileInputRef}
-                                        />
-                                    </Button>
-                                </Box>
-                            )}
-                        </Box>
-
-                        {uploadProgress > 0 && (
-                            <Box display="flex" alignItems="center" gap={2} mb={2}>
-                                <CircularProgress variant="determinate" value={uploadProgress} />
-                                <Typography>Uploading: {uploadProgress}%</Typography>
+            {showMetrics ? (
+                <DashboardMetrics />
+            ) : (
+                <Container maxWidth="lg" sx={{ mt: 4, mb: 4, flexGrow: 1 }}>
+                    <Box display="flex" gap={2}>
+                        {/* Buckets Panel */}
+                        <Paper sx={{ width: 240, p: 2 }}>
+                            <Box display="flex" alignItems="center" justifyContent="space-between" mb={2}>
+                                <Typography variant="h6">Buckets</Typography>
+                                <IconButton onClick={() => setCreateBucketOpen(true)} title="Create new bucket">
+                                    <CreateNewFolder />
+                                </IconButton>
                             </Box>
-                        )}
-
-                        <List>
-                            {files.map((file) => (
-                                <ListItem
-                                    key={file.Key}
-                                    secondaryAction={
-                                        <>
+                            <List>
+                                {buckets.map((bucket) => (
+                                    <ListItem
+                                        key={bucket.Name}
+                                        secondaryAction={
                                             <IconButton
                                                 edge="end"
-                                                aria-label="actions"
-                                                onClick={(event) => handleFileMenuClick(event, file)}
+                                                aria-label="delete"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleDeleteBucket(bucket.Name);
+                                                }}
                                             >
-                                                <MoreVert />
+                                                <Delete />
                                             </IconButton>
-                                        </>
-                                    }
-                                >
-                                    <ListItemText
-                                        primary={file.Name}
-                                        secondary={`Size: ${file.Size} bytes, Modified: ${new Date(file.LastModified).toLocaleString()}`}
-                                    />
-                                </ListItem>
-                            ))}
-                        </List>
-                    </Paper>
-                </Box>
-            </Container>
+                                        }
+                                    >
+                                        <ListItemText
+                                            primary={bucket.Name}
+                                            sx={{
+                                                cursor: 'pointer',
+                                                bgcolor: selectedBucket === bucket.Name ? 'action.selected' : 'transparent',
+                                                borderRadius: 1,
+                                                p: 1
+                                            }}
+                                            onClick={() => handleBucketSelect(bucket.Name)}
+                                        />
+                                    </ListItem>
+                                ))}
+                            </List>
+                        </Paper>
+
+                        {/* Files Panel */}
+                        <Paper sx={{ flexGrow: 1, p: 2 }}>
+                            <Box display="flex" alignItems="center" justifyContent="space-between" mb={2}>
+                                <Typography variant="h6">
+                                    {selectedBucket ? `Files in ${selectedBucket}` : 'Select a bucket'}
+                                </Typography>
+                                {selectedBucket && (
+                                    <Box display="flex" alignItems="center" gap={2}>
+                                        <FormControlLabel
+                                            control={
+                                                <Switch
+                                                    checked={versioningEnabled}
+                                                    onChange={toggleVersioning}
+                                                    color="primary"
+                                                />
+                                            }
+                                            label="Versioning"
+                                        />
+                                        <Button
+                                            variant="contained"
+                                            startIcon={<CloudUpload />}
+                                            component="label"
+                                        >
+                                            Upload File
+                                            <input
+                                                type="file"
+                                                hidden
+                                                onChange={handleFileUpload}
+                                                ref={fileInputRef}
+                                            />
+                                        </Button>
+                                    </Box>
+                                )}
+                            </Box>
+
+                            {uploadProgress > 0 && (
+                                <Box display="flex" alignItems="center" gap={2} mb={2}>
+                                    <CircularProgress variant="determinate" value={uploadProgress} />
+                                    <Typography>Uploading: {uploadProgress}%</Typography>
+                                </Box>
+                            )}
+
+                            <List>
+                                {files.map((file) => (
+                                    <ListItem
+                                        key={file.Key}
+                                        secondaryAction={
+                                            <>
+                                                <IconButton
+                                                    edge="end"
+                                                    aria-label="actions"
+                                                    onClick={(event) => handleFileMenuClick(event, file)}
+                                                >
+                                                    <MoreVert />
+                                                </IconButton>
+                                            </>
+                                        }
+                                    >
+                                        <ListItemText
+                                            primary={file.Name}
+                                            secondary={`Size: ${file.Size} bytes, Modified: ${new Date(file.LastModified).toLocaleString()}`}
+                                        />
+                                    </ListItem>
+                                ))}
+                            </List>
+                        </Paper>
+                    </Box>
+                </Container>
+            )}
 
             {/* Create Bucket Dialog */}
             <Dialog open={createBucketOpen} onClose={() => setCreateBucketOpen(false)}>

@@ -151,9 +151,17 @@ def index():
 
 class JSONEncoder(json.JSONEncoder):
     def default(self, obj):
-        if isinstance(obj, datetime.datetime):
-            return obj.isoformat()
-        return super().default(obj)
+        try:
+            if isinstance(obj, datetime.datetime):
+                return obj.isoformat()
+            elif isinstance(obj, datetime.date):
+                return obj.isoformat()
+            elif isinstance(obj, datetime.time):
+                return obj.isoformat()
+            return json.JSONEncoder.default(self, obj)
+        except Exception as e:
+            logger.error(f"Error encoding JSON: {e}")
+            return str(obj)  # Fallback to string representation
 
 app.json_encoder = JSONEncoder
 
@@ -162,7 +170,7 @@ app.json_encoder = JSONEncoder
 def health_check():
     return jsonify({
         'status': 'available',
-        'timestamp': datetime.datetime.now().isoformat()
+        'timestamp': datetime.datetime.now(datetime.timezone.utc).isoformat()
     })
 
 def get_policy_metrics():
@@ -230,7 +238,7 @@ def get_dashboard_metrics():
                 'error_count': 0,
                 'warning_count': 2,
                 'status': 'healthy',
-                'last_updated': datetime.datetime.now().isoformat()
+                'last_updated': datetime.datetime.now(datetime.timezone.utc).isoformat()
             },
             'storage': {
                 'total_capacity_gb': 1000.0,
@@ -243,7 +251,7 @@ def get_dashboard_metrics():
                 'throughput_mbps': io_metrics['throughput_mbps'],
                 'bytes_in': io_metrics['bytes_in'],
                 'bytes_out': io_metrics['bytes_out'],
-                'last_updated': datetime.datetime.now().isoformat()
+                'last_updated': datetime.datetime.now(datetime.timezone.utc).isoformat()
             },
             'cost': {
                 'total_cost_month': 1250.0,
@@ -251,7 +259,7 @@ def get_dashboard_metrics():
                 'savings_from_dedup': 300.0,
                 'savings_from_compression': 200.0,
                 'total_savings': 950.0,
-                'last_updated': datetime.datetime.now().isoformat()
+                'last_updated': datetime.datetime.now(datetime.timezone.utc).isoformat()
             },
             'policy': policy_metrics,
             'recommendations': [
@@ -264,7 +272,7 @@ def get_dashboard_metrics():
                         'Consider moving frequently accessed data to SSD tier',
                         'Review application I/O patterns'
                     ],
-                    'created_at': datetime.datetime.now().isoformat()
+                    'created_at': datetime.datetime.now(datetime.timezone.utc).isoformat()
                 },
                 {
                     'category': 'policy',
@@ -275,7 +283,7 @@ def get_dashboard_metrics():
                         'Review policy patterns for optimal data placement',
                         'Consider consolidating similar policies'
                     ],
-                    'created_at': datetime.datetime.now().isoformat()
+                    'created_at': datetime.datetime.now(datetime.timezone.utc).isoformat()
                 }
             ]
         }
@@ -313,10 +321,16 @@ class BucketList(Resource):
             bucket_list = []
             for bucket in buckets:
                 if isinstance(bucket, dict):
-                    bucket_list.append(bucket)
+                    # Ensure consistent field names
+                    formatted_bucket = {
+                        'Name': bucket.get('Name') or bucket.get('name'),
+                        'CreationDate': bucket.get('CreationDate') or bucket.get('creation_date')
+                    }
+                    bucket_list.append(formatted_bucket)
                 else:
                     bucket_list.append({'Name': str(bucket)})
             
+            # Return JSON response
             return {'Buckets': bucket_list}, 200
         except Exception as e:
             logger.error(f"Error listing buckets: {e}")
@@ -449,7 +463,7 @@ class ObjectOperations(Resource):
             response.headers['X-Cache-Status'] = 'MISS'
             response.headers['Content-Type'] = 'application/octet-stream'
             response.headers['ETag'] = hashlib.md5(obj).hexdigest()
-            response.headers['Last-Modified'] = datetime.datetime.now().strftime('%a, %d %b %Y %H:%M:%S GMT')
+            response.headers['Last-Modified'] = datetime.datetime.now(datetime.timezone.utc).strftime('%a, %d %b %Y %H:%M:%S GMT')
             return response
             
         except Exception as e:
@@ -474,7 +488,7 @@ class ObjectOperations(Resource):
                     response.headers['Content-Length'] = str(len(cached_data))
                     response.headers['Content-Type'] = 'application/octet-stream'
                     response.headers['ETag'] = hashlib.md5(cached_data).hexdigest()
-                    response.headers['Last-Modified'] = datetime.datetime.now().strftime('%a, %d %b %Y %H:%M:%S GMT')
+                    response.headers['Last-Modified'] = datetime.datetime.now(datetime.timezone.utc).strftime('%a, %d %b %Y %H:%M:%S GMT')
                     response.headers['X-Cache-Status'] = 'HIT'
                     response.headers['Cache-Control'] = 'public, max-age=3600'
                     return response
@@ -491,7 +505,7 @@ class ObjectOperations(Resource):
             response.headers['Content-Length'] = str(len(obj))
             response.headers['Content-Type'] = 'application/octet-stream'
             response.headers['ETag'] = hashlib.md5(obj).hexdigest()
-            response.headers['Last-Modified'] = datetime.datetime.now().strftime('%a, %d %b %Y %H:%M:%S GMT')
+            response.headers['Last-Modified'] = datetime.datetime.now(datetime.timezone.utc).strftime('%a, %d %b %Y %H:%M:%S GMT')
             
             # Set cache headers for edge nodes
             if edge_node:

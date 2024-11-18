@@ -237,9 +237,24 @@ class LocalStorageBackend(StorageBackend):
                 for dir_path in result['directories']:
                     bucket_name = dir_path.split('/')[-1]
                     if bucket_name:
+                        creation_time = self.fs_manager.getLastModified(f'/buckets/{bucket_name}')
+                        if not creation_time:
+                            creation_time = datetime.datetime.now(datetime.timezone.utc)
+                        elif isinstance(creation_time, str):
+                            try:
+                                creation_time = datetime.datetime.fromisoformat(creation_time)
+                                if creation_time.tzinfo is None:
+                                    creation_time = creation_time.replace(tzinfo=datetime.timezone.utc)
+                            except ValueError:
+                                creation_time = datetime.datetime.now(datetime.timezone.utc)
+                        elif not isinstance(creation_time, datetime.datetime):
+                            creation_time = datetime.datetime.now(datetime.timezone.utc)
+                        elif creation_time.tzinfo is None:
+                            creation_time = creation_time.replace(tzinfo=datetime.timezone.utc)
+
                         self.buckets[bucket_name] = {
                             'name': bucket_name,
-                            'creation_date': datetime.datetime.now().isoformat(),
+                            'creation_date': creation_time.isoformat(),
                             'objects': {},  # Store object metadata
                             'versioning': False  # Versioning disabled by default
                         }
@@ -270,10 +285,11 @@ class LocalStorageBackend(StorageBackend):
                 logger.error(f"Failed to create bucket directory: {bucket_path}")
                 return False, "Failed to create bucket directory"
             
-            # Initialize bucket metadata
+            # Initialize bucket metadata with timezone-aware creation date
+            creation_time = datetime.datetime.now(datetime.timezone.utc)
             self.buckets[bucket_name] = {
                 'name': bucket_name,
-                'creation_date': datetime.datetime.now().isoformat(),
+                'creation_date': creation_time.isoformat(),
                 'objects': {},  # Store object metadata
                 'versioning': False  # Versioning disabled by default
             }
@@ -316,13 +332,35 @@ class LocalStorageBackend(StorageBackend):
 
     def list_buckets(self):
         try:
-            buckets = [
-                {
+            buckets = []
+            for bucket_info in self.buckets.values():
+                # Get creation date
+                creation_date = bucket_info['creation_date']
+                
+                # If it's already a string, try to parse it to validate format
+                if isinstance(creation_date, str):
+                    try:
+                        # Validate by parsing and reformatting
+                        dt = datetime.datetime.fromisoformat(creation_date)
+                        if dt.tzinfo is None:
+                            dt = dt.replace(tzinfo=datetime.timezone.utc)
+                        creation_date = dt.isoformat()
+                    except ValueError:
+                        # If parsing fails, use current time
+                        creation_date = datetime.datetime.now(datetime.timezone.utc).isoformat()
+                # If it's a datetime object, format it
+                elif isinstance(creation_date, datetime.datetime):
+                    if creation_date.tzinfo is None:
+                        creation_date = creation_date.replace(tzinfo=datetime.timezone.utc)
+                    creation_date = creation_date.isoformat()
+                # If it's neither string nor datetime, use current time
+                else:
+                    creation_date = datetime.datetime.now(datetime.timezone.utc).isoformat()
+                
+                buckets.append({
                     'Name': bucket_info['name'],
-                    'CreationDate': bucket_info['creation_date']
-                }
-                for bucket_info in self.buckets.values()
-            ]
+                    'CreationDate': creation_date
+                })
             return buckets, None
         except Exception as e:
             logger.error(f"Error listing buckets: {e}")
@@ -722,7 +760,7 @@ class AWSStorageBackend(StorageBackend):
                         current_config['access_key'][:8] + '...', self.region)
             response = self.s3.list_buckets()
             logger.debug("Raw S3 list_buckets response: %s", response)
-            buckets = [{'Name': bucket['Name'], 'CreationDate': bucket['CreationDate']} for bucket in response['Buckets']]
+            buckets = [{'Name': bucket['Name'], 'CreationDate': bucket['CreationDate'].isoformat()} for bucket in response['Buckets']]
             logger.debug("Processed bucket list: %s", buckets)
             return buckets, None
         except Exception as e:
