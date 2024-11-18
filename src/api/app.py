@@ -72,7 +72,8 @@ s3_ns = api.namespace('s3',
 # Define models for request/response documentation
 bucket_model = api.model('Bucket', {
     'Name': fields.String(required=True, description='Name of the bucket'),
-    'CreationDate': fields.DateTime(description='When the bucket was created')
+    'CreationDate': fields.DateTime(description='When the bucket was created'),
+    'Region': fields.String(description='Bucket region')
 })
 
 object_model = api.model('Object', {
@@ -80,37 +81,50 @@ object_model = api.model('Object', {
     'Size': fields.Integer(description='Size of object in bytes'),
     'LastModified': fields.DateTime(description='Last modification timestamp'),
     'StorageClass': fields.String(description='Storage class of the object'),
-    'VersionId': fields.String(description='Version ID of the object')
+    'VersionId': fields.String(description='Version ID of the object'),
+    'ETag': fields.String(description='Entity tag for the object'),
+    'ContentType': fields.String(description='MIME type of the object')
 })
 
 multipart_model = api.model('MultipartUpload', {
     'UploadId': fields.String(required=True, description='Multipart upload ID'),
     'Key': fields.String(required=True, description='Object key'),
-    'Initiated': fields.DateTime(description='When the upload was initiated')
+    'Initiated': fields.DateTime(description='When the upload was initiated'),
+    'StorageClass': fields.String(description='Storage class for the object'),
+    'PartNumber': fields.Integer(description='Part number in multipart upload')
 })
 
 versioning_model = api.model('VersioningConfiguration', {
     'Status': fields.String(required=True, description='Versioning state (Enabled/Suspended)'),
-    'MfaDelete': fields.String(description='MFA Delete state')
+    'MfaDelete': fields.String(description='MFA Delete state'),
+    'Versions': fields.List(fields.Nested(object_model), description='List of object versions')
 })
 
 policy_metrics_model = api.model('PolicyMetrics', {
     'total_policies': fields.Integer(description='Total number of policies'),
     'active_policies': fields.Integer(description='Number of active policies'),
-    'policy_overrides': fields.Integer(description='Number of policy overrides')
+    'policy_overrides': fields.Integer(description='Number of policy overrides'),
+    'policy_evaluations': fields.Integer(description='Total policy evaluations'),
+    'cache_hits': fields.Integer(description='Policy cache hit count'),
+    'cache_misses': fields.Integer(description='Policy cache miss count')
 })
 
 dashboard_metrics_model = api.model('DashboardMetrics', {
     'storage_usage': fields.Float(description='Total storage usage in bytes'),
     'object_count': fields.Integer(description='Total number of objects'),
     'request_rate': fields.Float(description='Requests per second'),
-    'error_rate': fields.Float(description='Errors per second')
+    'error_rate': fields.Float(description='Errors per second'),
+    'bandwidth': fields.Float(description='Current bandwidth usage (MB/s)'),
+    'latency': fields.Float(description='Average request latency (ms)'),
+    'availability': fields.Float(description='System availability percentage')
 })
 
 error_model = api.model('Error', {
     'Code': fields.String(required=True, description='Error code'),
     'Message': fields.String(required=True, description='Error message'),
-    'RequestId': fields.String(description='Unique request identifier')
+    'RequestId': fields.String(description='Unique request identifier'),
+    'Resource': fields.String(description='Affected resource'),
+    'TimeStamp': fields.DateTime(description='When the error occurred')
 })
 
 # Add CORS preflight handler
@@ -327,7 +341,10 @@ def get_dashboard_metrics():
 class BucketList(Resource):
     @s3_ns.doc('list_buckets',
                description='List all buckets',
-               responses={200: 'Success', 500: 'Server Error'})
+               responses={
+                   200: ('Success', [bucket_model]),
+                   500: ('Server Error', error_model)
+               })
     @s3_ns.marshal_list_with(bucket_model)
     def get(self):
         """List all buckets"""
@@ -338,21 +355,35 @@ class BucketList(Resource):
 class BucketOperations(Resource):
     @s3_ns.doc('create_bucket',
                description='Create a new bucket',
-               responses={200: 'Success', 400: 'Invalid Request', 500: 'Server Error'})
+               responses={
+                   200: ('Success', bucket_model),
+                   400: ('Invalid Request', error_model),
+                   409: ('Bucket Already Exists', error_model),
+                   500: ('Server Error', error_model)
+               })
     def put(self, bucket_name):
         """Create a new bucket"""
         return s3_handler.create_bucket(bucket_name)
 
     @s3_ns.doc('delete_bucket',
                description='Delete a bucket',
-               responses={204: 'Success', 404: 'Not Found', 500: 'Server Error'})
+               responses={
+                   204: 'Success - Bucket Deleted',
+                   404: ('Bucket Not Found', error_model),
+                   409: ('Bucket Not Empty', error_model),
+                   500: ('Server Error', error_model)
+               })
     def delete(self, bucket_name):
         """Delete a bucket"""
         return s3_handler.delete_bucket(bucket_name)
 
     @s3_ns.doc('list_objects',
                description='List objects in bucket',
-               responses={200: 'Success', 404: 'Not Found', 500: 'Server Error'})
+               responses={
+                   200: ('Success', [object_model]),
+                   404: ('Bucket Not Found', error_model),
+                   500: ('Server Error', error_model)
+               })
     @s3_ns.marshal_list_with(object_model)
     def get(self, bucket_name):
         """List objects in bucket"""
@@ -364,28 +395,46 @@ class BucketOperations(Resource):
 class ObjectOperations(Resource):
     @s3_ns.doc('get_object',
                description='Download an object',
-               responses={200: 'Success', 404: 'Not Found', 500: 'Server Error'})
+               responses={
+                   200: 'Success - Object Data Returned',
+                   404: ('Object Not Found', error_model),
+                   500: ('Server Error', error_model)
+               })
     def get(self, bucket_name, object_key):
         """Download an object"""
         return s3_handler.get_object(bucket_name, object_key)
 
     @s3_ns.doc('put_object',
                description='Upload an object',
-               responses={200: 'Success', 400: 'Invalid Request', 500: 'Server Error'})
+               responses={
+                   200: 'Success - Object Uploaded',
+                   400: ('Invalid Request', error_model),
+                   404: ('Bucket Not Found', error_model),
+                   500: ('Server Error', error_model)
+               })
     def put(self, bucket_name, object_key):
         """Upload an object"""
         return s3_handler.put_object(bucket_name, object_key)
 
     @s3_ns.doc('delete_object',
                description='Delete an object',
-               responses={204: 'Success', 404: 'Not Found', 500: 'Server Error'})
+               responses={
+                   204: 'Success - Object Deleted',
+                   404: ('Object Not Found', error_model),
+                   500: ('Server Error', error_model)
+               })
     def delete(self, bucket_name, object_key):
         """Delete an object"""
         return s3_handler.delete_object(bucket_name, object_key)
 
     @s3_ns.doc('head_object',
                description='Get object metadata',
-               responses={200: 'Success', 404: 'Not Found', 500: 'Server Error'})
+               responses={
+                   200: ('Success', object_model),
+                   404: ('Object Not Found', error_model),
+                   500: ('Server Error', error_model)
+               })
+    @s3_ns.marshal_with(object_model)
     def head(self, bucket_name, object_key):
         """Get object metadata"""
         return s3_handler.head_object(bucket_name, object_key)
