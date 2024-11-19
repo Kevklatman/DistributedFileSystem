@@ -229,6 +229,45 @@ class S3ApiHandler:
         except Exception as e:
             return self._generate_error_response('ListVersionsError', str(e))
 
+@app.route('/buckets', methods=['GET'])
+def list_all_buckets():
+    """List all buckets in the distributed file system"""
+    try:
+        storage = get_storage_backend()
+        
+        # Get consistency level from header, default to 'eventual'
+        consistency = request.headers.get('X-Consistency-Level', 'eventual')
+        
+        # Call list_buckets method with consistency level
+        success, buckets = storage.list_buckets(consistency_level=consistency)
+        
+        # Handle potential errors
+        if not success:
+            logger.error(f"Error listing buckets: {buckets}")
+            return jsonify({'error': str(buckets)}), 500
+        
+        # Ensure buckets is a list and contains valid data
+        if buckets is None:
+            buckets = []
+        elif not isinstance(buckets, list):
+            buckets = list(buckets)
+        
+        # Convert bucket objects to dictionaries if needed
+        bucket_list = []
+        for bucket in buckets:
+            if isinstance(bucket, dict):
+                bucket_list.append(bucket)
+            else:
+                # Handle case where bucket might be a string or other object
+                bucket_list.append({'Name': str(bucket)})
+        
+        logger.debug(f"Found buckets: {bucket_list}")
+        return jsonify({'buckets': bucket_list}), 200
+    
+    except Exception as e:
+        logger.error(f"Unexpected error listing buckets: {str(e)}")
+        return jsonify({'error': 'Internal server error'}), 500
+
 @app.route('/<bucket>/<key>', methods=['POST'])
 def handle_multipart(bucket, key):
     """Handle multipart upload operations"""
