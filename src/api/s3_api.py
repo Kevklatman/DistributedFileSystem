@@ -1,3 +1,4 @@
+from asyncio.log import logger
 from flask import Flask, request, jsonify, Response, make_response
 from werkzeug.exceptions import BadRequest
 import xmltodict
@@ -20,18 +21,18 @@ class S3ApiHandler:
                 'RequestId': hashlib.md5(datetime.datetime.now(datetime.timezone.utc).isoformat().encode()).hexdigest()
             }
         }
-        
+
         accept = request.headers.get('Accept', '')
         if 'application/json' in accept:
             return jsonify({'error': message}), 400
-        
+
         return xmltodict.unparse(error, pretty=True), 400, {'Content-Type': 'application/xml'}
 
     def _success_response(self, body):
         accept = request.headers.get('Accept', '')
         if 'application/json' in accept:
             return jsonify(body)
-            
+
         xml_str = xmltodict.unparse(body, pretty=True)
         return Response(xml_str, mimetype='application/xml')
 
@@ -64,7 +65,7 @@ class S3ApiHandler:
                 }
             }
         }
-        
+
         # For JSON requests, return a simplified response
         accept = request.headers.get('Accept', '')
         if 'application/json' in accept:
@@ -92,62 +93,55 @@ class S3ApiHandler:
             if isinstance(objects, tuple):
                 objects, error = objects
                 if error:
-                    return self._generate_error_response('ListObjectsError', str(error))
+                    return self._generate_error_response('InternalError', error)
 
-            # Ensure objects is a list
             if objects is None:
                 objects = []
-            elif not isinstance(objects, list):
-                objects = list(objects)
 
-            # Convert objects to the expected format
-            objects_list = []
+            # Format objects for response
+            object_list = []
             for obj in objects:
                 if isinstance(obj, dict):
-                    obj_data = {
-                        'Key': obj.get('Key', ''),
-                        'LastModified': obj.get('LastModified', datetime.datetime.now(datetime.timezone.utc)).isoformat(),
-                        'Size': str(obj.get('Size', 0)),
-                        'StorageClass': obj.get('StorageClass', 'STANDARD')
-                    }
-                    objects_list.append(obj_data)
+                    # Normalize field names and skip null values
+                    formatted_obj = {}
+                    if obj.get('Key') or obj.get('key'):
+                        formatted_obj['Key'] = obj.get('Key') or obj.get('key')
+                    if obj.get('LastModified') or obj.get('last_modified'):
+                        formatted_obj['LastModified'] = obj.get('LastModified') or obj.get('last_modified')
+                    if obj.get('Size') or obj.get('size', 0):
+                        formatted_obj['Size'] = obj.get('Size') or obj.get('size', 0)
+                    if obj.get('StorageClass') or obj.get('storage_class'):
+                        formatted_obj['StorageClass'] = obj.get('StorageClass') or obj.get('storage_class', 'STANDARD')
+                    object_list.append(formatted_obj)
                 else:
-                    # Handle case where object might be a string
-                    obj_data = {
+                    # Handle string or other basic types
+                    object_list.append({
                         'Key': str(obj),
                         'LastModified': datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                        'Size': '0',
+                        'Size': 0,
                         'StorageClass': 'STANDARD'
-                    }
-                    objects_list.append(obj_data)
+                    })
 
-            response = {
-                'ListBucketResult': {
-                    'Name': bucket_name,
-                    'Contents': objects_list if objects_list else None,
-                    'IsTruncated': 'false'
-                }
-            }
-            
             # For JSON requests, return a simplified response
             accept = request.headers.get('Accept', '')
             if 'application/json' in accept:
                 return jsonify({
-                    'objects': objects_list
+                    'objects': object_list
                 })
 
+            # For XML requests, use S3-compatible format
+            response = {
+                'ListBucketResult': {
+                    'Name': bucket_name,
+                    'Contents': object_list,
+                    'IsTruncated': False
+                }
+            }
             return self._success_response(response)
+
         except Exception as e:
-            error_message = str(e)
-            if "AccessDenied" in error_message:
-                return self._generate_error_response('AccessDenied', 'Access Denied - check your IAM permissions')
-            elif "NoSuchBucket" in error_message:
-                return self._generate_error_response('NoSuchBucket', f'The specified bucket {bucket_name} does not exist')
-            elif "IllegalLocationConstraintException" in error_message:
-                return self._generate_error_response('IllegalLocationConstraintException',
-                    'The bucket is in a different region. The application will attempt to handle this automatically.')
-            else:
-                return self._generate_error_response('ListObjectsError', f'Error listing objects: {error_message}')
+            logger.error(f"Error listing objects: {e}")
+            return self._generate_error_response('InternalError', str(e))
 
     def put_object(self, bucket_name, object_key):
         content = request.get_data()

@@ -9,6 +9,7 @@ import os
 import logging
 import sys
 import json
+from prometheus_client import Counter, Gauge, generate_latest, CONTENT_TYPE_LATEST
 
 # Add the current directory to Python path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -62,12 +63,12 @@ authorizations = {
 api = Api(app, version='1.0',
           title='Distributed File System API',
           description='S3-compatible API for distributed file storage',
-          doc='/api/v1/docs',
-          prefix='/api/v1')
+          doc='/docs')
 
 # Define namespaces
-s3_ns = api.namespace('s3',
-                      description='S3-compatible operations')
+s3_ns = api.namespace('',
+                      description='S3-compatible operations',
+                      path='/')
 
 # Define models for request/response documentation
 bucket_model = api.model('Bucket', {
@@ -207,7 +208,7 @@ class JSONEncoder(json.JSONEncoder):
 app.json_encoder = JSONEncoder
 
 # Health check endpoint
-@app.route('/api/v1/health', methods=['GET'])
+@app.route('/health', methods=['GET'])
 def health_check():
     return jsonify({
         'status': 'available',
@@ -336,6 +337,49 @@ def get_dashboard_metrics():
         logger.exception(e)
         return jsonify({'error': str(e)}), 500
 
+# Define Prometheus metrics
+BYTES_IN = Counter('storage_bytes_in_total', 'Total bytes written to storage')
+BYTES_OUT = Counter('storage_bytes_out_total', 'Total bytes read from storage')
+LATENCY = Gauge('storage_latency_milliseconds', 'Storage operation latency in milliseconds')
+IOPS = Gauge('storage_iops', 'Storage IOPS')
+BANDWIDTH = Gauge('storage_bandwidth_mbps', 'Storage bandwidth in MB/s')
+THROUGHPUT = Gauge('storage_throughput_mbps', 'Storage throughput in MB/s')
+
+# Metrics endpoint
+@app.route('/metrics')
+def metrics():
+    """Prometheus metrics endpoint"""
+    try:
+        # Update Prometheus metrics from storage backend
+        BYTES_IN._value.set(storage_backend.io_metrics['bytes_in'])
+        BYTES_OUT._value.set(storage_backend.io_metrics['bytes_out'])
+        LATENCY.set(storage_backend.io_metrics['latency_ms'])
+        IOPS.set(storage_backend.io_metrics['iops'])
+        BANDWIDTH.set(storage_backend.io_metrics['bandwidth_mbps'])
+        THROUGHPUT.set(storage_backend.io_metrics['throughput_mbps'])
+
+        # Check Accept header for format
+        accept = request.headers.get('Accept', '')
+        if 'application/json' in accept:
+            # Return JSON format
+            return jsonify({
+                'storage': {
+                    'bytes_in': storage_backend.io_metrics['bytes_in'],
+                    'bytes_out': storage_backend.io_metrics['bytes_out'],
+                    'latency_ms': storage_backend.io_metrics['latency_ms'],
+                    'iops': storage_backend.io_metrics['iops'],
+                    'bandwidth_mbps': storage_backend.io_metrics['bandwidth_mbps'],
+                    'throughput_mbps': storage_backend.io_metrics['throughput_mbps']
+                }
+            })
+        else:
+            # Return Prometheus format
+            return Response(generate_latest(), mimetype=CONTENT_TYPE_LATEST)
+
+    except Exception as e:
+        logger.error(f"Error in metrics endpoint: {e}")
+        return jsonify({"error": str(e)}), 500
+
 # Decorate existing routes with API documentation
 @s3_ns.route('/')
 class BucketList(Resource):
@@ -345,7 +389,6 @@ class BucketList(Resource):
                    200: ('Success', [bucket_model]),
                    500: ('Server Error', error_model)
                })
-    @s3_ns.marshal_list_with(bucket_model)
     def get(self):
         """List all buckets"""
         return s3_handler.list_buckets()
@@ -384,7 +427,6 @@ class BucketOperations(Resource):
                    404: ('Bucket Not Found', error_model),
                    500: ('Server Error', error_model)
                })
-    @s3_ns.marshal_list_with(object_model)
     def get(self, bucket_name):
         """List objects in bucket"""
         return s3_handler.list_objects(bucket_name)
@@ -414,7 +456,7 @@ class ObjectOperations(Resource):
                })
     def put(self, bucket_name, object_key):
         """Upload an object"""
-        return s3_handler.put_object(bucket_name, object_key)
+        return s3_handler.put_object(bucket_name, object_key, request.data)
 
     @s3_ns.doc('delete_object',
                description='Delete an object',
@@ -434,7 +476,6 @@ class ObjectOperations(Resource):
                    404: ('Object Not Found', error_model),
                    500: ('Server Error', error_model)
                })
-    @s3_ns.marshal_with(object_model)
     def head(self, bucket_name, object_key):
         """Get object metadata"""
         return s3_handler.head_object(bucket_name, object_key)

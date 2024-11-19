@@ -1,20 +1,22 @@
 from flask import Flask, render_template, jsonify, Response, request
-from kubernetes import client, config, utils
+from kubernetes import client
 from datetime import datetime
 import os
-import ssl
 import urllib3
 import requests
 import time
 from flask_cors import CORS
-from prometheus_client import start_http_server, Counter, Histogram, Gauge, REGISTRY, generate_latest, CONTENT_TYPE_LATEST
+from prometheus_client import Counter, Histogram, Gauge
 import sys
 import psutil
-from pathlib import Path
 import json
 import socket
-import atexit
 import traceback
+import logging
+
+
+# Create a logger
+logger = logging.getLogger(__name__)
 
 # Disable SSL warnings
 urllib3.disable_warnings()
@@ -72,7 +74,7 @@ POD_STATUS = Gauge(
 )
 
 # Initialize Flask app with CORS and templates
-app = Flask(__name__, 
+app = Flask(__name__,
            template_folder=os.path.join(os.path.dirname(os.path.abspath(__file__)), 'templates'),
            static_folder=os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static'))
 CORS(app)
@@ -157,8 +159,9 @@ def get_storage_metrics():
         iops = get_iops_metrics()
         throughput = get_throughput_metrics()
 
+        iops = {"read": 0, "write": 0}
+        throughput = {"read_mbps": 0, "write_mbps": 0}
         return {
-            "total_storage_gb": total_gb,
             "used_storage_gb": used_gb,
             "free_storage_gb": free_gb,
             "storage_usage_percent": disk_usage.percent,
@@ -262,14 +265,26 @@ def index():
 
 @app.route('/metrics')
 def metrics():
-    """Prometheus metrics endpoint"""
+    """Endpoint for Prometheus metrics."""
     try:
-        print("Entering metrics endpoint", file=sys.stderr)
-        return Response(generate_latest(), mimetype='text/plain')
+        # Get metrics from storage backend
+        metrics = {}
+
+        # Try to get metrics from each node
+        for node in ['node1', 'node2', 'node3']:
+            try:
+                response = requests.get(f'http://{node}:8001/metrics')
+                if response.status_code == 200:
+                    node_metrics = response.json()
+                    metrics[node] = node_metrics
+            except Exception as e:
+                logger.error(f"Error getting metrics from {node}: {e}")
+                metrics[node] = {"error": str(e)}
+
+        return jsonify(metrics)
     except Exception as e:
-        print(f"Error in metrics: {str(e)}", file=sys.stderr)
-        traceback.print_exc(file=sys.stderr)
-        return jsonify({'error': str(e)}), 503
+        logger.error(f"Error in metrics endpoint: {e}")
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/api/dashboard/metrics')
 def dashboard_metrics():
@@ -278,8 +293,7 @@ def dashboard_metrics():
         print("Entering dashboard_metrics endpoint", file=sys.stderr)
         metrics_data = get_metrics()
         return jsonify({
-            'metrics': metrics_data,
-            'timestamp': datetime.now().isoformat()
+            'metrics': metrics_data
         })
     except Exception as e:
         print(f"Error in dashboard_metrics: {str(e)}", file=sys.stderr)
@@ -288,7 +302,6 @@ def dashboard_metrics():
 
 @app.route('/api/docs')
 def api_docs():
-    """API Documentation endpoint"""
     try:
         print("Entering api_docs endpoint", file=sys.stderr)
         docs = {
@@ -326,14 +339,15 @@ def api_docs():
                                 "content": {
                                     "application/json": {
                                         "schema": {
-                                        "type": "object",
-                                        "properties": {
-                                            "metrics": {
-                                                "type": "object"
-                                            },
-                                            "timestamp": {
-                                                "type": "string",
-                                                "format": "date-time"
+                                            "type": "object",
+                                            "properties": {
+                                                "metrics": {
+                                                    "type": "object"
+                                                },
+                                                "timestamp": {
+                                                    "type": "string",
+                                                    "format": "date-time"
+                                                }
                                             }
                                         }
                                     }
@@ -392,10 +406,39 @@ def api_docs():
         traceback.print_exc(file=sys.stderr)
         return jsonify({'error': str(e)}), 503
 
-@app.route('/api/v1/health')
+@app.route('/health')
 def health_check():
     """Health check endpoint"""
-    return jsonify({'status': 'healthy'})
+    try:
+        # Check if we can connect to the storage nodes
+        healthy = True
+        node_status = {}
+
+        for node in ['node1', 'node2', 'node3']:
+            try:
+                response = requests.get(f'http://{node}:8001/health', timeout=2)
+                node_status[node] = {
+                    'status': 'healthy' if response.status_code == 200 else 'unhealthy',
+                    'code': response.status_code
+                }
+            except Exception as e:
+                healthy = False
+                node_status[node] = {
+                    'status': 'unhealthy',
+                    'error': str(e)
+                }
+
+        status_code = 200 if healthy else 503
+        return jsonify({
+            'status': 'healthy' if healthy else 'unhealthy',
+            'nodes': node_status
+        }), status_code
+    except Exception as e:
+        logger.error(f"Health check error: {e}")
+        return jsonify({
+            'status': 'unhealthy',
+            'error': str(e)
+        }), 503
 
 def get_iops_metrics():
     """Get IOPS metrics from disk IO counters"""
@@ -536,7 +579,7 @@ def s3_proxy(subpath):
         # Build the target URL - use the Docker service name
         target_url = f'http://node1:8000/{subpath}'
         print(f"Proxying request to: {target_url}", file=sys.stderr)
-        
+
         # Forward the request
         resp = requests.request(
             method=request.method,
@@ -547,17 +590,17 @@ def s3_proxy(subpath):
             allow_redirects=False,
             stream=True
         )
-        
+
         # Create the response
         excluded_headers = ['content-encoding', 'content-length', 'transfer-encoding', 'connection']
         headers = [(name, value) for (name, value) in resp.raw.headers.items()
                   if name.lower() not in excluded_headers]
-                  
+
         print(f"Proxy response status: {resp.status_code}", file=sys.stderr)
-        
+
         response = Response(resp.content, resp.status_code, headers)
         return response
-        
+
     except Exception as e:
         print(f"Error in s3_proxy: {str(e)}", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
