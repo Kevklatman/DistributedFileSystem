@@ -98,6 +98,49 @@ curl -H "Accept: application/json" \
   - Node health status
   - Edge node performance metrics
 
+### Load Testing and Monitoring
+
+#### Load Testing with Locust
+- Web Interface: `http://localhost:8089`
+  - Start and configure load tests
+  - Real-time statistics and charts
+  - Configure number of users and spawn rate
+  - Target host should be set to `http://node1:8000`
+
+#### Monitoring Endpoints
+- Prometheus: `http://localhost:9090`
+  - Query and visualize metrics
+  - View scrape targets and configuration
+  - Access raw metrics data
+
+- Grafana: `http://localhost:3001`
+  - Visualize system metrics
+  - Custom dashboards
+  - Real-time monitoring
+
+- Custom Metrics Endpoints:
+  - Storage Nodes: `http://localhost:800[1-3]/metrics`
+    * Core nodes metrics (ports 8001, 8002, 8003)
+  - Edge Nodes: `http://localhost:801[1-2]/metrics`
+    * Edge nodes metrics (ports 8011, 8012)
+  - Locust Metrics: `http://localhost:9100/metrics`
+    * Load testing metrics
+    * Request counts and latencies
+    * Custom performance metrics
+
+#### Available Metrics
+- System Metrics:
+  * Node health status
+  * Storage utilization
+  * Request throughput
+  * Operation latencies
+
+- Load Testing Metrics:
+  * `dfs_request_count_total` - Total requests by operation and status
+  * `dfs_request_latency_seconds` - Request latency histograms
+  * Request success/failure rates
+  * User count and request rates
+
 ### Response Formats
 
 #### S3-Compatible Endpoints
