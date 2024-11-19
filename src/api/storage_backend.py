@@ -134,7 +134,7 @@ class LocalStorageBackend(StorageBackend):
         self.multipart_uploads = {}  # Track multipart uploads
         self.versions = {}  # Track object versions
         self.versioning = {}  # Track versioning status
-        
+
         # Create root directory for buckets if it doesn't exist
         try:
             if not self.fs_manager.createDirectory('/buckets'):
@@ -143,13 +143,13 @@ class LocalStorageBackend(StorageBackend):
         except Exception as e:
             logger.error(f"Error initializing storage backend: {e}")
             raise
-        
+
         # Initialize buckets from filesystem
         self._init_buckets_from_fs()
-        
+
         # Initialize node status
         self._init_node_status()
-        
+
     def _init_node_status(self):
         """Initialize node status"""
         # Track status of all nodes
@@ -163,7 +163,7 @@ class LocalStorageBackend(StorageBackend):
             'distributedfilesystem-node2-1': datetime.datetime.now(),
             'distributedfilesystem-node3-1': datetime.datetime.now()
         }
-        
+
     def _check_consistency(self, consistency_level):
         """Check if consistency level can be satisfied"""
         if consistency_level == 'strong':
@@ -176,14 +176,14 @@ class LocalStorageBackend(StorageBackend):
             # Need at least 2 nodes for strong consistency
             return active_nodes >= 2
         return True  # Eventual consistency always satisfied
-        
+
     def _update_node_status(self, node_id, status):
         """Update node status"""
         if node_id in self.node_status:
             self.node_status[node_id] = status
             if status:
                 self.node_last_seen[node_id] = datetime.datetime.now()
-            
+
     def _check_node_health(self):
         """Check health of all nodes"""
         now = datetime.datetime.now()
@@ -191,43 +191,43 @@ class LocalStorageBackend(StorageBackend):
             if (now - self.node_last_seen[node]).total_seconds() > 10:
                 self.node_status[node] = False
                 logger.warning(f"Node {node} marked as down due to timeout")
-                
+
     def get_object(self, bucket_name, object_key, consistency_level='eventual'):
         """Get an object with specified consistency level"""
         try:
             if consistency_level == 'strong' and not self._check_consistency(consistency_level):
                 return None, "Strong consistency requirement not met: some nodes are down"
-                
+
             if bucket_name not in self.buckets:
                 return None, "Bucket not found"
-                
+
             object_path = f'/buckets/{bucket_name}/{object_key}'
             if not self.fs_manager.exists(object_path):
                 return None, "Object not found"
-                
+
             data = self.fs_manager.readFile(object_path)
             if not data:
                 return None, "Failed to read object"
-                
+
             return data, None
         except Exception as e:
             logger.error(f"Error getting object: {e}")
             return None, str(e)
-        
+
     def put_object(self, bucket_name, object_key, data, consistency_level='eventual'):
         """Put an object with specified consistency level"""
         if consistency_level == 'strong' and not self._check_consistency(consistency_level):
             return False, "Strong consistency requirement not met: some nodes are down"
-            
+
         if bucket_name not in self.buckets:
             return False, "Bucket not found"
-            
+
         object_path = f'/buckets/{bucket_name}/{object_key}'
         if not self.fs_manager.writeFile(object_path, data):
             return False, "Failed to write object"
-            
+
         return True, None
-        
+
     def _init_buckets_from_fs(self):
         """Initialize buckets from the filesystem"""
         try:
@@ -268,23 +268,23 @@ class LocalStorageBackend(StorageBackend):
             if not bucket_name or not re.match(r'^[a-zA-Z0-9.\-_]{1,255}$', bucket_name):
                 logger.error(f"Invalid bucket name: {bucket_name}")
                 return False, "Invalid bucket name - must be 1-255 characters and contain only letters, numbers, dots, hyphens, and underscores"
-            
+
             # Check if bucket already exists
             if bucket_name in self.buckets:
                 logger.error(f"Bucket already exists: {bucket_name}")
                 return False, "Bucket already exists"
-            
+
             # Check consistency requirements
             if consistency_level == 'strong' and not self._check_consistency(consistency_level):
                 logger.error("Strong consistency requirement not met")
                 return False, "Strong consistency requirement not met: some nodes are down"
-            
+
             # Create bucket directory
             bucket_path = f'/buckets/{bucket_name}'
             if not self.fs_manager.createDirectory(bucket_path):
                 logger.error(f"Failed to create bucket directory: {bucket_path}")
                 return False, "Failed to create bucket directory"
-            
+
             # Initialize bucket metadata with timezone-aware creation date
             creation_time = datetime.datetime.now(datetime.timezone.utc)
             self.buckets[bucket_name] = {
@@ -293,10 +293,10 @@ class LocalStorageBackend(StorageBackend):
                 'objects': {},  # Store object metadata
                 'versioning': False  # Versioning disabled by default
             }
-            
+
             logger.info(f"Successfully created bucket: {bucket_name}")
             return True, None
-            
+
         except Exception as e:
             logger.error(f"Error creating bucket: {e}")
             return False, str(e)
@@ -306,14 +306,14 @@ class LocalStorageBackend(StorageBackend):
         try:
             if consistency_level == 'strong' and not self._check_consistency(consistency_level):
                 return None, "Strong consistency requirement not met: some nodes are down"
-                
+
             if bucket_name not in self.buckets:
                 return None, "Bucket not found"
-                
+
             bucket_path = f'/buckets/{bucket_name}'
             if not self.fs_manager.exists(bucket_path):
                 return None, "Bucket directory not found"
-                
+
             # Get list of objects from filesystem
             objects = []
             for item in self.fs_manager.listDirectory(bucket_path):
@@ -324,7 +324,7 @@ class LocalStorageBackend(StorageBackend):
                         'Size': self.fs_manager.getSize(object_path),
                         'LastModified': self.fs_manager.getLastModified(object_path)
                     })
-                    
+
             return objects, None
         except Exception as e:
             logger.error(f"Error listing objects: {e}")
@@ -336,7 +336,7 @@ class LocalStorageBackend(StorageBackend):
             for bucket_info in self.buckets.values():
                 # Get creation date
                 creation_date = bucket_info['creation_date']
-                
+
                 # If it's already a string, try to parse it to validate format
                 if isinstance(creation_date, str):
                     try:
@@ -356,7 +356,7 @@ class LocalStorageBackend(StorageBackend):
                 # If it's neither string nor datetime, use current time
                 else:
                     creation_date = datetime.datetime.now(datetime.timezone.utc).isoformat()
-                
+
                 buckets.append({
                     'Name': bucket_info['name'],
                     'CreationDate': creation_date
@@ -633,7 +633,7 @@ class AWSStorageBackend(StorageBackend):
         # Initialize S3 client with explicit region configuration
         self.region = current_config['region']
         if not self.region:
-            self.region = 'us-east-2'  # Fallback to us-east-2 if not set
+            self.region = 'us-east-1'  # Fallback to us-east-2 if not set
 
         print(f"Initial region configuration: {self.region}")
 
@@ -768,7 +768,7 @@ class AWSStorageBackend(StorageBackend):
 
     def list_buckets(self):
         try:
-            logger.debug("Attempting to list buckets with AWS credentials: access_key=%s, region=%s", 
+            logger.debug("Attempting to list buckets with AWS credentials: access_key=%s, region=%s",
                         current_config['access_key'][:8] + '...', self.region)
             response = self.s3.list_buckets()
             logger.debug("Raw S3 list_buckets response: %s", response)
@@ -781,33 +781,33 @@ class AWSStorageBackend(StorageBackend):
 
     def put_object(self, bucket_name, object_key, data, consistency_level='eventual'):
         start_time = datetime.datetime.now()
-        
+
         try:
             self.s3.put_object(Bucket=bucket_name, Key=object_key, Body=data)
-            
+
             # Track incoming bytes and latency
             self._update_io_metrics(bytes_in=len(data))
             end_time = datetime.datetime.now()
             latency = (end_time - start_time).total_seconds() * 1000
             self._update_io_metrics(latency_ms=latency)
-            
+
             return True, None
         except Exception as e:
             return False, str(e)
 
     def get_object(self, bucket_name, object_key, consistency_level='eventual'):
         start_time = datetime.datetime.now()
-        
+
         try:
             response = self.s3.get_object(Bucket=bucket_name, Key=object_key)
             data = response['Body'].read()
-            
+
             # Track outgoing bytes and latency
             self._update_io_metrics(bytes_out=len(data))
             end_time = datetime.datetime.now()
             latency = (end_time - start_time).total_seconds() * 1000
             self._update_io_metrics(latency_ms=latency)
-            
+
             return data, None
         except Exception as e:
             return None, str(e)
