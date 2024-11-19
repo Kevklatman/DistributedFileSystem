@@ -7,6 +7,12 @@ import hashlib
 from dataclasses import dataclass
 from enum import Enum
 
+import aiohttp
+
+from src.api.storage.consistency_manager import ConsistencyManager, VersionedData
+from src.api.storage.load_manager import LoadManager
+from src.api.storage.replication_manager import ReplicationManager
+
 @dataclass
 class NodeState:
     node_id: str
@@ -1123,19 +1129,19 @@ class EdgeAwareNode(ActiveNode):
         self.edge_nodes: Dict[str, EdgeNodeState] = {}
         self.cache_manager = EdgeCacheManager()
         self.edge_scheduler = EdgeTaskScheduler()
-        
+
     async def handle_edge_request(self, request: web.Request) -> web.Response:
         """Handle requests from edge devices with context awareness"""
         try:
             # Get edge context
             edge_context = self.get_edge_context(request)
-            
+
             # Determine optimal processing location
             if self.should_process_at_edge(edge_context):
                 return await self.process_at_edge(request, edge_context)
             else:
                 return await self.process_at_cloud(request, edge_context)
-                
+
         except Exception as e:
             self.logger.error(f"Edge request handling failed: {str(e)}")
             raise
@@ -1155,23 +1161,23 @@ class EdgeAwareNode(ActiveNode):
         """Determine if request should be processed at edge"""
         # Consider multiple factors for edge processing decision
         score = 0
-        
+
         # Latency requirements
         if context['latency_requirement'] < 100:  # Need fast response
             score += 3
-            
+
         # Bandwidth constraints
         if context['bandwidth'] < 500:  # Limited bandwidth
             score += 2
-            
+
         # Battery considerations
         if context['battery_level'] < 20:  # Low battery
             score -= 1
-            
+
         # Processing requirements vs capability
         if context['processing_power'] > 0.7:  # High local processing power
             score += 2
-            
+
         return score > 3  # Threshold for edge processing
 
     async def process_at_edge(self, request: web.Request, context: Dict[str, Any]) -> web.Response:
@@ -1212,16 +1218,16 @@ class EdgeAwareNode(ActiveNode):
         try:
             # Optimize data transfer based on edge context
             optimized_request = await self.optimize_for_edge(request, context)
-            
+
             # Process in cloud
             result = await super().handle_request(optimized_request)
-            
+
             # Optimize response for edge device
             optimized_response = await self.optimize_response_for_edge(
                 result,
                 context
             )
-            
+
             return optimized_response
 
         except Exception as e:
@@ -1233,10 +1239,10 @@ class EdgeAwareNode(ActiveNode):
         # Implement data reduction techniques based on context
         if context['bandwidth'] < 500:  # Low bandwidth
             request = await self.compress_request(request)
-        
+
         if context['battery_level'] < 30:  # Low battery
             request = await self.optimize_power_usage(request)
-            
+
         return request
 
     async def optimize_response_for_edge(self, response: web.Response,
@@ -1245,10 +1251,10 @@ class EdgeAwareNode(ActiveNode):
         try:
             if context['bandwidth'] < 500:  # Low bandwidth
                 response = await self.compress_response(response)
-                
+
             if context['device_type'] == 'mobile':
                 response = await self.optimize_for_mobile(response)
-                
+
             return response
 
         except Exception as e:
@@ -1264,13 +1270,13 @@ class EdgeAwareNode(ActiveNode):
 
             # Register node
             self.edge_nodes[node.node_id] = node
-            
+
             # Initialize edge node cache
             await self.cache_manager.initialize_cache(node)
-            
+
             # Start monitoring edge node
             asyncio.create_task(self.monitor_edge_node(node))
-            
+
             self.logger.info(f"Edge node registered: {node.node_id}")
 
         except Exception as e:
@@ -1283,16 +1289,16 @@ class EdgeAwareNode(ActiveNode):
             try:
                 # Check node health
                 metrics = await self.get_edge_node_metrics(node)
-                
+
                 # Update node state
                 node.battery_level = metrics.get('battery_level')
                 node.bandwidth_limit = metrics.get('bandwidth')
                 node.processing_power = metrics.get('processing_power')
-                
+
                 # Check for offline mode
                 if metrics.get('connectivity') == 'offline':
                     await self.handle_edge_node_offline(node)
-                
+
                 await asyncio.sleep(30)  # Check every 30 seconds
 
             except Exception as e:
@@ -1304,13 +1310,13 @@ class EdgeAwareNode(ActiveNode):
         try:
             # Mark node as offline
             node.offline_mode = True
-            
+
             # Ensure critical data is cached
             await self.cache_manager.ensure_critical_data_cached(node)
-            
+
             # Redirect traffic from this node
             await self.redirect_edge_traffic(node)
-            
+
             # Notify other nodes
             await self.notify_edge_node_offline(node)
 
@@ -1322,7 +1328,7 @@ class EdgeCacheManager:
     def __init__(self):
         self.cache = {}
         self.cache_policy = {}
-        
+
     async def get_cached_result(self, key: str, context: Dict[str, Any]) -> Optional[Any]:
         """Get cached result if available and valid"""
         if key in self.cache:
@@ -1330,7 +1336,7 @@ class EdgeCacheManager:
             if self.is_cache_valid(entry, context):
                 return entry['data']
         return None
-        
+
     async def cache_result(self, key: str, data: Any, context: Dict[str, Any]) -> None:
         """Cache result with context-aware policies"""
         self.cache[key] = {
@@ -1343,13 +1349,13 @@ class EdgeTaskScheduler:
     """Schedule tasks for edge processing"""
     def __init__(self):
         self.task_queue = asyncio.Queue()
-        
+
     async def schedule_edge_task(self, request: web.Request, context: Dict[str, Any],
                                 edge_nodes: Dict[str, EdgeNodeState]) -> Any:
         """Schedule task for edge processing"""
         # Find best edge node for task
         target_node = self.select_edge_node(request, context, edge_nodes)
-        
+
         # Schedule task
         task = {
             'request': request,
@@ -1357,7 +1363,7 @@ class EdgeTaskScheduler:
             'node': target_node
         }
         await self.task_queue.put(task)
-        
+
         # Execute task
         return await self.execute_task(task)
 
@@ -1367,33 +1373,33 @@ class EdgeTaskScheduler:
         # Consider multiple factors for edge node selection
         best_node = None
         best_score = 0
-        
+
         for node in edge_nodes.values():
             score = self.calculate_edge_node_score(node, context)
             if score > best_score:
                 best_node = node
                 best_score = score
-                
+
         return best_node
 
     def calculate_edge_node_score(self, node: EdgeNodeState, context: Dict[str, Any]) -> float:
         """Calculate edge node score"""
         # Consider multiple factors for edge node scoring
         score = 0
-        
+
         # Processing power
         score += node.processing_power * 0.4
-        
+
         # Bandwidth
         score += node.bandwidth_limit * 0.3
-        
+
         # Battery level
         score += (1 - (node.battery_level / 100)) * 0.2
-        
+
         # Offline mode
         if node.offline_mode:
             score -= 1
-            
+
         return score
 
     async def execute_task(self, task: Dict[str, Any]) -> Any:
@@ -1402,7 +1408,7 @@ class EdgeTaskScheduler:
             # Execute task on edge node
             result = await self.edge_nodes[task['node'].node_id].execute_task(task['request'])
             return result
-        
+
         except Exception as e:
             self.logger.error(f"Task execution failed: {str(e)}")
             raise
