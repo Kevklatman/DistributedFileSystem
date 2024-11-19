@@ -25,7 +25,9 @@ app = Flask(__name__,
            static_folder='static')
 
 # Enable CORS for all routes
-CORS(app, resources={r"/*": {"origins": ["http://localhost:3000", "http://localhost:5000", "http://localhost:8000" ], "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"], "allow_headers": ["Content-Type", "Authorization"]}})
+CORS(app, resources={r"/*": {"origins": ["http://localhost:3000", "http://localhost:5000", "http://localhost:8000", "http://localhost:5555"], 
+                            "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"], 
+                            "allow_headers": ["Content-Type", "Authorization"]}})
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -154,23 +156,12 @@ def handle_error(error):
 @app.route('/')
 def index():
     """Serve the web UI"""
-    return send_from_directory('static', 'index.html')
+    return send_from_directory(app.static_folder, 'index.html')
 
-class JSONEncoder(json.JSONEncoder):
-    def default(self, obj):
-        try:
-            if isinstance(obj, datetime.datetime):
-                return obj.isoformat()
-            elif isinstance(obj, datetime.date):
-                return obj.isoformat()
-            elif isinstance(obj, datetime.time):
-                return obj.isoformat()
-            return json.JSONEncoder.default(self, obj)
-        except Exception as e:
-            logger.error(f"Error encoding JSON: {e}")
-            return str(obj)  # Fallback to string representation
-
-app.json_encoder = JSONEncoder
+@app.route('/static/<path:path>')
+def serve_static(path):
+    """Serve static files"""
+    return send_from_directory(app.static_folder, path)
 
 # Health check endpoint
 @app.route('/health', methods=['GET'])
@@ -449,6 +440,22 @@ class ObjectOperations(Resource):
 @app.route('/swaggerui/<path:path>')
 def swagger_ui(path):
     return send_from_directory('static/swaggerui', path)
+
+class JSONEncoder(json.JSONEncoder):
+    def default(self, obj):
+        try:
+            if isinstance(obj, datetime.datetime):
+                return obj.isoformat()
+            elif isinstance(obj, datetime.date):
+                return obj.isoformat()
+            elif isinstance(obj, datetime.time):
+                return obj.isoformat()
+            return json.JSONEncoder.default(self, obj)
+        except Exception as e:
+            logger.error(f"Error encoding JSON: {e}")
+            return str(obj)  # Fallback to string representation
+
+app.json_encoder = JSONEncoder
 
 if __name__ == '__main__':
     # Ensure the buckets directory exists
