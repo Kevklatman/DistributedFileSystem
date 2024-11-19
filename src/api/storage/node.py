@@ -6,19 +6,18 @@ import psutil
 from aiohttp import web
 import json
 from prometheus_client import (
-    generate_latest, 
-    CONTENT_TYPE_LATEST, 
-    Counter, 
-    Histogram, 
+    generate_latest,
+    CONTENT_TYPE_LATEST,
+    Counter,
+    Histogram,
     Gauge,
-    CollectorRegistry,
-    start_http_server
+    CollectorRegistry
 )
 
 # Create a custom registry for DFS metrics
 DFS_REGISTRY = CollectorRegistry()
 
-# Define metrics
+# Define request metrics
 REQUEST_COUNT = Counter(
     'dfs_request_total',
     'Total requests processed',
@@ -71,14 +70,14 @@ class StorageNode:
     def __init__(self):
         # Get node ID with a default value
         self.node_id = os.environ.get('NODE_ID', 'node1')
-        
+
         # Use a directory in the user's home for testing
         self.data_dir = os.path.expanduser('~/dfs_data')
-        
+
         # Ensure data directory exists
         os.makedirs(self.data_dir, exist_ok=True)
         logger.info(f"Using storage directory: {self.data_dir}")
-        
+
         # Initialize metrics
         self._init_metrics()
 
@@ -102,7 +101,7 @@ class StorageNode:
 
             # Set node as healthy
             NODE_HEALTH.labels(node_id=self.node_id).set(1)
-            
+
             logger.info("Metrics initialized successfully")
         except Exception as e:
             logger.error(f"Error initializing metrics: {e}")
@@ -127,11 +126,11 @@ class StorageNode:
         """Health check endpoint"""
         try:
             start_time = time.time()
-            
+
             # Track this request
             REQUEST_COUNT.labels(method='GET', endpoint='/health', status='success').inc()
             REQUEST_LATENCY.labels(method='GET', endpoint='/health').observe(time.time() - start_time)
-            
+
             return web.Response(
                 text=json.dumps({"status": "healthy"}),
                 content_type="application/json"
@@ -149,15 +148,15 @@ class StorageNode:
         """Expose Prometheus metrics"""
         try:
             start_time = time.time()
-            
+
             # Update current metrics
             self._update_metrics()
-            
+
             # Track this request
             REQUEST_COUNT.labels(method='GET', endpoint='/metrics', status='success').inc()
             REQUEST_LATENCY.labels(method='GET', endpoint='/metrics').observe(time.time() - start_time)
-            
-            # Generate metrics in Prometheus format
+
+            # Generate metrics ONLY from our custom registry
             metrics_data = generate_latest(DFS_REGISTRY)
             return web.Response(
                 body=metrics_data,
@@ -197,7 +196,7 @@ async def main():
     try:
         node = StorageNode()
         await node.start()
-        
+
         # Keep the application running
         while True:
             await asyncio.sleep(1)
