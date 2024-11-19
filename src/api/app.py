@@ -15,7 +15,7 @@ from prometheus_client import Counter, Gauge, generate_latest, CONTENT_TYPE_LATE
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from storage_backend import get_storage_backend
-from s3_api import S3ApiHandler
+from s3_api import s3_api, S3ApiHandler
 from mock_fs_manager import FileSystemManager
 from config import API_HOST, API_PORT, DEBUG
 
@@ -34,6 +34,10 @@ logger = logging.getLogger(__name__)
 # Initialize filesystem manager and storage backend
 fs_manager = FileSystemManager()
 storage_backend = get_storage_backend(fs_manager)
+
+# Initialize S3 API handler and register blueprint
+s3_handler = S3ApiHandler(fs_manager)
+app.register_blueprint(s3_api)
 
 # Add request logging
 @app.before_request
@@ -145,8 +149,6 @@ def handle_preflight():
 def handle_error(error):
     logger.error(f"Error: {str(error)}")
     return jsonify({'error': str(error)}), 500
-
-s3_handler = S3ApiHandler(fs_manager)
 
 # Add back the index route
 @app.route('/')
