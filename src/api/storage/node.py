@@ -71,8 +71,8 @@ class StorageNode:
         # Get node ID with a default value
         self.node_id = os.environ.get('NODE_ID', 'node1')
 
-        # Use a directory in the user's home for testing
-        self.data_dir = os.path.expanduser('~/dfs_data')
+        # Use Docker volume path if running in container, otherwise use home directory
+        self.data_dir = '/app/data' if os.path.exists('/app') else os.path.expanduser('~/dfs_data')
 
         # Ensure data directory exists
         os.makedirs(self.data_dir, exist_ok=True)
@@ -115,12 +115,16 @@ class StorageNode:
             web.get('/health', self.health_check)
         ])
 
+        # Use port 8000 for Docker, 8001 for local development
+        port = int(os.environ.get('PORT', '8000'))
+        host = os.environ.get('HOST', '0.0.0.0')
+
         runner = web.AppRunner(app)
         await runner.setup()
-        site = web.TCPSite(runner, '0.0.0.0', 8001)
+        site = web.TCPSite(runner, host, port)
         await site.start()
 
-        logger.info(f"Storage node {self.node_id} started and listening on port 8001")
+        logger.info(f"Storage node {self.node_id} started and listening on {host}:{port}")
 
     async def health_check(self, request):
         """Health check endpoint"""

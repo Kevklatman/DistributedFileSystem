@@ -17,11 +17,14 @@ COPY .env.example .env
 
 # Set environment variables
 ENV PYTHONPATH=/app
-ENV FLASK_APP=app.py
-ENV FLASK_ENV=production
+ENV PORT=8000
+ENV HOST=0.0.0.0
+
+# Create data directory
+RUN mkdir -p /app/data
 
 # Expose port
 EXPOSE 8000
 
-# Run the application with Gunicorn
-CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "4", "--threads", "2", "--worker-class", "gthread", "--log-level", "debug", "--access-logfile", "-", "--error-logfile", "-", "--chdir", "/app/api", "app:app"]
+# Run the storage node
+CMD ["python", "-u", "/app/api/storage/node.py"]
