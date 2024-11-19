@@ -22,7 +22,7 @@ check_port() {
 
 # Check and cleanup ports
 check_and_cleanup_ports() {
-    local ports=(8001 8002 8003 8011 8012 9090 3001 8089)
+    local ports=(8001 8002 8003 8011 8012 9090 3001 8089 5555)
     local has_conflict=false
 
     echo -e "${BLUE}Checking ports...${NC}"
