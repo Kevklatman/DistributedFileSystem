@@ -6,7 +6,20 @@ from aiohttp import web
 import json
 from .cluster_manager import StorageClusterManager
 from .replication_manager import ReplicationManager, ReplicationPolicy
-from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
+from prometheus_client import generate_latest, CONTENT_TYPE_LATEST, Counter, Histogram
+
+# Define metrics
+REQUEST_COUNT = Counter(
+    'dfs_request_total',
+    'Total requests processed',
+    ['method', 'endpoint', 'status']
+)
+
+REQUEST_LATENCY = Histogram(
+    'dfs_request_latency_seconds',
+    'Request latency in seconds',
+    ['method', 'endpoint']
+)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -47,10 +60,10 @@ class StorageNode:
 
         runner = web.AppRunner(app)
         await runner.setup()
-        site = web.TCPSite(runner, '0.0.0.0', 8080)
+        site = web.TCPSite(runner, '0.0.0.0', 8000)
         await site.start()
 
-        logger.info(f"Storage node {self.node_id} started and listening on port 8080")
+        logger.info(f"Storage node {self.node_id} started and listening on port 8000")
 
         # Give the HTTP server a moment to start
         await asyncio.sleep(2)
@@ -150,42 +163,71 @@ class StorageNode:
 
     async def get_data(self, request):
         """Retrieve data by ID"""
+        start_time = time.time()
         data_id = request.match_info['data_id']
         file_path = os.path.join(self.data_dir, data_id)
 
-        if not os.path.exists(file_path):
-            return web.Response(status=404, text="data not found")
+        try:
+            if not os.path.exists(file_path):
+                REQUEST_COUNT.labels(
+                    method='GET',
+                    endpoint='/storage/data',
+                    status='not_found'
+                ).inc()
+                return web.Response(status=404, text="data not found")
 
-        return web.FileResponse(file_path)
+            with open(file_path, 'rb') as f:
+                data = f.read()
+
+            REQUEST_COUNT.labels(
+                method='GET',
+                endpoint='/storage/data',
+                status='success'
+            ).inc()
+
+            REQUEST_LATENCY.labels(
+                method='GET',
+                endpoint='/storage/data'
+            ).observe(time.time() - start_time)
+
+            return web.Response(body=data)
+        except Exception as e:
+            REQUEST_COUNT.labels(
+                method='GET',
+                endpoint='/storage/data',
+                status='error'
+            ).inc()
+            return web.Response(status=500, text=str(e))
 
     async def store_data(self, request):
-        """Store new data"""
+        """Store data by ID"""
+        start_time = time.time()
         data_id = request.match_info['data_id']
-        content = await request.read()
-
-        # Store locally
-        file_path = os.path.join(self.data_dir, data_id)
-        with open(file_path, 'wb') as f:
-            f.write(content)
-
-        # Trigger replication
         try:
-            replicated_nodes = await self.replication_manager.replicate_data(
-                data_id,
-                content,
-                self.node_id
-            )
-            return web.Response(
-                text=json.dumps({
-                    "status": "success",
-                    "replicated_to": replicated_nodes
-                }),
-                content_type='application/json'
-            )
+            data = await request.read()
+            file_path = os.path.join(self.data_dir, data_id)
+
+            with open(file_path, 'wb') as f:
+                f.write(data)
+
+            REQUEST_COUNT.labels(
+                method='PUT',
+                endpoint='/storage/data',
+                status='success'
+            ).inc()
+
+            REQUEST_LATENCY.labels(
+                method='PUT',
+                endpoint='/storage/data'
+            ).observe(time.time() - start_time)
+
+            return web.Response(text="stored")
         except Exception as e:
-            logger.error(f"Replication failed: {str(e)}")
-            # Delete local copy if replication failed
-            os.unlink(file_path)
+            REQUEST_COUNT.labels(
+                method='PUT',
+                endpoint='/storage/data',
+                status='error'
+            ).inc()
             return web.Response(status=500, text=str(e))
 
     async def delete_data(self, request):

@@ -1,10 +1,26 @@
-from locust import HttpUser, task, between
+from locust import HttpUser, task, between, events
+from prometheus_client import Counter, Histogram, start_http_server
 import random
 import json
 
+# Initialize Prometheus metrics
+REQUEST_COUNT = Counter('dfs_request_count', 'Number of requests', ['operation', 'status'])
+REQUEST_LATENCY = Histogram('dfs_request_latency_seconds', 'Request latency', ['operation'])
+
+# Start Prometheus metrics server on port 9100
+start_http_server(9100)
+
+# Event handlers for metrics
+@events.request.add_listener
+def request_handler(request_type, name, response_time, response_length, exception, **kwargs):
+    operation = name.split('/')[-1]  # Extract operation from URL
+    status = 'success' if exception is None else 'failure'
+    REQUEST_COUNT.labels(operation=operation, status=status).inc()
+    REQUEST_LATENCY.labels(operation=operation).observe(response_time)
+
 class DFSUser(HttpUser):
     wait_time = between(1, 3)  # Wait 1-3 seconds between tasks
-    
+
     def on_start(self):
         """Initialize test data"""
         self.test_data = b"Test data content " * 1000  # 16KB of test data
@@ -22,13 +38,13 @@ class DFSUser(HttpUser):
             'X-Processing-Power': str(random.random()),
             'X-Device-Location': random.choice(['us-west', 'us-east', 'eu-central'])
         }
-        
+
         response = self.client.post(
             f"/write/{file_id}",
             data=self.test_data,
             headers=headers
         )
-        
+
         if response.status_code == 200:
             self.file_ids.append(file_id)
 
@@ -37,7 +53,7 @@ class DFSUser(HttpUser):
         """Simulate read operations"""
         if not self.file_ids:
             return
-            
+
         file_id = random.choice(self.file_ids)
         consistency = random.choice(['strong', 'quorum', 'eventual'])
         headers = {
@@ -48,7 +64,7 @@ class DFSUser(HttpUser):
             'X-Processing-Power': str(random.random()),
             'X-Device-Location': random.choice(['us-west', 'us-east', 'eu-central'])
         }
-        
+
         self.client.get(
             f"/read/{file_id}?consistency={consistency}",
             headers=headers

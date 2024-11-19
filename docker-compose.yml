@@ -114,6 +114,7 @@ services:
     build: ./tests/load
     ports:
       - "8089:8089"
+      - "9100:9100"
     environment:
       - TARGET_HOST=http://node1:8000
     volumes:
