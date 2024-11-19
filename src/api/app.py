@@ -25,7 +25,7 @@ app = Flask(__name__,
            static_folder='static')
 
 # Enable CORS for all routes
-CORS(app, resources={r"/*": {"origins": ["http://localhost:3000", "http://localhost:5000", "http://localhost:5001"], "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"], "allow_headers": ["Content-Type", "Authorization"]}})
+CORS(app, resources={r"/*": {"origins": ["http://localhost:3000", "http://localhost:5000", "http://localhost:8000" ], "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"], "allow_headers": ["Content-Type", "Authorization"]}})
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -226,14 +226,14 @@ def get_dashboard_metrics():
     """Get all dashboard metrics"""
     try:
         logger.debug('Fetching dashboard metrics')
-        
+
         # Get storage backend metrics
         storage = storage_backend
         io_metrics = storage.get_io_metrics()
-        
+
         # Get policy metrics
         policy_metrics = get_policy_metrics()
-        
+
         metrics = {
             'health': {
                 'cpu_usage': 45.2,  # TODO: Get from system
@@ -292,7 +292,7 @@ def get_dashboard_metrics():
                 }
             ]
         }
-        
+
         logger.debug(f'Returning metrics: {metrics}')
         return jsonify(metrics)
     except Exception as e:

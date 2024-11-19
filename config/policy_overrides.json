@@ -1,192 +1,192 @@
 {
-  "path_overrides": [
-    {
-      "pattern": "**/financial/**",
-      "tier": "performance",
-      "min_copies": 3,
-      "required_regions": [
-        "us-east-1",
-        "us-west-1"
-      ],
-      "force_encryption": true,
-      "reason": "Financial data requires high performance and redundancy"
-    },
-    {
-      "pattern": "**/logs/**",
-      "tier": "cold",
-      "min_copies": 1,
-      "retention_days": 90,
-      "reason": "Log files are rarely accessed after creation"
-    },
-    {
-      "pattern": "**/ml-training-data/**",
-      "tier": "capacity",
-      "min_copies": 2,
-      "reason": "ML training data needs moderate performance and redundancy"
-    },
-    {
-      "pattern": "**/high-priority/**",
-      "tier": "performance",
-      "min_copies": 3,
-      "required_regions": [
-        "us-east-1",
-        "us-west-1"
-      ],
-      "reason": "High-priority data requirements"
-    },
-    {
-      "pattern": "**/time-sensitive/**",
-      "tier": "performance",
-      "max_latency_ms": 10,
-      "required_regions": [
-        "us-east-1",
-        "us-west-1"
-      ],
-      "reason": "Low-latency access requirements"
-    },
-    {
-      "pattern": "**/archive/**",
-      "tier": "cold",
-      "min_copies": 1,
-      "max_cost_per_gb": 0.05,
-      "reason": "Cost optimization for archived data"
-    },
-    {
-      "pattern": "**/high-priority/**",
-      "tier": "performance",
-      "min_copies": 3,
-      "required_regions": [
-        "us-east-1",
-        "us-west-1"
-      ],
-      "reason": "High-priority data requirements"
-    },
-    {
-      "pattern": "**/time-sensitive/**",
-      "tier": "performance",
-      "max_latency_ms": 10,
-      "required_regions": [
-        "us-east-1",
-        "us-west-1"
-      ],
-      "reason": "Low-latency access requirements"
-    },
-    {
-      "pattern": "**/archive/**",
-      "tier": "cold",
-      "min_copies": 1,
-      "max_cost_per_gb": 0.05,
-      "reason": "Cost optimization for archived data"
-    },
-    {
-      "pattern": "**/high-priority/**",
-      "tier": "performance",
-      "min_copies": 3,
-      "required_regions": [
-        "us-east-1",
-        "us-west-1"
-      ],
-      "reason": "High-priority data requirements"
-    },
-    {
-      "pattern": "**/time-sensitive/**",
-      "tier": "performance",
-      "max_latency_ms": 10,
-      "required_regions": [
-        "us-east-1",
-        "us-west-1"
-      ],
-      "reason": "Low-latency access requirements"
-    },
-    {
-      "pattern": "**/archive/**",
-      "tier": "cold",
-      "min_copies": 1,
-      "max_cost_per_gb": 0.05,
-      "reason": "Cost optimization for archived data"
-    },
-    {
-      "pattern": "**/high-priority/**",
-      "tier": "performance",
-      "min_copies": 3,
-      "required_regions": [
-        "us-east-1",
-        "us-west-1"
-      ],
-      "reason": "High-priority data requirements"
-    },
-    {
-      "pattern": "**/time-sensitive/**",
-      "tier": "performance",
-      "max_latency_ms": 10,
-      "required_regions": [
-        "us-east-1",
-        "us-west-1"
-      ],
-      "reason": "Low-latency access requirements"
-    },
-    {
-      "pattern": "**/archive/**",
-      "tier": "cold",
-      "min_copies": 1,
-      "max_cost_per_gb": 0.05,
-      "reason": "Cost optimization for archived data"
-    },
-    {
-      "pattern": "**/high-priority/**",
-      "tier": "performance",
-      "min_copies": 3,
-      "required_regions": [
-        "us-east-1",
-        "us-west-1"
-      ],
-      "reason": "High-priority data requirements"
-    },
-    {
-      "pattern": "**/time-sensitive/**",
-      "tier": "performance",
-      "max_latency_ms": 10,
-      "required_regions": [
-        "us-east-1",
-        "us-west-1"
-      ],
-      "reason": "Low-latency access requirements"
-    },
-    {
-      "pattern": "**/archive/**",
-      "tier": "cold",
-      "min_copies": 1,
-      "max_cost_per_gb": 0.05,
-      "reason": "Cost optimization for archived data"
-    }
-  ],
-  "volume_overrides": [
-    {
-      "volume_id": "backup-vol-*",
-      "tier": "cold",
-      "min_copies": 2,
-      "retention_days": 180,
-      "reason": "Backup volumes should be cost-optimized"
-    }
-  ],
-  "global_constraints": {
-    "max_cost_per_gb": 0.15,
-    "min_copies": 2,
-    "forbidden_regions": [
-      "ap-southeast-1"
+    "path_overrides": [
+        {
+            "pattern": "**/financial/**",
+            "tier": "performance",
+            "min_copies": 3,
+            "required_regions": [
+                "us-east-1",
+                "us-west-1"
+            ],
+            "force_encryption": true,
+            "reason": "Financial data requires high performance and redundancy"
+        },
+        {
+            "pattern": "**/logs/**",
+            "tier": "cold",
+            "min_copies": 1,
+            "retention_days": 90,
+            "reason": "Log files are rarely accessed after creation"
+        },
+        {
+            "pattern": "**/ml-training-data/**",
+            "tier": "capacity",
+            "min_copies": 2,
+            "reason": "ML training data needs moderate performance and redundancy"
+        },
+        {
+            "pattern": "**/high-priority/**",
+            "tier": "performance",
+            "min_copies": 3,
+            "required_regions": [
+                "us-east-1",
+                "us-west-1"
+            ],
+            "reason": "High-priority data requirements"
+        },
+        {
+            "pattern": "**/time-sensitive/**",
+            "tier": "performance",
+            "max_latency_ms": 10,
+            "required_regions": [
+                "us-east-1",
+                "us-west-1"
+            ],
+            "reason": "Low-latency access requirements"
+        },
+        {
+            "pattern": "**/archive/**",
+            "tier": "cold",
+            "min_copies": 1,
+            "max_cost_per_gb": 0.05,
+            "reason": "Cost optimization for archived data"
+        },
+        {
+            "pattern": "**/high-priority/**",
+            "tier": "performance",
+            "min_copies": 3,
+            "required_regions": [
+                "us-east-1",
+                "us-west-1"
+            ],
+            "reason": "High-priority data requirements"
+        },
+        {
+            "pattern": "**/time-sensitive/**",
+            "tier": "performance",
+            "max_latency_ms": 10,
+            "required_regions": [
+                "us-east-1",
+                "us-west-1"
+            ],
+            "reason": "Low-latency access requirements"
+        },
+        {
+            "pattern": "**/archive/**",
+            "tier": "cold",
+            "min_copies": 1,
+            "max_cost_per_gb": 0.05,
+            "reason": "Cost optimization for archived data"
+        },
+        {
+            "pattern": "**/high-priority/**",
+            "tier": "performance",
+            "min_copies": 3,
+            "required_regions": [
+                "us-east-1",
+                "us-west-1"
+            ],
+            "reason": "High-priority data requirements"
+        },
+        {
+            "pattern": "**/time-sensitive/**",
+            "tier": "performance",
+            "max_latency_ms": 10,
+            "required_regions": [
+                "us-east-1",
+                "us-west-1"
+            ],
+            "reason": "Low-latency access requirements"
+        },
+        {
+            "pattern": "**/archive/**",
+            "tier": "cold",
+            "min_copies": 1,
+            "max_cost_per_gb": 0.05,
+            "reason": "Cost optimization for archived data"
+        },
+        {
+            "pattern": "**/high-priority/**",
+            "tier": "performance",
+            "min_copies": 3,
+            "required_regions": [
+                "us-east-1",
+                "us-west-1"
+            ],
+            "reason": "High-priority data requirements"
+        },
+        {
+            "pattern": "**/time-sensitive/**",
+            "tier": "performance",
+            "max_latency_ms": 10,
+            "required_regions": [
+                "us-east-1",
+                "us-west-1"
+            ],
+            "reason": "Low-latency access requirements"
+        },
+        {
+            "pattern": "**/archive/**",
+            "tier": "cold",
+            "min_copies": 1,
+            "max_cost_per_gb": 0.05,
+            "reason": "Cost optimization for archived data"
+        },
+        {
+            "pattern": "**/high-priority/**",
+            "tier": "performance",
+            "min_copies": 3,
+            "required_regions": [
+                "us-east-1",
+                "us-west-1"
+            ],
+            "reason": "High-priority data requirements"
+        },
+        {
+            "pattern": "**/time-sensitive/**",
+            "tier": "performance",
+            "max_latency_ms": 10,
+            "required_regions": [
+                "us-east-1",
+                "us-west-1"
+            ],
+            "reason": "Low-latency access requirements"
+        },
+        {
+            "pattern": "**/archive/**",
+            "tier": "cold",
+            "min_copies": 1,
+            "max_cost_per_gb": 0.05,
+            "reason": "Cost optimization for archived data"
+        }
     ],
-    "required_regions": [
-      "us-east-1"
+    "volume_overrides": [
+        {
+            "volume_id": "backup-vol-*",
+            "tier": "cold",
+            "min_copies": 2,
+            "retention_days": 180,
+            "reason": "Backup volumes should be cost-optimized"
+        }
     ],
-    "force_encryption": true
-  },
-  "tier_thresholds": {
-    "hot_to_warm_days": 14,
-    "warm_to_cold_days": 45,
-    "cold_to_archive_days": 180
-  },
-  "cost_thresholds": {
-    "max_storage_cost_per_gb": 0.15,
-    "min_cost_savings_for_move": 0.05
-  }
+    "global_constraints": {
+        "max_cost_per_gb": 0.15,
+        "min_copies": 2,
+        "forbidden_regions": [
+            "ap-southeast-1"
+        ],
+        "required_regions": [
+            "us-east-1"
+        ],
+        "force_encryption": true
+    },
+    "tier_thresholds": {
+        "hot_to_warm_days": 14,
+        "warm_to_cold_days": 45,
+        "cold_to_archive_days": 180
+    },
+    "cost_thresholds": {
+        "max_storage_cost_per_gb": 0.15,
+        "min_cost_savings_for_move": 0.05
+    }
 }
