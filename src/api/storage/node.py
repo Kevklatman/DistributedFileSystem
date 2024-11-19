@@ -2,11 +2,12 @@ import os
 import asyncio
 import logging
 import time
+import psutil
 from aiohttp import web
 import json
 from .cluster_manager import StorageClusterManager
 from .replication_manager import ReplicationManager, ReplicationPolicy
-from prometheus_client import generate_latest, CONTENT_TYPE_LATEST, Counter, Histogram
+from prometheus_client import generate_latest, CONTENT_TYPE_LATEST, Counter, Histogram, Gauge
 
 # Define metrics
 REQUEST_COUNT = Counter(
@@ -19,6 +20,46 @@ REQUEST_LATENCY = Histogram(
     'dfs_request_latency_seconds',
     'Request latency in seconds',
     ['method', 'endpoint']
+)
+
+# Storage metrics
+STORAGE_USAGE = Gauge(
+    'dfs_storage_usage_bytes',
+    'Storage space used in bytes',
+    ['node_id', 'path']
+)
+
+STORAGE_CAPACITY = Gauge(
+    'dfs_storage_capacity_bytes',
+    'Total storage capacity in bytes',
+    ['node_id', 'path']
+)
+
+# Operation metrics
+OPERATION_COUNT = Counter(
+    'dfs_operation_total',
+    'Total operations processed',
+    ['node_id', 'operation', 'status']
+)
+
+OPERATION_LATENCY = Histogram(
+    'dfs_operation_latency_seconds',
+    'Operation latency in seconds',
+    ['node_id', 'operation'],
+    buckets=[.001, .005, .01, .025, .05, .075, .1, .25, .5, .75, 1.0, 2.5, 5.0]
+)
+
+# Node health metrics
+NODE_HEALTH = Gauge(
+    'dfs_node_health',
+    'Node health status (1 for healthy, 0 for unhealthy)',
+    ['node_id']
+)
+
+SYSTEM_METRICS = Gauge(
+    'dfs_system_metrics',
+    'System metrics (CPU, Memory, etc)',
+    ['node_id', 'metric']
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -243,6 +284,25 @@ class StorageNode:
 
     async def metrics(self, request):
         """Expose Prometheus metrics"""
+        # Update storage metrics
+        usage = psutil.disk_usage(self.data_dir)
+        STORAGE_USAGE.labels(node_id=self.node_id, path=self.data_dir).set(usage.used)
+        STORAGE_CAPACITY.labels(node_id=self.node_id, path=self.data_dir).set(usage.total)
+
+        # Update system metrics
+        SYSTEM_METRICS.labels(node_id=self.node_id, metric='cpu_percent').set(psutil.cpu_percent())
+        memory = psutil.virtual_memory()
+        SYSTEM_METRICS.labels(node_id=self.node_id, metric='memory_used_percent').set(memory.percent)
+        SYSTEM_METRICS.labels(node_id=self.node_id, metric='memory_available_bytes').set(memory.available)
+
+        # Update node health
+        try:
+            # Simple health check - could be more comprehensive
+            health_status = 1 if self.cluster_manager.is_connected() else 0
+            NODE_HEALTH.labels(node_id=self.node_id).set(health_status)
+        except Exception:
+            NODE_HEALTH.labels(node_id=self.node_id).set(0)
+
         return web.Response(
             body=generate_latest(),
             content_type=CONTENT_TYPE_LATEST
