@@ -6,6 +6,7 @@ from aiohttp import web
 import json
 from .cluster_manager import StorageClusterManager
 from .replication_manager import ReplicationManager, ReplicationPolicy
+from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -34,6 +35,7 @@ class StorageNode:
         # Start HTTP server first
         app = web.Application()
         app.add_routes([
+            web.get('/metrics', self.metrics),
             web.get('/health', self.health_check),
             web.get('/ready', self.ready_check),
             web.post('/storage/replicate', self.handle_replication),
@@ -196,6 +198,13 @@ class StorageNode:
 
         os.unlink(file_path)
         return web.Response(text="deleted")
+
+    async def metrics(self, request):
+        """Expose Prometheus metrics"""
+        return web.Response(
+            body=generate_latest(),
+            content_type=CONTENT_TYPE_LATEST
+        )
 
 async def main():
     node = StorageNode()
