@@ -107,6 +107,12 @@ services:
       - "3001:3000"
     depends_on:
       - prometheus
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana_data:/var/lib/grafana
     networks:
       - dfs_network
 
@@ -132,3 +138,4 @@ volumes:
   node3_data:
   edge1_data:
   edge2_data:
+  grafana_data:
