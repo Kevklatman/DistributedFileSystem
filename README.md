@@ -24,12 +24,24 @@ An S3-compatible distributed file system with support for edge computing, implem
 All S3-compatible operations are available at `http://localhost:8001`
 
 #### Bucket Operations
-- `GET /` - List all buckets
+- `GET /buckets` - List all buckets
+  * Optional header: `X-Consistency-Level` (values: `eventual` or `strong`, default: `eventual`)
 - `PUT /<bucket>` - Create a bucket
 - `DELETE /<bucket>` - Delete a bucket
 - `GET /<bucket>` - List objects in bucket
 - `PUT /<bucket>?versioning` - Configure bucket versioning
 - `GET /<bucket>?versioning` - Get bucket versioning status
+
+#### Example Bucket Listing
+```bash
+# List buckets with eventual consistency (default)
+curl -H "Accept: application/json" http://localhost:8001/buckets
+
+# List buckets with strong consistency
+curl -H "Accept: application/json" \
+     -H "X-Consistency-Level: strong" \
+     http://localhost:8001/buckets
+```
 
 #### Object Operations
 - `PUT /<bucket>/<key>` - Upload an object
