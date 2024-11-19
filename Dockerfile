@@ -16,7 +16,7 @@ COPY src/api ./api
 COPY .env.example .env
 
 # Set environment variables
-ENV PYTHONPATH=/app/api
+ENV PYTHONPATH=/app
 ENV FLASK_APP=app.py
 ENV FLASK_ENV=production
 

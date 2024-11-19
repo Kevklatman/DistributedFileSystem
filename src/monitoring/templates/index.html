@@ -53,7 +53,7 @@
                         Production UI: <a href="http://localhost:3000" target="_blank">localhost:3000</a>
                     </div>
                     <div class="env-label dev">
-                        Development UI: <a href="http://localhost:5555" target="_blank">localhost:5555</a>
+                        Development UI: <a href="http://localhost:8001" target="_blank">localhost:5555</a>
                     </div>
                 </div>
             </div>
@@ -342,7 +342,7 @@
                     // Update Network I/O
                     document.getElementById('bytes-in').textContent = formatBytes(data.storage.bytes_in);
                     document.getElementById('bytes-out').textContent = formatBytes(data.storage.bytes_out);
-                    document.getElementById('total-bytes').textContent = 
+                    document.getElementById('total-bytes').textContent =
                         formatBytes(data.storage.bytes_in + data.storage.bytes_out);
 
                     // Update Network Chart
@@ -359,17 +359,17 @@
                     // Update IOPS and Throughput
                     document.getElementById('read-iops').textContent = data.storage.iops.read;
                     document.getElementById('write-iops').textContent = data.storage.iops.write;
-                    document.getElementById('read-throughput').textContent = 
+                    document.getElementById('read-throughput').textContent =
                         `${data.storage.throughput_mbps.read_mbps.toFixed(2)} MB/s`;
-                    document.getElementById('write-throughput').textContent = 
+                    document.getElementById('write-throughput').textContent =
                         `${data.storage.throughput_mbps.write_mbps.toFixed(2)} MB/s`;
 
                     // Update Status and Recommendations
-                    document.getElementById('system-status').innerHTML = 
+                    document.getElementById('system-status').innerHTML =
                         `<span class="badge ${data.health.status === 'healthy' ? 'bg-success' : 'bg-warning'}">
                             ${data.health.status.toUpperCase()}
                          </span>`;
-                    
+
                     // Update Recommendations
                     const recsContainer = document.getElementById('recommendations');
                     if (recsContainer) {

@@ -1,3 +1,9 @@
+# notetoself
+
+right now to get bucket by name you run localhost5555/{whatever the bucket name is}
+
+but to get all buckets its 5555/buckets
+
 # Distributed File System
 
 An S3-compatible distributed file system with support for edge computing, implemented in Python. Supports local storage, AWS S3, and distributed node backends.
