@@ -5,7 +5,7 @@ metadata:
   name: dfs-backup-plan
 spec:
   forProvider:
-    region: us-west-2
+    region: us-east-2
     rules:
     - ruleName: daily-backup
       targetVaultName: dfs-backup-vault
