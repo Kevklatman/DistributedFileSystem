@@ -633,7 +633,7 @@ class AWSStorageBackend(StorageBackend):
         # Initialize S3 client with explicit region configuration
         self.region = current_config['region']
         if not self.region:
-            self.region = 'us-west-2'  # Fallback to us-west-2 if not set
+            self.region = 'us-east-2'  # Fallback to us-east-2 if not set
 
         print(f"Initial region configuration: {self.region}")
 
@@ -746,8 +746,8 @@ class AWSStorageBackend(StorageBackend):
 
     def create_bucket(self, bucket_name, consistency_level='eventual'):
         try:
-            # Always specify LocationConstraint for non-us-west-2 regions
-            if self.region != 'us-west-2':
+            # Always specify LocationConstraint for non-us-east-2 regions
+            if self.region != 'us-east-2':
                 self.s3.create_bucket(
                     Bucket=bucket_name,
                     CreateBucketConfiguration={'LocationConstraint': self.region}

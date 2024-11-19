@@ -5,7 +5,8 @@
             "tier": "performance",
             "min_copies": 3,
             "required_regions": [
-                "us-west-2"
+                "us-east-2",
+                "us-west-1"
             ],
             "force_encryption": true,
             "reason": "Financial data requires high performance and redundancy"
@@ -28,7 +29,8 @@
             "tier": "performance",
             "min_copies": 3,
             "required_regions": [
-                "us-west-2"
+                "us-east-2",
+                "us-west-1"
             ],
             "reason": "High-priority data requirements"
         },
@@ -37,7 +39,8 @@
             "tier": "performance",
             "max_latency_ms": 10,
             "required_regions": [
-                "us-west-2"
+                "us-east-2",
+                "us-west-1"
             ],
             "reason": "Low-latency access requirements"
         },
@@ -53,7 +56,8 @@
             "tier": "performance",
             "min_copies": 3,
             "required_regions": [
-                "us-west-2"
+                "us-east-2",
+                "us-west-1"
             ],
             "reason": "High-priority data requirements"
         },
@@ -62,7 +66,8 @@
             "tier": "performance",
             "max_latency_ms": 10,
             "required_regions": [
-                "us-west-2"
+                "us-east-2",
+                "us-west-1"
             ],
             "reason": "Low-latency access requirements"
         },
@@ -78,7 +83,8 @@
             "tier": "performance",
             "min_copies": 3,
             "required_regions": [
-                "us-west-2"
+                "us-east-2",
+                "us-west-1"
             ],
             "reason": "High-priority data requirements"
         },
@@ -87,7 +93,8 @@
             "tier": "performance",
             "max_latency_ms": 10,
             "required_regions": [
-                "us-west-2"
+                "us-east-2",
+                "us-west-1"
             ],
             "reason": "Low-latency access requirements"
         },
@@ -103,7 +110,8 @@
             "tier": "performance",
             "min_copies": 3,
             "required_regions": [
-                "us-west-2"
+                "us-east-2",
+                "us-west-1"
             ],
             "reason": "High-priority data requirements"
         },
@@ -112,7 +120,8 @@
             "tier": "performance",
             "max_latency_ms": 10,
             "required_regions": [
-                "us-west-2"
+                "us-east-2",
+                "us-west-1"
             ],
             "reason": "Low-latency access requirements"
         },
@@ -128,7 +137,8 @@
             "tier": "performance",
             "min_copies": 3,
             "required_regions": [
-                "us-west-2"
+                "us-east-2",
+                "us-west-1"
             ],
             "reason": "High-priority data requirements"
         },
@@ -137,7 +147,8 @@
             "tier": "performance",
             "max_latency_ms": 10,
             "required_regions": [
-                "us-west-2"
+                "us-east-2",
+                "us-west-1"
             ],
             "reason": "Low-latency access requirements"
         },
@@ -165,7 +176,7 @@
             "ap-southeast-1"
         ],
         "required_regions": [
-            "us-west-2"
+            "us-east-2"
         ],
         "force_encryption": true
     },

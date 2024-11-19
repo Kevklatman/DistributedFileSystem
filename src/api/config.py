@@ -17,7 +17,7 @@ AWS_CONFIG = {
     'access_key': os.environ.get('AWS_ACCESS_KEY'),
     'secret_key': os.environ.get('AWS_SECRET_KEY'),
     'session_token': os.environ.get('AWS_SESSION_TOKEN'),  # Added STS session token
-    'region': os.environ.get('AWS_REGION', 'us-west-2'),  # Updated default region
+    'region': os.environ.get('AWS_REGION', 'us-east-2'),  # Updated default region
     'endpoint': os.environ.get('AWS_ENDPOINT_URL', None)
 }
 
