@@ -770,14 +770,30 @@ class AWSStorageBackend(StorageBackend):
         try:
             logger.debug("Attempting to list buckets with AWS credentials: access_key=%s, region=%s",
                         current_config['access_key'][:8] + '...', self.region)
+            
             response = self.s3.list_buckets()
             logger.debug("Raw S3 list_buckets response: %s", response)
-            buckets = [{'Name': bucket['Name'], 'CreationDate': bucket['CreationDate'].isoformat()} for bucket in response['Buckets']]
+            
+            if 'Buckets' not in response:
+                return [], None
+                
+            # Convert datetime objects to strings
+            buckets = []
+            for bucket in response['Buckets']:
+                creation_date = bucket.get('CreationDate')
+                bucket_info = {
+                    'Name': bucket['Name'],
+                    'CreationDate': creation_date.strftime('%Y-%m-%dT%H:%M:%S.%f%z') if creation_date else None
+                }
+                buckets.append(bucket_info)
+                
             logger.debug("Processed bucket list: %s", buckets)
             return buckets, None
+            
         except Exception as e:
-            logger.error("Error listing buckets: %s", str(e), exc_info=True)
-            return None, str(e)
+            error_msg = str(e)
+            logger.error("Error listing buckets: %s", error_msg, exc_info=True)
+            return [], error_msg
 
     def put_object(self, bucket_name, object_key, data, consistency_level='eventual'):
         start_time = datetime.datetime.now()

@@ -235,38 +235,26 @@ def list_all_buckets():
     try:
         storage = get_storage_backend()
         
-        # Get consistency level from header, default to 'eventual'
-        consistency = request.headers.get('X-Consistency-Level', 'eventual')
-        
-        # Call list_buckets method with consistency level
-        success, buckets = storage.list_buckets(consistency_level=consistency)
+        # Call list_buckets method
+        buckets, error = storage.list_buckets()
         
         # Handle potential errors
-        if not success:
-            logger.error(f"Error listing buckets: {buckets}")
-            return jsonify({'error': str(buckets)}), 500
+        if error:
+            logger.error(f"Error listing buckets: {error}")
+            if isinstance(error, Response):
+                return error
+            return jsonify({'error': str(error)}), 400
         
-        # Ensure buckets is a list and contains valid data
-        if buckets is None:
-            buckets = []
-        elif not isinstance(buckets, list):
-            buckets = list(buckets)
+        # Return the bucket list
+        if isinstance(buckets, Response):
+            return buckets
         
-        # Convert bucket objects to dictionaries if needed
-        bucket_list = []
-        for bucket in buckets:
-            if isinstance(bucket, dict):
-                bucket_list.append(bucket)
-            else:
-                # Handle case where bucket might be a string or other object
-                bucket_list.append({'Name': str(bucket)})
-        
-        logger.debug(f"Found buckets: {bucket_list}")
-        return jsonify({'buckets': bucket_list}), 200
+        response = {'buckets': buckets if buckets else []}
+        return jsonify(response), 200
     
     except Exception as e:
         logger.error(f"Unexpected error listing buckets: {str(e)}")
-        return jsonify({'error': 'Internal server error'}), 500
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/<bucket>/<key>', methods=['POST'])
 def handle_multipart(bucket, key):
