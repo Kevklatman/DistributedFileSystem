@@ -5,8 +5,7 @@
             "tier": "performance",
             "min_copies": 3,
             "required_regions": [
-                "us-east-2",
-                "us-west-1"
+                "us-east-2"
             ],
             "force_encryption": true,
             "reason": "Financial data requires high performance and redundancy"
@@ -29,8 +28,7 @@
             "tier": "performance",
             "min_copies": 3,
             "required_regions": [
-                "us-east-2",
-                "us-west-1"
+                "us-east-2"
             ],
             "reason": "High-priority data requirements"
         },
@@ -56,8 +54,7 @@
             "tier": "performance",
             "min_copies": 3,
             "required_regions": [
-                "us-east-2",
-                "us-west-1"
+                "us-east-2"
             ],
             "reason": "High-priority data requirements"
         },
