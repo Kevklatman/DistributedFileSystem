@@ -30,7 +30,7 @@ class PolicyScenarios:
             "pattern": "**/healthcare/**",
             "tier": "performance",  # Fast access for patient data
             "min_copies": 3,        # Multiple copies for redundancy
-            "required_regions": ["us-east-2", "us-west-1"],  # HIPAA approved regions
+            "required_regions": ["us-west-2", "us-west-1"],  # HIPAA approved regions
             "force_encryption": True,
             "retention_days": 2555,  # 7 years retention
             "reason": "HIPAA compliance requirements"
@@ -68,7 +68,7 @@ class PolicyScenarios:
             "pattern": "**/dev/**",
             "tier": "capacity",     # Balance of performance and cost
             "max_copies": 2,        # Limit redundancy for cost
-            "required_regions": ["us-east-2"],  # Single region for cost
+            "required_regions": ["us-west-2"],  # Single region for cost
             "reason": "Development environment cost optimization"
         })
 
@@ -176,7 +176,7 @@ class PolicyScenarios:
         self.engine.add_manual_override({
             "pattern": "**/public/**",
             "tier": "capacity",
-            "required_regions": ["us-east-2", "us-west-1"],  # Cloud regions
+            "required_regions": ["us-west-2", "us-west-1"],  # Cloud regions
             "reason": "Public data can use cloud storage"
         })
 

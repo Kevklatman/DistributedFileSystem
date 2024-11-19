@@ -393,7 +393,7 @@ BANDWIDTH_LIMIT=1000  # KB/s
 # AWS Configuration
 AWS_ACCESS_KEY=your-access-key
 AWS_SECRET_KEY=your-secret-key
-AWS_REGION=us-east-2
+AWS_REGION=us-west-2
 
 # Optional: GCP Configuration
 GOOGLE_CLOUD_PROJECT=your-project

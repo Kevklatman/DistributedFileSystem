@@ -21,7 +21,7 @@ class CustomPolicyExample:
     def setup_custom_policies(self):
         """Set up custom policies combining ML and manual rules"""
         # Define performance tier regions
-        performance_regions = ["us-east-2", "us-west-1"]
+        performance_regions = ["us-west-2", "us-west-1"]
 
         # Base policy for all data
         self.engine.update_constraints({
