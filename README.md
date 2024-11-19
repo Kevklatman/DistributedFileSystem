@@ -64,7 +64,7 @@ curl -H "Accept: application/json" \
 ### Management API
 
 #### System Operations
-- `GET /api/v1/health` - Health check endpoint
+- `GET /health` - Health check endpoint
   - Returns system health status and component availability
   - Includes storage backend connectivity
   - Reports API service status
@@ -188,7 +188,7 @@ The system runs several services on different ports:
 
 Example:
 ```bash
-curl -H "X-Api-Key: your-api-key" http://localhost:5001/api/v1/health
+curl -H "X-Api-Key: your-api-key" http://localhost:5001/health
 ```
 
 #### CORS Support

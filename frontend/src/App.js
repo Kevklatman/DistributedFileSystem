@@ -163,7 +163,7 @@ function App() {
     // Add API health check
     const checkApiStatus = async () => {
         try {
-            const response = await axios.get(`${API_URL}/api/v1/health`);
+            const response = await axios.get(`${API_URL}/health`);
             if (response.data.status === 'available') {
                 setApiStatus('Available');
             } else {

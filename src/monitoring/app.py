@@ -374,7 +374,7 @@ def api_docs():
                         }
                     }
                 },
-                "/api/v1/health": {
+                "/health": {
                     "get": {
                         "summary": "Health check endpoint",
                         "description": "Returns the health status of the service",
