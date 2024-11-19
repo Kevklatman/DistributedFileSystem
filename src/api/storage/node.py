@@ -5,61 +5,63 @@ import time
 import psutil
 from aiohttp import web
 import json
-from .cluster_manager import StorageClusterManager
-from .replication_manager import ReplicationManager, ReplicationPolicy
-from prometheus_client import generate_latest, CONTENT_TYPE_LATEST, Counter, Histogram, Gauge
+from prometheus_client import (
+    generate_latest, 
+    CONTENT_TYPE_LATEST, 
+    Counter, 
+    Histogram, 
+    Gauge,
+    CollectorRegistry,
+    start_http_server
+)
+
+# Create a custom registry for DFS metrics
+DFS_REGISTRY = CollectorRegistry()
 
 # Define metrics
 REQUEST_COUNT = Counter(
     'dfs_request_total',
     'Total requests processed',
-    ['method', 'endpoint', 'status']
+    ['method', 'endpoint', 'status'],
+    registry=DFS_REGISTRY
 )
 
 REQUEST_LATENCY = Histogram(
     'dfs_request_latency_seconds',
     'Request latency in seconds',
-    ['method', 'endpoint']
+    ['method', 'endpoint'],
+    registry=DFS_REGISTRY
 )
 
 # Storage metrics
 STORAGE_USAGE = Gauge(
     'dfs_storage_usage_bytes',
     'Storage space used in bytes',
-    ['node_id', 'path']
+    ['node_id', 'path'],
+    registry=DFS_REGISTRY
 )
 
 STORAGE_CAPACITY = Gauge(
     'dfs_storage_capacity_bytes',
     'Total storage capacity in bytes',
-    ['node_id', 'path']
-)
-
-# Operation metrics
-OPERATION_COUNT = Counter(
-    'dfs_operation_total',
-    'Total operations processed',
-    ['node_id', 'operation', 'status']
-)
-
-OPERATION_LATENCY = Histogram(
-    'dfs_operation_latency_seconds',
-    'Operation latency in seconds',
-    ['node_id', 'operation'],
-    buckets=[.001, .005, .01, .025, .05, .075, .1, .25, .5, .75, 1.0, 2.5, 5.0]
+    ['node_id', 'path'],
+    registry=DFS_REGISTRY
 )
 
 # Node health metrics
 NODE_HEALTH = Gauge(
     'dfs_node_health',
     'Node health status (1 for healthy, 0 for unhealthy)',
-    ['node_id']
+    ['node_id'],
+    registry=DFS_REGISTRY
 )
 
+# System metrics
 SYSTEM_METRICS = Gauge(
     'dfs_system_metrics',
     'System metrics (CPU, Memory, etc)',
-    ['node_id', 'metric']
+    ['node_id', 'metric'],
+    registry=DFS_REGISTRY
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -67,254 +69,147 @@ logger = logging.getLogger(__name__)
 
 class StorageNode:
     def __init__(self):
-        self.node_id = os.environ.get('NODE_ID')
-        self.namespace = os.environ.get('NAMESPACE', 'default')
-        self.data_dir = os.environ.get('STORAGE_DATA_DIR', '/data')
-
+        # Get node ID with a default value
+        self.node_id = os.environ.get('NODE_ID', 'node1')
+        
+        # Use a directory in the user's home for testing
+        self.data_dir = os.path.expanduser('~/dfs_data')
+        
         # Ensure data directory exists
         os.makedirs(self.data_dir, exist_ok=True)
+        logger.info(f"Using storage directory: {self.data_dir}")
+        
+        # Initialize metrics
+        self._init_metrics()
 
-        # Initialize managers
-        self.cluster_manager = StorageClusterManager(namespace=self.namespace)
+    def _init_metrics(self):
+        """Initialize metrics with default values"""
+        try:
+            # Initialize storage metrics
+            usage = psutil.disk_usage(self.data_dir)
+            STORAGE_USAGE.labels(node_id=self.node_id, path=self.data_dir).set(usage.used)
+            STORAGE_CAPACITY.labels(node_id=self.node_id, path=self.data_dir).set(usage.total)
 
-        policy = ReplicationPolicy(
-            min_copies=3,
-            sync_replication=True,
-            consistency_level="quorum"
-        )
-        self.replication_manager = ReplicationManager(self.cluster_manager, policy)
+            # Initialize system metrics
+            SYSTEM_METRICS.labels(node_id=self.node_id, metric='cpu_percent').set(psutil.cpu_percent())
+            memory = psutil.virtual_memory()
+            SYSTEM_METRICS.labels(node_id=self.node_id, metric='memory_used_percent').set(memory.percent)
+            SYSTEM_METRICS.labels(node_id=self.node_id, metric='memory_available_bytes').set(memory.available)
+
+            # Initialize request metrics with 0
+            REQUEST_COUNT.labels(method='GET', endpoint='/metrics', status='success').inc(0)
+            REQUEST_LATENCY.labels(method='GET', endpoint='/metrics').observe(0)
+
+            # Set node as healthy
+            NODE_HEALTH.labels(node_id=self.node_id).set(1)
+            
+            logger.info("Metrics initialized successfully")
+        except Exception as e:
+            logger.error(f"Error initializing metrics: {e}")
+            NODE_HEALTH.labels(node_id=self.node_id).set(0)
 
     async def start(self):
         """Start the storage node"""
-        # Start HTTP server first
         app = web.Application()
         app.add_routes([
             web.get('/metrics', self.metrics),
-            web.get('/health', self.health_check),
-            web.get('/ready', self.ready_check),
-            web.post('/storage/replicate', self.handle_replication),
-            web.get('/storage/list', self.list_data),
-            web.get('/storage/data/{data_id}', self.get_data),
-            web.put('/storage/data/{data_id}', self.store_data),
-            web.delete('/storage/data/{data_id}', self.delete_data),
+            web.get('/health', self.health_check)
         ])
 
         runner = web.AppRunner(app)
         await runner.setup()
-        site = web.TCPSite(runner, '0.0.0.0', 8000)
+        site = web.TCPSite(runner, '0.0.0.0', 8001)
         await site.start()
 
-        logger.info(f"Storage node {self.node_id} started and listening on port 8000")
-
-        # Give the HTTP server a moment to start
-        await asyncio.sleep(2)
-
-        # Start cluster and replication managers
-        await asyncio.gather(
-            self.cluster_manager.start(),
-            self.replication_manager.start()
-        )
+        logger.info(f"Storage node {self.node_id} started and listening on port 8001")
 
     async def health_check(self, request):
         """Health check endpoint"""
-        return web.Response(text="healthy")
-
-    async def ready_check(self, request):
-        """Readiness check endpoint"""
         try:
-            logging.info(f"Starting readiness check for node {self.node_id}")
-
-            # Check if cluster manager is initialized
-            if not hasattr(self, 'cluster_manager'):
-                logging.error("Cluster manager not initialized")
-                return web.Response(status=503, text="not ready - cluster manager not initialized")
-
-            # Get cluster status with timeout
-            try:
-                cluster_status_task = asyncio.create_task(self.cluster_manager.get_cluster_status_async())
-                done, _ = await asyncio.wait({cluster_status_task}, timeout=2.0)
-                if cluster_status_task in done:
-                    cluster_status = cluster_status_task.result()
-                else:
-                    raise asyncio.TimeoutError
-            except asyncio.TimeoutError:
-                logging.error("Timeout getting cluster status")
-                return web.Response(status=503, text="not ready - cluster status timeout")
-
-            logging.info(f"Cluster status: {cluster_status}")
-            logging.info(f"Current node is leader: {self.cluster_manager.leader}")
-            logging.info(f"Current leader: {cluster_status.get('leader_node')}")
-
-            # We're ready if:
-            # 1. We are the leader, or
-            # 2. We can see the leader and have a healthy connection, or
-            # 3. We're in the initial cluster formation phase (grace period)
-            startup_grace_period = 30  # seconds
-            time_since_start = time.time() - self.cluster_manager.start_time
-
-            if self.cluster_manager.leader:
-                logging.info("Node is ready - we are the leader")
-                return web.Response(text="ready - leader")
-            elif cluster_status.get("leader_node") and cluster_status.get("healthy_nodes", 0) > 0:
-                logging.info("Node is ready - healthy connection to leader")
-                return web.Response(text="ready - follower")
-            elif time_since_start < startup_grace_period:
-                logging.info("Node is in startup grace period")
-                return web.Response(text="ready - startup grace period")
-
-            logging.warning("Node is not ready - no leader connection and grace period expired")
-            return web.Response(status=503, text="not ready - no leader connection")
-        except Exception as e:
-            logging.error(f"Readiness check failed with exception: {str(e)}")
-            return web.Response(status=503, text=f"not ready - internal error: {str(e)}")
-
-    async def handle_replication(self, request):
-        """Handle incoming replication requests"""
-        data = await request.json()
-        data_id = data['data_id']
-        content = bytes.fromhex(data['data'])
-        checksum = data['checksum']
-
-        # Verify checksum
-        import hashlib
-        if hashlib.sha256(content).hexdigest() != checksum:
-            return web.Response(status=400, text="checksum mismatch")
-
-        # Store the data
-        file_path = os.path.join(self.data_dir, data_id)
-        with open(file_path, 'wb') as f:
-            f.write(content)
-
-        return web.Response(
-            text=json.dumps({"status": "success", "checksum": checksum}),
-            content_type='application/json'
-        )
-
-    async def list_data(self, request):
-        """List all data IDs stored on this node"""
-        try:
-            data_ids = [f for f in os.listdir(self.data_dir) if os.path.isfile(os.path.join(self.data_dir, f))]
+            start_time = time.time()
+            
+            # Track this request
+            REQUEST_COUNT.labels(method='GET', endpoint='/health', status='success').inc()
+            REQUEST_LATENCY.labels(method='GET', endpoint='/health').observe(time.time() - start_time)
+            
             return web.Response(
-                text=json.dumps(data_ids),
-                content_type='application/json'
+                text=json.dumps({"status": "healthy"}),
+                content_type="application/json"
             )
         except Exception as e:
-            logger.error(f"Failed to list data: {str(e)}")
-            return web.Response(status=500, text=str(e))
-
-    async def get_data(self, request):
-        """Retrieve data by ID"""
-        start_time = time.time()
-        data_id = request.match_info['data_id']
-        file_path = os.path.join(self.data_dir, data_id)
-
-        try:
-            if not os.path.exists(file_path):
-                REQUEST_COUNT.labels(
-                    method='GET',
-                    endpoint='/storage/data',
-                    status='not_found'
-                ).inc()
-                return web.Response(status=404, text="data not found")
-
-            with open(file_path, 'rb') as f:
-                data = f.read()
-
-            REQUEST_COUNT.labels(
-                method='GET',
-                endpoint='/storage/data',
-                status='success'
-            ).inc()
-
-            REQUEST_LATENCY.labels(
-                method='GET',
-                endpoint='/storage/data'
-            ).observe(time.time() - start_time)
-
-            return web.Response(body=data)
-        except Exception as e:
-            REQUEST_COUNT.labels(
-                method='GET',
-                endpoint='/storage/data',
-                status='error'
-            ).inc()
-            return web.Response(status=500, text=str(e))
-
-    async def store_data(self, request):
-        """Store data by ID"""
-        start_time = time.time()
-        data_id = request.match_info['data_id']
-        try:
-            data = await request.read()
-            file_path = os.path.join(self.data_dir, data_id)
-
-            with open(file_path, 'wb') as f:
-                f.write(data)
-
-            REQUEST_COUNT.labels(
-                method='PUT',
-                endpoint='/storage/data',
-                status='success'
-            ).inc()
-
-            REQUEST_LATENCY.labels(
-                method='PUT',
-                endpoint='/storage/data'
-            ).observe(time.time() - start_time)
-
-            return web.Response(text="stored")
-        except Exception as e:
-            REQUEST_COUNT.labels(
-                method='PUT',
-                endpoint='/storage/data',
-                status='error'
-            ).inc()
-            return web.Response(status=500, text=str(e))
-
-    async def delete_data(self, request):
-        """Delete data by ID"""
-        data_id = request.match_info['data_id']
-        file_path = os.path.join(self.data_dir, data_id)
-
-        if not os.path.exists(file_path):
-            return web.Response(status=404, text="data not found")
-
-        os.unlink(file_path)
-        return web.Response(text="deleted")
+            logger.error(f"Error in health check: {e}")
+            REQUEST_COUNT.labels(method='GET', endpoint='/health', status='error').inc()
+            return web.Response(
+                text=json.dumps({"status": "unhealthy", "error": str(e)}),
+                content_type="application/json",
+                status=500
+            )
 
     async def metrics(self, request):
         """Expose Prometheus metrics"""
-        # Update storage metrics
-        usage = psutil.disk_usage(self.data_dir)
-        STORAGE_USAGE.labels(node_id=self.node_id, path=self.data_dir).set(usage.used)
-        STORAGE_CAPACITY.labels(node_id=self.node_id, path=self.data_dir).set(usage.total)
-
-        # Update system metrics
-        SYSTEM_METRICS.labels(node_id=self.node_id, metric='cpu_percent').set(psutil.cpu_percent())
-        memory = psutil.virtual_memory()
-        SYSTEM_METRICS.labels(node_id=self.node_id, metric='memory_used_percent').set(memory.percent)
-        SYSTEM_METRICS.labels(node_id=self.node_id, metric='memory_available_bytes').set(memory.available)
-
-        # Update node health
         try:
-            # Simple health check - could be more comprehensive
-            health_status = 1 if self.cluster_manager.is_connected() else 0
-            NODE_HEALTH.labels(node_id=self.node_id).set(health_status)
-        except Exception:
+            start_time = time.time()
+            
+            # Update current metrics
+            self._update_metrics()
+            
+            # Track this request
+            REQUEST_COUNT.labels(method='GET', endpoint='/metrics', status='success').inc()
+            REQUEST_LATENCY.labels(method='GET', endpoint='/metrics').observe(time.time() - start_time)
+            
+            # Generate metrics in Prometheus format
+            metrics_data = generate_latest(DFS_REGISTRY)
+            return web.Response(
+                body=metrics_data,
+                content_type='text/plain; version=0.0.4'
+            )
+        except Exception as e:
+            logger.error(f"Error generating metrics: {e}")
+            REQUEST_COUNT.labels(method='GET', endpoint='/metrics', status='error').inc()
+            NODE_HEALTH.labels(node_id=self.node_id).set(0)
+            return web.Response(
+                text=json.dumps({"error": str(e)}),
+                content_type="application/json",
+                status=500
+            )
+
+    def _update_metrics(self):
+        """Update current metric values"""
+        try:
+            # Update storage metrics
+            usage = psutil.disk_usage(self.data_dir)
+            STORAGE_USAGE.labels(node_id=self.node_id, path=self.data_dir).set(usage.used)
+            STORAGE_CAPACITY.labels(node_id=self.node_id, path=self.data_dir).set(usage.total)
+
+            # Update system metrics
+            SYSTEM_METRICS.labels(node_id=self.node_id, metric='cpu_percent').set(psutil.cpu_percent())
+            memory = psutil.virtual_memory()
+            SYSTEM_METRICS.labels(node_id=self.node_id, metric='memory_used_percent').set(memory.percent)
+            SYSTEM_METRICS.labels(node_id=self.node_id, metric='memory_available_bytes').set(memory.available)
+
+            # Update node health
+            NODE_HEALTH.labels(node_id=self.node_id).set(1)
+        except Exception as e:
+            logger.error(f"Error updating metrics: {e}")
             NODE_HEALTH.labels(node_id=self.node_id).set(0)
 
-        return web.Response(
-            body=generate_latest(),
-            content_type=CONTENT_TYPE_LATEST
-        )
-
 async def main():
-    node = StorageNode()
-    await node.start()
-
-    # Keep the node running
-    while True:
-        await asyncio.sleep(3600)
+    try:
+        node = StorageNode()
+        await node.start()
+        
+        # Keep the application running
+        while True:
+            await asyncio.sleep(1)
+    except Exception as e:
+        logger.error(f"Error in main: {e}")
+        raise
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logger.info("Shutting down gracefully...")
+    except Exception as e:
+        logger.error(f"Error: {e}")
+        raise
