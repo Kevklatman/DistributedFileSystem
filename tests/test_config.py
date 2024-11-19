@@ -9,7 +9,7 @@ load_dotenv()
 TEST_CONFIG = {
     'aws': {
         'bucket': 'test-dfs-bucket',
-        'region': os.getenv('AWS_REGION', 'us-east-1'),
+        'region': os.getenv('AWS_REGION', 'us-east-2'),
         'access_key': os.getenv('AWS_ACCESS_KEY'),
         'secret_key': os.getenv('AWS_SECRET_KEY'),
     },

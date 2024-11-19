@@ -59,7 +59,7 @@ class AWSS3Provider(CloudStorageProvider):
         super().__init__(transfer_config)
         self.aws_access_key = os.getenv('AWS_ACCESS_KEY')
         self.aws_secret_key = os.getenv('AWS_SECRET_KEY')
-        self.region = os.getenv('AWS_REGION', 'us-east-1')
+        self.region = os.getenv('AWS_REGION')
 
         if not all([self.aws_access_key, self.aws_secret_key]):
             raise ValueError("AWS credentials not found in environment variables")

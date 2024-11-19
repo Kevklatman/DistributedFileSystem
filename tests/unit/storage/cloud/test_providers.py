@@ -15,7 +15,7 @@ class TestAWSS3Provider(unittest.TestCase):
         self.mock_env = {
             'AWS_ACCESS_KEY': 'test-key',
             'AWS_SECRET_KEY': 'test-secret',
-            'AWS_REGION': 'us-east-1'
+            'AWS_REGION': 'us-east-2'
         }
         self.patcher = patch.dict('os.environ', self.mock_env)
         self.patcher.start()
