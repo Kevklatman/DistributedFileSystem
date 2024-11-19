@@ -42,38 +42,62 @@ class DashboardMetrics(BaseModel):
     storage: StorageMetrics
     pods: List[PodMetrics]
 
+def get_node_metrics(node_port: int) -> dict:
+    """Get metrics from a specific node"""
+    try:
+        response = requests.get(f'http://localhost:{node_port}/metrics', timeout=5)
+        if response.ok:
+            return response.json()
+        return None
+    except Exception as e:
+        logger.error(f"Error fetching metrics from node on port {node_port}: {e}")
+        return None
+
 @router.get("/metrics")
 async def get_metrics():
     """Get all dashboard metrics"""
     try:
-        # Get metrics from monitoring service
-        response = requests.get('http://localhost:5001/api/dashboard/metrics', timeout=5)
-        if not response.ok:
-            raise HTTPException(status_code=500, detail="Failed to fetch metrics from monitoring service")
+        # Get metrics from node1 (primary node)
+        metrics = get_node_metrics(8001)
+        if not metrics:
+            raise HTTPException(status_code=500, detail="Failed to fetch metrics from primary node")
 
-        metrics = response.json()
+        # Get memory info
+        memory = psutil.virtual_memory()._asdict()
+
+        # Get network info
+        network_io = psutil.net_io_counters()
+        network = {
+            "bytes_in": network_io.bytes_recv,
+            "bytes_out": network_io.bytes_sent,
+            "total": network_io.bytes_recv + network_io.bytes_sent
+        }
 
         # Convert to our consistent format
         return DashboardMetrics(
             system=SystemMetrics(
-                cpu_percent=metrics['system']['cpu_percent'],
-                memory=metrics['system']['memory'],
-                network=metrics['system']['network'],
-                timestamp=metrics['timestamp']
+                cpu_percent=psutil.cpu_percent(),
+                memory={
+                    "total": memory["total"],
+                    "used": memory["used"],
+                    "available": memory["available"]
+                },
+                network=network,
+                timestamp=datetime.now().isoformat()
             ),
             storage=StorageMetrics(
-                total=metrics['storage']['total'],
-                used=metrics['storage']['used'],
-                available=metrics['storage']['available'],
-                percent=metrics['storage']['percent']
+                total=metrics.get("storage_total", 0),
+                used=metrics.get("storage_used", 0),
+                available=metrics.get("storage_available", 0),
+                percent=metrics.get("storage_percent", 0)
             ),
             pods=[PodMetrics(
-                name=pod['name'],
-                status=pod['status'],
-                ip=pod['ip'],
-                node=pod['node'],
-                start_time=pod['start_time']
-            ) for pod in metrics['pods']]
+                name=f"node{i}",
+                status="running" if get_node_metrics(8000 + i) else "error",
+                ip=f"localhost:{8000 + i}",
+                node=f"node{i}",
+                start_time=datetime.now().isoformat()
+            ) for i in range(1, 4)]  # Check nodes 1-3
         )
     except Exception as e:
         logger.error(f"Error fetching metrics: {e}")
