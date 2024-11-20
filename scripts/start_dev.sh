@@ -22,7 +22,8 @@ check_port() {
 
 # Check and cleanup ports
 check_and_cleanup_ports() {
-    local ports=(8001 8002 8003 8011 8012 9090 3001 8089 5555)
+    # Only check ports that are actually used in docker-compose.yml
+    local ports=(8001 8002 8003 8011 8012 9090 3001 8089 5001)
     local has_conflict=false
 
     echo -e "${BLUE}Checking ports...${NC}"
@@ -35,10 +36,22 @@ check_and_cleanup_ports() {
 
     if $has_conflict; then
         echo -e "${BLUE}Attempting to clean up existing containers...${NC}"
-        docker-compose down
-        docker rm -f $(docker ps -a | grep "distributed-file-system" | awk '{print $1}') 2>/dev/null || true
+        # First try graceful shutdown
+        docker-compose down --remove-orphans
+        sleep 2
         
-        # Double check ports after cleanup
+        # If ports are still in use, force remove containers
+        for port in "${ports[@]}"; do
+            if check_port $port; then
+                echo -e "${RED}Port $port is still in use. Attempting force cleanup...${NC}"
+                container_id=$(docker ps -a | grep ":$port->" | awk '{print $1}')
+                if [ ! -z "$container_id" ]; then
+                    docker rm -f $container_id
+                fi
+            fi
+        done
+        
+        # Final port check
         for port in "${ports[@]}"; do
             if check_port $port; then
                 echo -e "${RED}Port $port is still in use by another process. Please free this port before continuing.${NC}"
@@ -48,20 +61,41 @@ check_and_cleanup_ports() {
     fi
 }
 
-# Create necessary directories if they don't exist
-echo -e "${BLUE}Setting up directories...${NC}"
-mkdir -p data/node{1,2,3} data/edge{1,2}
-
 # Check and cleanup ports
 check_and_cleanup_ports
 
 # Start the distributed system
 echo -e "${BLUE}Starting distributed system...${NC}"
-docker-compose up -d node1 node2 node3 edge1 edge2 monitoring prometheus grafana locust
+docker-compose up -d
 
-# Wait for services to be ready
+# Function to check if a service is healthy
+check_service_health() {
+    local service=$1
+    local port=$2
+    local max_attempts=30
+    local attempt=1
+
+    echo -n "Waiting for $service to be ready..."
+    while [ $attempt -le $max_attempts ]; do
+        if curl -s "http://localhost:$port" > /dev/null 2>&1; then
+            echo -e "${GREEN}ready${NC}"
+            return 0
+        fi
+        echo -n "."
+        sleep 1
+        attempt=$((attempt + 1))
+    done
+    echo -e "${RED}failed${NC}"
+    return 1
+}
+
+# Wait for core services
 echo -e "${BLUE}Waiting for services to be ready...${NC}"
-sleep 10
+check_service_health "Node 1" 8001
+check_service_health "Node 2" 8002
+check_service_health "Node 3" 8003
+check_service_health "Prometheus" 9090
+check_service_health "Grafana" 3001
 
 # Print access information
 echo -e "${GREEN}DFS Development Environment is ready!${NC}"
@@ -74,6 +108,7 @@ echo -e "Edge Nodes:"
 echo -e "  - Edge 1: http://localhost:8011"
 echo -e "  - Edge 2: http://localhost:8012"
 echo -e "Monitoring:"
+echo -e "  - Monitoring UI: http://localhost:5001"
 echo -e "  - Prometheus: http://localhost:9090"
 echo -e "  - Grafana: http://localhost:3001 (default: admin/admin)"
 echo -e "  - Load Testing UI: http://localhost:8089"
