@@ -325,17 +325,17 @@ def update_network_metrics():
     try:
         net_io = psutil.net_io_counters()
         hostname = socket.gethostname()
-        
+
         # Update received bytes
         current_received = NETWORK_RECEIVED.labels(instance=hostname)._value.get()
         if net_io.bytes_recv > current_received:
             NETWORK_RECEIVED.labels(instance=hostname).inc(net_io.bytes_recv - current_received)
-            
+
         # Update transmitted bytes
         current_transmitted = NETWORK_TRANSMITTED.labels(instance=hostname)._value.get()
         if net_io.bytes_sent > current_transmitted:
             NETWORK_TRANSMITTED.labels(instance=hostname).inc(net_io.bytes_sent - current_transmitted)
-            
+
     except Exception as e:
         logger.error(f"Error updating network metrics: {e}")
 
@@ -343,10 +343,10 @@ def update_request_metrics():
     """Update request queue metrics"""
     try:
         hostname = socket.gethostname()
-        
+
         # Get the current request queue length
         queue_length = app.request_queue.get_length()
-        
+
         # Update the gauge
         REQUEST_QUEUE_LENGTH.labels(instance=hostname).set(queue_length)
     except Exception as e:
@@ -366,7 +366,7 @@ def metrics():
         update_system_metrics()
         update_network_metrics()
         update_request_metrics()
-        
+
         # Generate Prometheus format metrics
         return Response(generate_latest(), mimetype=CONTENT_TYPE_LATEST)
     except Exception as e:
