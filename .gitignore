@@ -45,3 +45,5 @@ pip-delete-this-directory.txt
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+/grafana/data/*
