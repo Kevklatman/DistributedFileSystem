@@ -120,7 +120,7 @@ class MetricsCollector:
             status=status,
             instance=self.instance_id
         ).inc()
-        
+
         REQUEST_LATENCY.labels(
             endpoint=endpoint,
             instance=self.instance_id
@@ -136,7 +136,7 @@ class MetricsCollector:
             operation=operation,
             instance=self.instance_id
         ).inc()
-        
+
         FILE_OP_DURATION.labels(
             operation=operation,
             instance=self.instance_id
@@ -152,7 +152,7 @@ class MetricsCollector:
             instance=self.instance_id,
             node_id=node_id
         ).set(usage_bytes)
-        
+
         STORAGE_CAPACITY.labels(
             instance=self.instance_id,
             node_id=node_id
@@ -178,7 +178,7 @@ class MetricsCollector:
             instance=self.instance_id,
             target_node=target_node
         ).set(lag_seconds)
-        
+
         REPLICATION_QUEUE.labels(instance=self.instance_id).set(queue_length)
 
     def update_node_health(self, is_healthy):

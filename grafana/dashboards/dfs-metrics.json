@@ -14,6 +14,7 @@
                 "type": "prometheus",
                 "uid": "prometheus"
             },
+            "description": "Distribution of file sizes across the system",
             "fieldConfig": {
                 "defaults": {
                     "color": {
@@ -25,45 +26,24 @@
                         "axisLabel": "",
                         "axisPlacement": "auto",
                         "barAlignment": 0,
-                        "drawStyle": "line",
-                        "fillOpacity": 20,
+                        "drawStyle": "bars",
+                        "fillOpacity": 80,
                         "gradientMode": "none",
                         "hideFrom": {
                             "legend": false,
                             "tooltip": false,
                             "viz": false
                         },
-                        "lineInterpolation": "smooth",
-                        "lineWidth": 2,
-                        "pointSize": 5,
+                        "lineWidth": 1,
                         "scaleDistribution": {
-                            "type": "linear"
-                        },
-                        "showPoints": "never",
-                        "spanNulls": true,
-                        "stacking": {
-                            "group": "A",
-                            "mode": "none"
+                            "type": "log"
                         },
                         "thresholdsStyle": {
                             "mode": "off"
                         }
                     },
                     "mappings": [],
-                    "thresholds": {
-                        "mode": "absolute",
-                        "steps": [
-                            {
-                                "color": "green",
-                                "value": null
-                            },
-                            {
-                                "color": "red",
-                                "value": 80
-                            }
-                        ]
-                    },
-                    "unit": "ops"
+                    "unit": "bytes"
                 },
                 "overrides": []
             },
@@ -77,7 +57,7 @@
             "options": {
                 "legend": {
                     "calcs": [
-                        "mean",
+                        "last",
                         "max"
                     ],
                     "displayMode": "table",
@@ -89,7 +69,7 @@
                     "sort": "none"
                 }
             },
-            "title": "Request Rate by Endpoint",
+            "title": "File Size Distribution",
             "type": "timeseries",
             "targets": [
                 {
@@ -97,8 +77,8 @@
                         "type": "prometheus",
                         "uid": "prometheus"
                     },
-                    "expr": "rate(dfs_request_total{status=\"success\"}[5m])",
-                    "legendFormat": "{{instance}} - {{endpoint}}",
+                    "expr": "sum(rate(dfs_file_size_bytes_bucket[5m])) by (le)",
+                    "legendFormat": "{{le}} bytes",
                     "refId": "A"
                 }
             ]
@@ -108,6 +88,7 @@
                 "type": "prometheus",
                 "uid": "prometheus"
             },
+            "description": "Network I/O by Node",
             "fieldConfig": {
                 "defaults": {
                     "color": {
@@ -144,20 +125,7 @@
                         }
                     },
                     "mappings": [],
-                    "thresholds": {
-                        "mode": "absolute",
-                        "steps": [
-                            {
-                                "color": "green",
-                                "value": null
-                            },
-                            {
-                                "color": "red",
-                                "value": 1
-                            }
-                        ]
-                    },
-                    "unit": "s"
+                    "unit": "bytes"
                 },
                 "overrides": []
             },
@@ -183,7 +151,7 @@
                     "sort": "none"
                 }
             },
-            "title": "Request Latency by Endpoint",
+            "title": "Network I/O by Node",
             "type": "timeseries",
             "targets": [
                 {
@@ -191,9 +159,18 @@
                         "type": "prometheus",
                         "uid": "prometheus"
                     },
-                    "expr": "rate(dfs_request_latency_seconds_sum[5m]) / rate(dfs_request_latency_seconds_count[5m])",
-                    "legendFormat": "{{instance}} - {{endpoint}}",
+                    "expr": "rate(dfs_network_received_bytes_total[5m])",
+                    "legendFormat": "{{node_id}} - Received",
                     "refId": "A"
+                },
+                {
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                    },
+                    "expr": "rate(dfs_network_transmitted_bytes_total[5m])",
+                    "legendFormat": "{{node_id}} - Transmitted",
+                    "refId": "B"
                 }
             ]
         },
@@ -1142,26 +1119,11 @@
                         "scaleDistribution": {
                             "type": "log"
                         },
-                        "showPoints": "never",
-                        "spanNulls": true,
-                        "stacking": {
-                            "group": "A",
-                            "mode": "normal"
-                        },
                         "thresholdsStyle": {
                             "mode": "off"
                         }
                     },
                     "mappings": [],
-                    "thresholds": {
-                        "mode": "absolute",
-                        "steps": [
-                            {
-                                "color": "green",
-                                "value": null
-                            }
-                        ]
-                    },
                     "unit": "bytes"
                 },
                 "overrides": []
@@ -1332,7 +1294,7 @@
                             "mode": "none"
                         },
                         "thresholdsStyle": {
-                            "mode": "off"
+                            "mode": "line"
                         }
                     },
                     "mappings": [],
@@ -1342,6 +1304,10 @@
                             {
                                 "color": "green",
                                 "value": null
+                            },
+                            {
+                                "color": "red",
+                                "value": 80
                             }
                         ]
                     },
@@ -1492,18 +1458,20 @@
     "refresh": "5s",
     "schemaVersion": 38,
     "style": "dark",
-    "tags": [],
+    "tags": [
+        "dfs"
+    ],
     "templating": {
         "list": []
     },
     "time": {
-        "from": "now-1h",
+        "from": "now-15m",
         "to": "now"
     },
     "timepicker": {},
     "timezone": "",
     "title": "DFS Metrics",
-    "uid": "dfs_metrics",
+    "uid": "dfs",
     "version": 1,
     "weekStart": ""
 }

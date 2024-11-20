@@ -64,12 +64,26 @@ FILE_OPERATION_LATENCY = Histogram(
     registry=DFS_REGISTRY
 )
 
-# File size distribution metrics
+# File size histogram and network I/O metrics
 FILE_SIZE_HISTOGRAM = Histogram(
     'dfs_file_size_bytes',
-    'Distribution of file sizes',
+    'Distribution of file sizes in bytes',
     ['node_id'],
-    buckets=(1024, 4096, 16384, 65536, 262144, 1048576, 4194304, 16777216, 67108864),  # 1KB to 64MB
+    buckets=(0, 1024, 10*1024, 100*1024, 1024*1024, 10*1024*1024, 100*1024*1024),
+    registry=DFS_REGISTRY
+)
+
+NETWORK_RECEIVED = Counter(
+    'dfs_network_received_bytes_total',
+    'Total bytes received over network',
+    ['node_id'],
+    registry=DFS_REGISTRY
+)
+
+NETWORK_TRANSMITTED = Counter(
+    'dfs_network_transmitted_bytes_total',
+    'Total bytes transmitted over network',
+    ['node_id'],
     registry=DFS_REGISTRY
 )
 
@@ -161,29 +175,6 @@ SYSTEM_METRICS = Gauge(
     'dfs_system_metrics',
     'System metrics (CPU, Memory, etc)',
     ['node_id', 'metric'],
-    registry=DFS_REGISTRY
-)
-
-# File size histogram and network I/O metrics
-FILE_SIZE_HISTOGRAM_NEW = Histogram(
-    'dfs_file_size_bytes_new',
-    'Distribution of file sizes in bytes',
-    ['node_id'],
-    buckets=(0, 1024, 10*1024, 100*1024, 1024*1024, 10*1024*1024, 100*1024*1024),
-    registry=DFS_REGISTRY
-)
-
-NETWORK_RECEIVED = Counter(
-    'dfs_network_received_bytes_total',
-    'Total bytes received over network',
-    ['node_id'],
-    registry=DFS_REGISTRY
-)
-
-NETWORK_TRANSMITTED = Counter(
-    'dfs_network_transmitted_bytes_total',
-    'Total bytes transmitted over network',
-    ['node_id'],
     registry=DFS_REGISTRY
 )
 
@@ -337,14 +328,17 @@ class StorageNode:
 
         try:
             # Simulate file operation
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(random.uniform(0.1, 0.5))  # Simulate operation latency
 
             # Simulate file size for POST operations
             if operation == 'post':
                 # Simulate random file size between 1KB and 64MB
                 file_size = 1024 * (2 ** random.randint(0, 16))
                 FILE_SIZE_HISTOGRAM.labels(node_id=self.node_id).observe(file_size)
-                FILE_SIZE_HISTOGRAM_NEW.labels(node_id=self.node_id).observe(file_size)
+                NETWORK_RECEIVED.labels(node_id=self.node_id).inc(file_size)
+            elif operation == 'get':
+                file_size = 1024 * (2 ** random.randint(0, 16))
+                NETWORK_TRANSMITTED.labels(node_id=self.node_id).inc(file_size)
 
             # Simulate cache operations
             if random.random() < 0.7:  # 70% cache hit rate
@@ -366,12 +360,6 @@ class StorageNode:
                 node_id=self.node_id,
                 operation=operation
             ).observe(duration)
-
-            # Update network metrics
-            if operation == 'post':
-                NETWORK_RECEIVED.labels(node_id=self.node_id).inc(file_size)
-            elif operation == 'get':
-                NETWORK_TRANSMITTED.labels(node_id=self.node_id).inc(file_size)
 
             return web.Response(text="Operation successful")
         except Exception as e:
