@@ -3,6 +3,7 @@ import asyncio
 import logging
 import time
 import psutil
+import random
 from aiohttp import web
 import json
 from collections import deque
@@ -63,6 +64,15 @@ FILE_OPERATION_LATENCY = Histogram(
     registry=DFS_REGISTRY
 )
 
+# File size distribution metrics
+FILE_SIZE_HISTOGRAM = Histogram(
+    'dfs_file_size_bytes',
+    'Distribution of file sizes',
+    ['node_id'],
+    buckets=(1024, 4096, 16384, 65536, 262144, 1048576, 4194304, 16777216, 67108864),  # 1KB to 64MB
+    registry=DFS_REGISTRY
+)
+
 # Network metrics
 NETWORK_IO = Counter(
     'dfs_network_bytes_total',
@@ -90,6 +100,51 @@ STORAGE_CAPACITY = Gauge(
     'dfs_storage_capacity_bytes',
     'Total storage capacity in bytes',
     ['node_id', 'path'],
+    registry=DFS_REGISTRY
+)
+
+# Replication metrics
+REPLICATION_LAG = Gauge(
+    'dfs_replication_lag_seconds',
+    'Replication delay between nodes',
+    ['source_node', 'target_node'],
+    registry=DFS_REGISTRY
+)
+
+# Cache metrics
+CACHE_HITS = Counter(
+    'dfs_cache_hits_total',
+    'Total number of cache hits',
+    ['node_id'],
+    registry=DFS_REGISTRY
+)
+
+CACHE_MISSES = Counter(
+    'dfs_cache_misses_total',
+    'Total number of cache misses',
+    ['node_id'],
+    registry=DFS_REGISTRY
+)
+
+CACHE_HIT_RATE = Gauge(
+    'dfs_cache_hit_rate',
+    'Cache hit rate as percentage',
+    ['node_id'],
+    registry=DFS_REGISTRY
+)
+
+# Process metrics
+PROCESS_CPU_SECONDS = Counter(
+    'process_cpu_seconds_total',
+    'Total user and system CPU time spent in seconds',
+    ['node_id'],
+    registry=DFS_REGISTRY
+)
+
+PROCESS_MEMORY_BYTES = Gauge(
+    'process_resident_memory_bytes',
+    'Resident memory size in bytes',
+    ['node_id'],
     registry=DFS_REGISTRY
 )
 
@@ -132,6 +187,16 @@ class StorageNode:
         self._last_net_io = psutil.net_io_counters()
         self._last_net_io_time = time.time()
 
+        # Initialize cache stats
+        self._cache_hits = 0
+        self._cache_misses = 0
+
+        # Initialize process stats
+        self._process = psutil.Process()
+
+        # Mock replication nodes for testing
+        self._replication_nodes = ['node2', 'node3']  # In production, this would be dynamic
+
         # Initialize metrics
         self._init_metrics()
 
@@ -156,6 +221,22 @@ class StorageNode:
             net_io = psutil.net_io_counters()
             NETWORK_IO.labels(node_id=self.node_id, direction='in').inc(0)
             NETWORK_IO.labels(node_id=self.node_id, direction='out').inc(0)
+
+            # Initialize cache metrics
+            CACHE_HITS.labels(node_id=self.node_id).inc(0)
+            CACHE_MISSES.labels(node_id=self.node_id).inc(0)
+            CACHE_HIT_RATE.labels(node_id=self.node_id).set(0)
+
+            # Initialize replication lag metrics
+            for target_node in self._replication_nodes:
+                REPLICATION_LAG.labels(
+                    source_node=self.node_id,
+                    target_node=target_node
+                ).set(0)
+
+            # Initialize process metrics
+            PROCESS_CPU_SECONDS.labels(node_id=self.node_id).inc(0)
+            PROCESS_MEMORY_BYTES.labels(node_id=self.node_id).set(0)
 
             # Set node as healthy
             NODE_HEALTH.labels(node_id=self.node_id).set(1)
@@ -232,8 +313,22 @@ class StorageNode:
         start_time = time.time()
 
         try:
-            # Simulate file operation (replace with actual implementation)
-            await asyncio.sleep(0.1)  # Simulate work
+            # Simulate file operation
+            await asyncio.sleep(0.1)
+
+            # Simulate file size for POST operations
+            if operation == 'post':
+                # Simulate random file size between 1KB and 64MB
+                file_size = 1024 * (2 ** random.randint(0, 16))
+                FILE_SIZE_HISTOGRAM.labels(node_id=self.node_id).observe(file_size)
+
+            # Simulate cache operations
+            if random.random() < 0.7:  # 70% cache hit rate
+                self._cache_hits += 1
+                CACHE_HITS.labels(node_id=self.node_id).inc()
+            else:
+                self._cache_misses += 1
+                CACHE_MISSES.labels(node_id=self.node_id).inc()
 
             # Record operation
             FILE_OPERATIONS.labels(
@@ -333,6 +428,30 @@ class StorageNode:
             # Store current values for next update
             self._last_net_io = current_net_io
             self._last_net_io_time = current_time
+
+            # Update cache hit rate
+            total_cache_ops = self._cache_hits + self._cache_misses
+            if total_cache_ops > 0:
+                hit_rate = (self._cache_hits / total_cache_ops) * 100
+                CACHE_HIT_RATE.labels(node_id=self.node_id).set(hit_rate)
+
+            # Update process metrics
+            cpu_times = self._process.cpu_times()
+            PROCESS_CPU_SECONDS.labels(node_id=self.node_id).inc(
+                cpu_times.user + cpu_times.system
+            )
+            PROCESS_MEMORY_BYTES.labels(node_id=self.node_id).set(
+                self._process.memory_info().rss
+            )
+
+            # Simulate replication lag (random values for testing)
+            for target_node in self._replication_nodes:
+                # In production, this would be actual replication lag calculation
+                lag = time.time() % 10  # Simulate 0-10 seconds lag
+                REPLICATION_LAG.labels(
+                    source_node=self.node_id,
+                    target_node=target_node
+                ).set(lag)
 
             # Update node health
             NODE_HEALTH.labels(node_id=self.node_id).set(1)
