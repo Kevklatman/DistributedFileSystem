@@ -20,3 +20,7 @@ azure-storage-blob>=12.17.0
 # Testing Dependencies
 pytest>=7.4.0
 pytest-mock>=3.11.1
+
+# Metrics Dependencies
+matplotlib>=3.7.0
+numpy>=1.24.0

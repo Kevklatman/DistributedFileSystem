@@ -47,3 +47,6 @@ ehthumbs.db
 Thumbs.db
 
 /grafana/data/*
+
+# Metrics reports
+metrics_reports/
