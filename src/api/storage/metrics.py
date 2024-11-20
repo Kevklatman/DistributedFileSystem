@@ -1,116 +1,189 @@
-from prometheus_client import Counter, Gauge, Histogram
+"""
+Storage-specific metrics collection
+"""
+from prometheus_client import Counter, Gauge, Histogram, Summary
 import time
+import os
+import psutil
 
-# Storage metrics
+# Storage Metrics
 STORAGE_USAGE = Gauge(
     'dfs_storage_usage_bytes',
     'Current storage usage in bytes',
-    ['node']
+    ['instance', 'node_id', 'path']
 )
 
 STORAGE_CAPACITY = Gauge(
     'dfs_storage_capacity_bytes',
     'Total storage capacity in bytes',
-    ['node']
+    ['instance', 'node_id', 'path']
 )
 
-# Operation metrics
-OPERATION_LATENCY = Histogram(
-    'dfs_operation_latency_seconds',
-    'Time spent processing operations',
-    ['operation', 'node'],
-    buckets=[0.1, 0.5, 1.0, 2.0, 5.0, 10.0]
+STORAGE_IOPS = Counter(
+    'dfs_storage_iops_total',
+    'Storage IOPS (Input/Output Operations Per Second)',
+    ['instance', 'node_id', 'operation']  # operation: read, write
 )
 
-OPERATION_COUNTER = Counter(
-    'dfs_operations_total',
-    'Total number of operations',
-    ['operation', 'node', 'status']
+STORAGE_BANDWIDTH = Counter(
+    'dfs_storage_bandwidth_bytes_total',
+    'Storage bandwidth usage in bytes',
+    ['instance', 'node_id', 'direction']  # direction: read, write
 )
 
-# Replication metrics
-REPLICATION_LAG = Gauge(
-    'dfs_replication_lag_seconds',
-    'Replication lag in seconds',
-    ['source_node', 'target_node']
+# File Operation Metrics
+FILE_OPERATIONS = Counter(
+    'dfs_file_operations_total',
+    'Number of file operations',
+    ['instance', 'node_id', 'operation']  # operation: create, read, write, delete
 )
 
-REPLICATION_QUEUE_SIZE = Gauge(
-    'dfs_replication_queue_size',
-    'Number of pending replication operations',
-    ['node']
+FILE_OPERATION_ERRORS = Counter(
+    'dfs_file_operation_errors_total',
+    'Number of file operation errors',
+    ['instance', 'node_id', 'operation', 'error_type']
 )
 
-# Node health metrics
-NODE_HEALTH = Gauge(
-    'dfs_node_health',
-    'Node health status (1 for healthy, 0 for unhealthy)',
-    ['node']
+FILE_SIZES = Histogram(
+    'dfs_file_size_bytes',
+    'Distribution of file sizes',
+    ['instance', 'node_id'],
+    buckets=(
+        1024,        # 1KB
+        10*1024,     # 10KB
+        100*1024,    # 100KB
+        1024*1024,   # 1MB
+        10*1024*1024,# 10MB
+        100*1024*1024,# 100MB
+        1024*1024*1024# 1GB
+    )
 )
 
-CLUSTER_MEMBER_COUNT = Gauge(
-    'dfs_cluster_members',
-    'Number of nodes in the cluster',
-    ['status']  # 'active' or 'total'
+FILE_OPERATION_DURATION = Histogram(
+    'dfs_file_operation_duration_seconds',
+    'Duration of file operations',
+    ['instance', 'node_id', 'operation'],
+    buckets=(
+        0.001,  # 1ms
+        0.005,  # 5ms
+        0.01,   # 10ms
+        0.025,  # 25ms
+        0.05,   # 50ms
+        0.1,    # 100ms
+        0.25,   # 250ms
+        0.5,    # 500ms
+        1.0,    # 1s
+        2.5,    # 2.5s
+        5.0     # 5s
+    )
 )
 
-class MetricsCollector:
-    def __init__(self, node_id):
+class StorageMetricsCollector:
+    """Collector for storage-related metrics"""
+    
+    def __init__(self, instance_id: str, node_id: str, storage_path: str):
+        self.instance_id = instance_id
         self.node_id = node_id
+        self.storage_path = storage_path
+        self._update_storage_metrics()
 
-    def set_storage_usage(self, bytes_used):
-        """Update storage usage metric"""
-        STORAGE_USAGE.labels(node=self.node_id).set(bytes_used)
+    def _update_storage_metrics(self):
+        """Update storage usage and capacity metrics"""
+        try:
+            usage = psutil.disk_usage(self.storage_path)
+            STORAGE_USAGE.labels(
+                instance=self.instance_id,
+                node_id=self.node_id,
+                path=self.storage_path
+            ).set(usage.used)
+            
+            STORAGE_CAPACITY.labels(
+                instance=self.instance_id,
+                node_id=self.node_id,
+                path=self.storage_path
+            ).set(usage.total)
+        except Exception as e:
+            FILE_OPERATION_ERRORS.labels(
+                instance=self.instance_id,
+                node_id=self.node_id,
+                operation='storage_update',
+                error_type=type(e).__name__
+            ).inc()
 
-    def set_storage_capacity(self, bytes_total):
-        """Update storage capacity metric"""
-        STORAGE_CAPACITY.labels(node=self.node_id).set(bytes_total)
+    def record_operation(self, operation: str):
+        """Create a context manager for tracking file operations"""
+        return FileOperationTracker(
+            instance_id=self.instance_id,
+            node_id=self.node_id,
+            operation=operation
+        )
 
-    def track_operation(self, operation_name):
-        """Context manager to track operation latency and count"""
-        return OperationTracker(operation_name, self.node_id)
+    def record_file_size(self, size_bytes: int):
+        """Record a file size observation"""
+        FILE_SIZES.labels(
+            instance=self.instance_id,
+            node_id=self.node_id
+        ).observe(size_bytes)
 
-    def update_replication_lag(self, target_node, lag_seconds):
-        """Update replication lag metric"""
-        REPLICATION_LAG.labels(
-            source_node=self.node_id,
-            target_node=target_node
-        ).set(lag_seconds)
+    def record_bandwidth(self, direction: str, bytes_count: int):
+        """Record bandwidth usage"""
+        STORAGE_BANDWIDTH.labels(
+            instance=self.instance_id,
+            node_id=self.node_id,
+            direction=direction
+        ).inc(bytes_count)
 
-    def set_replication_queue_size(self, size):
-        """Update replication queue size metric"""
-        REPLICATION_QUEUE_SIZE.labels(node=self.node_id).set(size)
+    def record_iops(self, operation: str):
+        """Record an I/O operation"""
+        STORAGE_IOPS.labels(
+            instance=self.instance_id,
+            node_id=self.node_id,
+            operation=operation
+        ).inc()
 
-    def set_node_health(self, is_healthy):
-        """Update node health metric"""
-        NODE_HEALTH.labels(node=self.node_id).set(1 if is_healthy else 0)
+    def record_error(self, operation: str, error: Exception):
+        """Record an operation error"""
+        FILE_OPERATION_ERRORS.labels(
+            instance=self.instance_id,
+            node_id=self.node_id,
+            operation=operation,
+            error_type=type(error).__name__
+        ).inc()
 
-    def update_cluster_members(self, active_count, total_count):
-        """Update cluster member metrics"""
-        CLUSTER_MEMBER_COUNT.labels(status='active').set(active_count)
-        CLUSTER_MEMBER_COUNT.labels(status='total').set(total_count)
-
-
-class OperationTracker:
-    def __init__(self, operation_name, node_id):
-        self.operation_name = operation_name
+class FileOperationTracker:
+    """Context manager for tracking file operations"""
+    
+    def __init__(self, instance_id: str, node_id: str, operation: str):
+        self.instance_id = instance_id
         self.node_id = node_id
+        self.operation = operation
         self.start_time = None
 
     def __enter__(self):
         self.start_time = time.time()
+        FILE_OPERATIONS.labels(
+            instance=self.instance_id,
+            node_id=self.node_id,
+            operation=self.operation
+        ).inc()
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         duration = time.time() - self.start_time
-        OPERATION_LATENCY.labels(
-            operation=self.operation_name,
-            node=self.node_id
+        FILE_OPERATION_DURATION.labels(
+            instance=self.instance_id,
+            node_id=self.node_id,
+            operation=self.operation
         ).observe(duration)
 
-        status = 'error' if exc_type else 'success'
-        OPERATION_COUNTER.labels(
-            operation=self.operation_name,
-            node=self.node_id,
-            status=status
-        ).inc()
+        if exc_type is not None:
+            FILE_OPERATION_ERRORS.labels(
+                instance=self.instance_id,
+                node_id=self.node_id,
+                operation=self.operation,
+                error_type=exc_type.__name__
+            ).inc()
+
+def create_metrics_collector(instance_id: str, node_id: str, storage_path: str) -> StorageMetricsCollector:
+    """Factory function to create a storage metrics collector"""
+    return StorageMetricsCollector(instance_id, node_id, storage_path)
