@@ -1,4 +1,4 @@
-from typing import List, Dict, Optional, Set
+from typing import Any, List, Dict, Optional, Set
 import asyncio
 import logging
 from datetime import datetime
@@ -8,10 +8,12 @@ from dataclasses import dataclass
 from enum import Enum
 
 import aiohttp
+from aiohttp import web
 
 from src.api.storage.consistency_manager import ConsistencyManager, VersionedData
 from src.api.storage.load_manager import LoadManager
 from src.api.storage.replication_manager import ReplicationManager
+from src.api.storage.consistency_manager import WriteOperation
 
 @dataclass
 class NodeState:
@@ -1089,8 +1091,24 @@ class ActiveNode:
         except Exception as e:
             self.logger.error(f"Failed to update write metadata: {str(e)}")
 
+class WriteTimeoutError(Exception):
+    """Raised when a write operation times out"""
+    pass
+
 class ConsistencyError(Exception):
     """Raised when consistency requirements cannot be met"""
+    pass
+
+class InsufficientNodesError(Exception):
+    """Raised when there are not enough healthy nodes available"""
+    pass
+
+class WriteFailureError(Exception):
+    """Raised when a write operation fails to achieve required consistency"""
+    pass
+
+class NodeUnhealthyError(Exception):
+    """Raised when a node is found to be unhealthy"""
     pass
 
 @dataclass
