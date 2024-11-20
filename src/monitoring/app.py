@@ -6,14 +6,14 @@ import urllib3
 import requests
 import time
 from flask_cors import CORS
-from prometheus_client import Counter, Histogram, Gauge
+from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
 import sys
 import psutil
 import json
 import socket
 import traceback
 import logging
-
+import threading
 
 # Create a logger
 logger = logging.getLogger(__name__)
@@ -39,6 +39,18 @@ NETWORK_IO = Counter(
     'dfs_network_bytes_total',
     'Network I/O in bytes',
     ['direction']  # 'in' or 'out'
+)
+
+NETWORK_RECEIVED = Counter(
+    'dfs_network_received_bytes_total',
+    'Total number of bytes received',
+    ['instance']
+)
+
+NETWORK_TRANSMITTED = Counter(
+    'dfs_network_transmitted_bytes_total',
+    'Total number of bytes transmitted',
+    ['instance']
 )
 
 STORAGE_TOTAL = Gauge(
@@ -73,6 +85,12 @@ POD_STATUS = Gauge(
     ['pod_name', 'status', 'ip', 'node']
 )
 
+REQUEST_QUEUE_LENGTH = Gauge(
+    'dfs_request_queue_length',
+    'Current length of the request queue',
+    ['instance']
+)
+
 # Initialize Flask app with CORS and templates
 app = Flask(__name__,
            template_folder=os.path.join(os.path.dirname(os.path.abspath(__file__)), 'templates'),
@@ -103,6 +121,51 @@ def log_request_info():
 @app.after_request
 def log_response_info(response):
     print(f"Response: {response.status}", file=sys.stderr)
+    return response
+
+class RequestQueue:
+    def __init__(self):
+        self.queue = []
+        self.lock = threading.Lock()
+
+    def add_request(self, request):
+        with self.lock:
+            self.queue.append(request)
+
+    def remove_request(self):
+        with self.lock:
+            if self.queue:
+                return self.queue.pop(0)
+            return None
+
+    def get_length(self):
+        with self.lock:
+            return len(self.queue)
+
+# Initialize request queue
+app.request_queue = RequestQueue()
+
+@app.before_request
+def track_request():
+    """Track incoming requests"""
+    try:
+        if not request.path.startswith(('/metrics', '/static')):  # Don't track metrics endpoint
+            app.request_queue.add_request({
+                'path': request.path,
+                'method': request.method,
+                'time': time.time()
+            })
+    except Exception as e:
+        logger.error(f"Error tracking request: {e}")
+
+@app.after_request
+def process_request(response):
+    """Process completed requests"""
+    try:
+        if not request.path.startswith(('/metrics', '/static')):
+            app.request_queue.remove_request()
+    except Exception as e:
+        logger.error(f"Error processing request: {e}")
     return response
 
 # Environment Configuration
@@ -257,6 +320,38 @@ def update_system_metrics():
     except Exception as e:
         print(f"Error updating system metrics: {e}")
 
+def update_network_metrics():
+    """Update network I/O metrics"""
+    try:
+        net_io = psutil.net_io_counters()
+        hostname = socket.gethostname()
+        
+        # Update received bytes
+        current_received = NETWORK_RECEIVED.labels(instance=hostname)._value.get()
+        if net_io.bytes_recv > current_received:
+            NETWORK_RECEIVED.labels(instance=hostname).inc(net_io.bytes_recv - current_received)
+            
+        # Update transmitted bytes
+        current_transmitted = NETWORK_TRANSMITTED.labels(instance=hostname)._value.get()
+        if net_io.bytes_sent > current_transmitted:
+            NETWORK_TRANSMITTED.labels(instance=hostname).inc(net_io.bytes_sent - current_transmitted)
+            
+    except Exception as e:
+        logger.error(f"Error updating network metrics: {e}")
+
+def update_request_metrics():
+    """Update request queue metrics"""
+    try:
+        hostname = socket.gethostname()
+        
+        # Get the current request queue length
+        queue_length = app.request_queue.get_length()
+        
+        # Update the gauge
+        REQUEST_QUEUE_LENGTH.labels(instance=hostname).set(queue_length)
+    except Exception as e:
+        logger.error(f"Error updating request metrics: {e}")
+
 # Basic routes
 @app.route('/')
 def index():
@@ -267,21 +362,13 @@ def index():
 def metrics():
     """Endpoint for Prometheus metrics."""
     try:
-        # Get metrics from storage backend
-        metrics = {}
-
-        # Try to get metrics from each node
-        for node in ['node1', 'node2', 'node3']:
-            try:
-                response = requests.get(f'http://{node}:8001/metrics')
-                if response.status_code == 200:
-                    node_metrics = response.json()
-                    metrics[node] = node_metrics
-            except Exception as e:
-                logger.error(f"Error getting metrics from {node}: {e}")
-                metrics[node] = {"error": str(e)}
-
-        return jsonify(metrics)
+        # Update all metrics
+        update_system_metrics()
+        update_network_metrics()
+        update_request_metrics()
+        
+        # Generate Prometheus format metrics
+        return Response(generate_latest(), mimetype=CONTENT_TYPE_LATEST)
     except Exception as e:
         logger.error(f"Error in metrics endpoint: {e}")
         return jsonify({"error": str(e)}), 500
