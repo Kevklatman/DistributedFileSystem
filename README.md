@@ -1,8 +1,4 @@
-# notetoself
 
-right now to get bucket by name you run localhost5555/{whatever the bucket name is}
-
-but to get all buckets its 5555/buckets
 
 # Distributed File System
 
