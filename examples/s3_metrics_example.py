@@ -1,3 +1,9 @@
+"""
+Example script demonstrating how to use the metrics collection system with AWS S3.
+This is a development tool for quick testing and demonstration purposes.
+For proper tests, see tests/unit/ and tests/integration/.
+"""
+
 import os
 import time
 from api.storage.cloud.providers import AWSS3Provider
@@ -7,8 +13,8 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
-def test_s3_operations():
-    """Test S3 operations and collect metrics."""
+def demonstrate_s3_metrics():
+    """Demonstrate metrics collection with basic S3 operations."""
     # Initialize S3 provider with credentials from .env
     s3_provider = AWSS3Provider(
         aws_access_key_id=os.getenv('AWS_ACCESS_KEY'),
@@ -17,11 +23,11 @@ def test_s3_operations():
     )
 
     # Test bucket and object names
-    test_bucket = "kevinklatman"  # Your S3 bucket name
-    test_object = "test-object.txt"
+    test_bucket = "kevinklatman"
+    test_object = "example-object.txt"
     test_data = b"Hello, World! This is a test file for metrics collection."
 
-    print("Starting S3 operations test...")
+    print("Starting S3 operations example...")
 
     # Upload file
     print("\nUploading file...")
@@ -48,7 +54,7 @@ def test_s3_operations():
 
     # Generate report with timestamp
     timestamp = time.strftime("%Y%m%d_%H%M%S")
-    report_dir = f"metrics_reports/s3_test_{timestamp}"
+    report_dir = f"metrics_reports/s3_example_{timestamp}"
     visualizer.generate_report(report_dir)
 
     print(f"\nMetrics report generated in: {report_dir}")
@@ -59,4 +65,4 @@ def test_s3_operations():
     print("- metrics_summary.txt")
 
 if __name__ == "__main__":
-    test_s3_operations()
+    demonstrate_s3_metrics()
