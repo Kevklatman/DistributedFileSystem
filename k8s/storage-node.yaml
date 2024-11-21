@@ -31,12 +31,10 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: dfs-storage-node
+  namespace: distributed-fs
 spec:
   serviceName: dfs-storage
-  replicas: 1
-  updateStrategy:
-    type: RollingUpdate
-  podManagementPolicy: OrderedReady
+  replicas: 3
   selector:
     matchLabels:
       app: dfs-storage-node
@@ -48,45 +46,17 @@ spec:
       serviceAccountName: storage-node-sa
       containers:
       - name: storage-node
-        image: dfs-storage-node:latest
-        imagePullPolicy: IfNotPresent
+        image: dfs-storage:latest
+        imagePullPolicy: Never
         ports:
-        - containerPort: 8080
-          name: http
+        - containerPort: 8000
         env:
+        - name: NODE_TYPE
+          value: "storage"
         - name: NODE_ID
           valueFrom:
             fieldRef:
               fieldPath: metadata.name
-        - name: POD_IP
-          valueFrom:
-            fieldRef:
-              fieldPath: status.podIP
-        - name: NAMESPACE
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.namespace
-        resources:
-          requests:
-            memory: "1Gi"
-            cpu: "500m"
-          limits:
-            memory: "2Gi"
-            cpu: "1"
-        readinessProbe:
-          httpGet:
-            path: /ready
-            port: http
-          initialDelaySeconds: 10
-          periodSeconds: 5
-          failureThreshold: 3
-        livenessProbe:
-          httpGet:
-            path: /health
-            port: http
-          initialDelaySeconds: 30
-          periodSeconds: 10
-          failureThreshold: 3
         volumeMounts:
         - name: data
           mountPath: /data
@@ -95,7 +65,6 @@ spec:
       name: data
     spec:
       accessModes: [ "ReadWriteOnce" ]
-      storageClassName: dfs-hybrid-storage
       resources:
         requests:
           storage: 1Gi

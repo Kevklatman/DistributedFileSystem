@@ -15,31 +15,21 @@ spec:
     spec:
       containers:
       - name: api-service
-        image: python:3.8.13-slim
-        workingDir: /app
-        command: ["/bin/sh", "-c"]
-        args:
-          - |
-            pip install -r requirements.txt
-            python src/api/app.py
+        image: dfs-core:latest
+        imagePullPolicy: Never
         ports:
-        - containerPort: 5555
+        - containerPort: 8000
         env:
-        - name: STORAGE_ENV
-          value: "local"
-        - name: API_HOST
-          value: "0.0.0.0"
-        - name: API_PORT
-          value: "5555"
-        - name: DEBUG
-          value: "true"
+        - name: NODE_TYPE
+          value: "core"
+        - name: QUORUM_SIZE
+          value: "2"
         volumeMounts:
-        - name: app-code
-          mountPath: /app
+        - name: data
+          mountPath: /app/data
       volumes:
-      - name: app-code
-        hostPath:
-          path: /Users/kevinklatman/Development/Code/DistributedFileSystem
+      - name: data
+        emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
