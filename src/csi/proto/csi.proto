@@ -165,12 +165,12 @@ message Volume {
 
 message VolumeCapability {
     message BlockVolume {}
-    
+
     message MountVolume {
         string fs_type = 1;
         repeated string mount_flags = 2;
     }
-    
+
     message AccessMode {
         enum Mode {
             UNKNOWN = 0;
@@ -182,7 +182,7 @@ message VolumeCapability {
         }
         Mode mode = 1;
     }
-    
+
     oneof access_type {
         BlockVolume block = 1;
         MountVolume mount = 2;
