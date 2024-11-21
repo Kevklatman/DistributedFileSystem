@@ -9,7 +9,7 @@ metadata:
   name: storage-node-role
 rules:
 - apiGroups: [""]
-  resources: ["pods", "nodes"]
+  resources: ["pods", "nodes", "secrets"]
   verbs: ["get", "list", "watch"]
 - apiGroups: ["coordination.k8s.io"]
   resources: ["leases"]
@@ -57,9 +57,24 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.name
+        # AWS Credentials
+        envFrom:
+        - secretRef:
+            name: aws-credentials
+        - secretRef:
+            name: gcp-credentials
+        - secretRef:
+            name: azure-credentials
         volumeMounts:
         - name: data
           mountPath: /data
+        - name: gcp-creds
+          mountPath: /etc/gcp
+          readOnly: true
+      volumes:
+      - name: gcp-creds
+        secret:
+          secretName: gcp-credentials
   volumeClaimTemplates:
   - metadata:
       name: data
