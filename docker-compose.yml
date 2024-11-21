@@ -17,7 +17,7 @@ services:
       - target: 8000
         published: 30000
         protocol: tcp
-        mode: host
+        mode: ingress
     volumes:
       - type: volume
         source: dfs_core_data
@@ -36,12 +36,12 @@ services:
         - "node_type=edge"
     environment:
       - NODE_TYPE=edge
-      - DEVICE_TYPE={{.Task.Slot}}  # Will be 1=mobile, 2=iot
+      - DEVICE_TYPE={{.Task.Slot}} # Will be 1=mobile, 2=iot
     ports:
       - target: 8000
         published: 30010
         protocol: tcp
-        mode: host
+        mode: ingress
     volumes:
       - type: volume
         source: dfs_edge_data
