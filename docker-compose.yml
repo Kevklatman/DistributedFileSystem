@@ -2,75 +2,42 @@ name: distributed-file-system
 
 services:
   # Core nodes
-  node1:
+  dfs_core:
     build: .
+    deploy:
+      mode: replicated
+      replicas: 3
+      labels:
+        - "node_type=core"
     environment:
-      - NODE_ID=node1
       - NODE_TYPE=core
       - QUORUM_SIZE=2
     ports:
-      - "8001:8000"
+      - "8000"
     volumes:
-      - node1_data:/app/data
-    networks:
-      - dfs_network
-
-  node2:
-    build: .
-    environment:
-      - NODE_ID=node2
-      - NODE_TYPE=core
-      - QUORUM_SIZE=2
-    ports:
-      - "8002:8000"
-    volumes:
-      - node2_data:/app/data
-    networks:
-      - dfs_network
-
-  node3:
-    build: .
-    environment:
-      - NODE_ID=node3
-      - NODE_TYPE=core
-      - QUORUM_SIZE=2
-    ports:
-      - "8003:8000"
-    volumes:
-      - node3_data:/app/data
+      - type: volume
+        source: dfs_core_data
+        target: /app/data
     networks:
       - dfs_network
 
   # Edge nodes
-  edge1:
+  dfs_edge:
     build: .
+    deploy:
+      mode: replicated
+      replicas: 2
+      labels:
+        - "node_type=edge"
     environment:
-      - NODE_ID=edge1
       - NODE_TYPE=edge
-      - DEVICE_TYPE=mobile
-      - PROCESSING_POWER=0.7
-      - BATTERY_LEVEL=80
-      - BANDWIDTH_LIMIT=1000
+      - DEVICE_TYPE={{.Task.Slot}}  # Will be 1=mobile, 2=iot
     ports:
-      - "8011:8000"
+      - "8000"
     volumes:
-      - edge1_data:/app/data
-    networks:
-      - dfs_network
-
-  edge2:
-    build: .
-    environment:
-      - NODE_ID=edge2
-      - NODE_TYPE=edge
-      - DEVICE_TYPE=iot
-      - PROCESSING_POWER=0.4
-      - BATTERY_LEVEL=60
-      - BANDWIDTH_LIMIT=500
-    ports:
-      - "8012:8000"
-    volumes:
-      - edge2_data:/app/data
+      - type: volume
+        source: dfs_edge_data
+        target: /app/data
     networks:
       - dfs_network
 
@@ -85,10 +52,9 @@ services:
       - ./config:/app/config
       - ./storage:/app/storage
       - ~/.kube/config:/root/.kube/config
-    depends_on:
-      - node1
-      - node2
-      - node3
+    deploy:
+      mode: replicated
+      replicas: 1
     networks:
       - dfs_network
 
@@ -98,47 +64,48 @@ services:
       - "9090:9090"
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    deploy:
+      mode: replicated
+      replicas: 1
     networks:
       - dfs_network
 
   grafana:
     image: grafana/grafana
     ports:
-      - "3001:3000"
-    depends_on:
-      - prometheus
+      - "3000:3000"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - ./grafana/dashboards:/etc/grafana/dashboards
+    deploy:
+      mode: replicated
+      replicas: 1
     environment:
-      - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=admin
       - GF_USERS_ALLOW_SIGN_UP=false
-      - GF_API_USER_AGENT=Grafana
-    volumes:
-      - grafana_data:/var/lib/grafana
-      - ./grafana/dashboards:/etc/grafana/provisioning/dashboards
-      - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards/provisioning
     networks:
       - dfs_network
 
   locust:
-    build: ./tests/load
+    build:
+      context: .
+      dockerfile: src/loadtest/Dockerfile
     ports:
       - "8089:8089"
       - "9100:9100"
-    environment:
-      - TARGET_HOST=http://node1:8000
-    volumes:
-      - ./tests/load:/mnt/locust
+    deploy:
+      mode: replicated
+      replicas: 1
     networks:
       - dfs_network
 
 networks:
   dfs_network:
-    driver: bridge
+    driver: overlay
+    attachable: true
 
 volumes:
-  node1_data:
-  node2_data:
-  node3_data:
-  edge1_data:
-  edge2_data:
-  grafana_data:
+  dfs_core_data:
+    driver: local
+  dfs_edge_data:
+    driver: local
