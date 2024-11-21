@@ -1,8 +1,9 @@
-name: distributed-file-system
+version: "3.8"
 
 services:
   # Core nodes
   dfs_core:
+    image: dfs_core:latest
     build: .
     deploy:
       mode: replicated
@@ -13,7 +14,10 @@ services:
       - NODE_TYPE=core
       - QUORUM_SIZE=2
     ports:
-      - "8000"
+      - target: 8000
+        published: 30000
+        protocol: tcp
+        mode: host
     volumes:
       - type: volume
         source: dfs_core_data
@@ -23,6 +27,7 @@ services:
 
   # Edge nodes
   dfs_edge:
+    image: dfs_edge:latest
     build: .
     deploy:
       mode: replicated
@@ -33,7 +38,10 @@ services:
       - NODE_TYPE=edge
       - DEVICE_TYPE={{.Task.Slot}}  # Will be 1=mobile, 2=iot
     ports:
-      - "8000"
+      - target: 8000
+        published: 30010
+        protocol: tcp
+        mode: host
     volumes:
       - type: volume
         source: dfs_edge_data
@@ -41,25 +49,9 @@ services:
     networks:
       - dfs_network
 
-  # Load testing and monitoring
-  monitoring:
-    build:
-      context: .
-      dockerfile: src/monitoring/Dockerfile
-    ports:
-      - "5001:5000"
-    volumes:
-      - ./config:/app/config
-      - ./storage:/app/storage
-      - ~/.kube/config:/root/.kube/config
-    deploy:
-      mode: replicated
-      replicas: 1
-    networks:
-      - dfs_network
-
+  # Monitoring stack
   prometheus:
-    image: prom/prometheus
+    image: prom/prometheus:latest
     ports:
       - "9090:9090"
     volumes:
@@ -71,31 +63,20 @@ services:
       - dfs_network
 
   grafana:
-    image: grafana/grafana
+    image: grafana/grafana:latest
     ports:
       - "3000:3000"
     volumes:
-      - ./grafana/provisioning:/etc/grafana/provisioning
-      - ./grafana/dashboards:/etc/grafana/dashboards
-    deploy:
-      mode: replicated
-      replicas: 1
+      - type: bind
+        source: ./grafana/dashboards
+        target: /etc/grafana/provisioning/dashboards
+      - type: bind
+        source: ./grafana/provisioning/dashboards
+        target: /etc/grafana/provisioning/dashboards/config
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=admin
-      - GF_USERS_ALLOW_SIGN_UP=false
-    networks:
-      - dfs_network
-
-  locust:
-    build:
-      context: .
-      dockerfile: src/loadtest/Dockerfile
-    ports:
-      - "8089:8089"
-      - "9100:9100"
-    deploy:
-      mode: replicated
-      replicas: 1
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_PATHS_PROVISIONING=/etc/grafana/provisioning
     networks:
       - dfs_network
 
