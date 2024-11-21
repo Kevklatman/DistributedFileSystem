@@ -1,0 +1,45 @@
+# k8s/overlays/development/kustomization.yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: dfs-system-dev
+
+bases:
+  - ../../base
+
+commonLabels:
+  environment: development
+
+patches:
+- patch: |-
+    apiVersion: apps/v1
+    kind: StatefulSet
+    metadata:
+      name: dfs-node
+    spec:
+      replicas: 2
+      template:
+        spec:
+          containers:
+          - name: dfs-node
+            resources:
+              requests:
+                memory: "256Mi"
+                cpu: "250m"
+              limits:
+                memory: "512Mi"
+                cpu: "500m"
+            env:
+            - name: DEBUG_LEVEL
+              value: "debug"
+
+configMapGenerator:
+- name: dfs-config
+  behavior: merge
+  literals:
+  - max_file_size=536870912
+  - replication_factor=2
+  - health_check_interval=15
+
+# For development environment
+#kubectl apply -k k8s/overlays/development

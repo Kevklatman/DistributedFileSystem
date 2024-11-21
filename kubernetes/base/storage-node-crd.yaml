@@ -1,0 +1,59 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: storagenodestatuses.storage.dfs.io
+spec:
+  group: storage.dfs.io
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              properties:
+                nodeId:
+                  type: string
+                hostname:
+                  type: string
+                capacity:
+                  type: integer
+                  format: int64
+                used:
+                  type: integer
+                  format: int64
+                status:
+                  type: string
+                  enum: ["READY", "STARTING", "STOPPING", "ERROR"]
+                lastHeartbeat:
+                  type: string
+                  format: date-time
+                zone:
+                  type: string
+              required:
+                - nodeId
+                - hostname
+                - capacity
+                - used
+                - status
+                - lastHeartbeat
+      additionalPrinterColumns:
+      - name: Status
+        type: string
+        jsonPath: .spec.status
+      - name: Zone
+        type: string
+        jsonPath: .spec.zone
+      - name: Age
+        type: date
+        jsonPath: .metadata.creationTimestamp
+  scope: Namespaced
+  names:
+    plural: storagenodestatuses
+    singular: storagenodestatus
+    kind: StorageNodeStatus
+    shortNames:
+    - sns
