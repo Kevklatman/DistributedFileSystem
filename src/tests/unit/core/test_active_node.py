@@ -6,6 +6,7 @@ from pathlib import Path
 import tempfile
 import shutil
 from unittest.mock import Mock, patch, AsyncMock
+import aiohttp
 
 from src.storage.core.active_node import (
     ActiveNode, NodeState, ConsistencyLevel, WriteOperation,
@@ -60,13 +61,13 @@ class TestActiveNode:
     async def test_node_health_check(self, active_node, mock_cluster_nodes):
         """Test node health monitoring."""
         active_node.cluster_nodes = mock_cluster_nodes.copy()
-        
+
         # Mock the health check response
         with patch('aiohttp.ClientSession.get', new_callable=AsyncMock) as mock_get:
             mock_get.return_value.__aenter__.return_value.json = AsyncMock(
                 return_value={"status": "healthy", "load": 0.5}
             )
-            
+
             await active_node.check_node_health()
             assert all(node.status == "healthy" for node in active_node.cluster_nodes.values())
 
@@ -75,11 +76,11 @@ class TestActiveNode:
         """Test write operation with quorum consistency."""
         active_node.cluster_nodes = mock_cluster_nodes.copy()
         test_data = b"test data"
-        
+
         # Mock successful write to other nodes
         with patch.object(active_node, 'replicate_write', new_callable=AsyncMock) as mock_replicate:
             mock_replicate.return_value = True
-            
+
             # Perform write operation
             write_op = WriteOperation(
                 data_id="test_1",
@@ -89,7 +90,7 @@ class TestActiveNode:
                 timestamp=datetime.now(),
                 consistency_level=ConsistencyLevel.QUORUM.value
             )
-            
+
             result = await active_node.write(write_op)
             assert result is True
 
@@ -98,7 +99,7 @@ class TestActiveNode:
         """Test read operation with different consistency levels."""
         active_node.cluster_nodes = mock_cluster_nodes.copy()
         test_data = b"test data"
-        
+
         # Mock read from other nodes
         with patch.object(active_node, 'read_from_node', new_callable=AsyncMock) as mock_read:
             mock_read.return_value = ReadResult(
@@ -106,14 +107,14 @@ class TestActiveNode:
                 version=1,
                 timestamp=datetime.now()
             )
-            
+
             # Test eventual consistency read
             result = await active_node.read(
                 "test_1",
                 ConsistencyLevel.EVENTUAL.value
             )
             assert result.content == test_data
-            
+
             # Test quorum consistency read
             result = await active_node.read(
                 "test_1",
@@ -125,11 +126,11 @@ class TestActiveNode:
     async def test_node_failure_handling(self, active_node, mock_cluster_nodes):
         """Test handling of node failures."""
         active_node.cluster_nodes = mock_cluster_nodes.copy()
-        
+
         # Simulate a node failure
         with patch('aiohttp.ClientSession.get', new_callable=AsyncMock) as mock_get:
             mock_get.side_effect = aiohttp.ClientError
-            
+
             await active_node.check_node_health()
             # Verify nodes are marked as unhealthy
             assert any(node.status == "unhealthy" for node in active_node.cluster_nodes.values())
@@ -139,11 +140,11 @@ class TestActiveNode:
         """Test handling of consistency requirement failures."""
         active_node.cluster_nodes = mock_cluster_nodes.copy()
         test_data = b"test data"
-        
+
         # Mock failed write to other nodes
         with patch.object(active_node, 'replicate_write', new_callable=AsyncMock) as mock_replicate:
             mock_replicate.return_value = False
-            
+
             write_op = WriteOperation(
                 data_id="test_1",
                 content=test_data,
@@ -152,7 +153,7 @@ class TestActiveNode:
                 timestamp=datetime.now(),
                 consistency_level=ConsistencyLevel.QUORUM.value
             )
-            
+
             with pytest.raises(ConsistencyError):
                 await active_node.write(write_op)
 
@@ -160,7 +161,7 @@ class TestActiveNode:
     async def test_load_balancing(self, active_node, mock_cluster_nodes):
         """Test load balancing functionality."""
         active_node.cluster_nodes = mock_cluster_nodes.copy()
-        
+
         # Test node selection based on load
         selected_node = active_node.load_manager.select_node(active_node.cluster_nodes)
         assert selected_node.node_id == "node_2"  # Should select node with lower load
@@ -170,7 +171,7 @@ class TestActiveNode:
         """Test data replication across nodes."""
         active_node.cluster_nodes = mock_cluster_nodes.copy()
         test_data = b"test data"
-        
+
         write_op = WriteOperation(
             data_id="test_1",
             content=test_data,
@@ -179,7 +180,7 @@ class TestActiveNode:
             timestamp=datetime.now(),
             consistency_level=ConsistencyLevel.STRONG.value
         )
-        
+
         # Mock successful replication
         with patch.object(active_node.replication_manager, 'replicate', new_callable=AsyncMock) as mock_replicate:
             mock_replicate.return_value = True

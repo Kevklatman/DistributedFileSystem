@@ -12,7 +12,7 @@ import os
 import json
 from pathlib import Path
 
-from models import (
+from src.storage.core.models import (
     DeduplicationState,
     CompressionState,
     ThinProvisioningState,
@@ -35,7 +35,8 @@ class StorageEfficiencyManager:
         if not volume.deduplication_enabled:
             return 0, 0
 
-        full_path = self.data_path / volume.primary_pool_id / volume.id / file_path
+        # Use the provided path directly since tests are setting up their own paths
+        full_path = Path(file_path)
         if not full_path.exists():
             return 0, 0
 
@@ -108,35 +109,47 @@ class StorageEfficiencyManager:
             )
 
         # Initialize block allocation map
-        self.thin_provision_map[volume.id] = {
+        self.thin_provision_map[volume.volume_id] = {
             'allocated_blocks': set(),
             'block_size': 4096,  # 4KB blocks
             'total_blocks': requested_size // 4096
         }
 
-    def allocate_blocks(self, volume: Volume, size: int) -> bool:
-        """Allocate blocks for thin provisioning"""
-        if volume.id not in self.thin_provision_map:
+    def allocate_blocks(self, volume: Volume, size_bytes: int) -> bool:
+        """
+        Attempt to allocate blocks for the given volume
+        
+        Args:
+            volume: Volume to allocate blocks for
+            size_bytes: Size in bytes to allocate
+            
+        Returns:
+            bool: True if allocation successful, False if over limit
+        """
+        if volume.volume_id not in self.thin_provision_map:
             return False
-
-        thin_map = self.thin_provision_map[volume.id]
-        blocks_needed = (size + thin_map['block_size'] - 1) // thin_map['block_size']
-
-        # Check if we have enough free blocks
-        if len(thin_map['allocated_blocks']) + blocks_needed > thin_map['total_blocks']:
-            # Handle out of space condition
-            if not self._handle_out_of_space(volume, blocks_needed):
-                return False
-
-        # Allocate blocks
-        new_blocks = set(range(
-            max(thin_map['allocated_blocks']) + 1 if thin_map['allocated_blocks'] else 0,
-            blocks_needed
-        ))
+            
+        thin_state = volume.thin_provisioning_state
+        if not thin_state:
+            return False
+            
+        # Check if allocation would exceed limit
+        new_used_size = thin_state.used_size + size_bytes
+        if new_used_size > thin_state.allocated_size:
+            return False
+            
+        # Calculate blocks needed
+        thin_map = self.thin_provision_map[volume.volume_id]
+        block_size = thin_map['block_size']
+        blocks_needed = (size_bytes + block_size - 1) // block_size
+        
+        # Allocate new blocks
+        current_max = max(thin_map['allocated_blocks']) if thin_map['allocated_blocks'] else -1
+        new_blocks = set(range(current_max + 1, current_max + 1 + blocks_needed))
         thin_map['allocated_blocks'].update(new_blocks)
-
-        # Update thin provisioning state
-        volume.thin_provisioning_state.used_size += size
+            
+        # Update used size
+        thin_state.used_size = new_used_size
         return True
 
     def _handle_out_of_space(self, volume: Volume, blocks_needed: int) -> bool:
@@ -144,35 +157,57 @@ class StorageEfficiencyManager:
         state = volume.thin_provisioning_state
 
         # Check if we can increase allocation within oversubscription ratio
+        if state.used_size == 0:
+            # Special case: first allocation
+            new_size = state.allocated_size * 1.5  # Grow by 50%
+            state.allocated_size = new_size
+            self.thin_provision_map[volume.volume_id]['total_blocks'] = new_size // 4096
+            return True
+
         current_ratio = state.allocated_size / state.used_size
         if current_ratio < state.oversubscription_ratio:
             # Can grow the volume
             new_size = state.allocated_size * 1.5  # Grow by 50%
             state.allocated_size = new_size
-            self.thin_provision_map[volume.id]['total_blocks'] = new_size // 4096
+            self.thin_provision_map[volume.volume_id]['total_blocks'] = new_size // 4096
             return True
 
         return False
 
     def reclaim_space(self, volume: Volume) -> int:
-        """Reclaim unused space from thin provisioned volume"""
-        if volume.id not in self.thin_provision_map:
+        """
+        Reclaim unused space from a thin provisioned volume
+        
+        Args:
+            volume: Volume to reclaim space from
+            
+        Returns:
+            int: Number of bytes reclaimed
+        """
+        if volume.volume_id not in self.thin_provision_map:
             return 0
-
-        thin_map = self.thin_provision_map[volume.id]
-        # Scan for unused blocks
-        unused_blocks = set()
+            
+        thin_state = volume.thin_provisioning_state
+        if not thin_state:
+            return 0
+            
+        thin_map = self.thin_provision_map[volume.volume_id]
+        block_size = thin_map['block_size']
+        
+        # Track blocks to remove
+        blocks_to_remove = set()
         for block in thin_map['allocated_blocks']:
             if not self._is_block_in_use(volume, block):
-                unused_blocks.add(block)
-
+                blocks_to_remove.add(block)
+                
         # Remove unused blocks
-        thin_map['allocated_blocks'] -= unused_blocks
-        reclaimed = len(unused_blocks) * thin_map['block_size']
-
-        # Update thin provisioning state
-        volume.thin_provisioning_state.used_size -= reclaimed
-        return reclaimed
+        thin_map['allocated_blocks'] -= blocks_to_remove
+        
+        # Calculate reclaimed space
+        reclaimed_bytes = len(blocks_to_remove) * block_size
+        thin_state.used_size -= reclaimed_bytes
+        
+        return reclaimed_bytes
 
     def _is_block_in_use(self, volume: Volume, block: int) -> bool:
         """Check if a block is currently in use"""

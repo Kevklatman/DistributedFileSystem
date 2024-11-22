@@ -8,15 +8,20 @@ import logging
 from pathlib import Path
 import json
 
-from models import (
+from src.storage.core.models import (
     Volume,
     StorageLocation,
-    TieringPolicy,
-    ReplicationPolicy,
-    PolicyMode,
-    TierType,
-    DataTemperature
+    CloudTieringPolicy as TieringPolicy,
+    DataProtection as ReplicationPolicy,
+    DataTemperature,
+    StoragePool
 )
+
+# Define PolicyMode here since it's not in core/models.py
+class PolicyMode:
+    MANUAL = "manual"
+    ML = "ml"
+    HYBRID = "hybrid"
 
 @dataclass
 class PolicyDecision:

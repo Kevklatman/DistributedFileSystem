@@ -5,10 +5,13 @@ from pathlib import Path
 from typing import Dict, Any
 import json
 import logging
+from datetime import datetime
 
 from .policy_engine import HybridPolicyEngine, PolicyMode
-from models import DataTemperature, Volume, StorageLocation, TieringPolicy
-from .tiering_manager import TierType
+from src.storage.core.models import (
+    DataTemperature, Volume, StorageLocation, 
+    CloudTieringPolicy, DataProtection
+)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -46,24 +49,27 @@ def example_financial_data_handling():
 
     # Create a test volume with financial data
     volume = Volume(
-        id="finance-vol-1",
-        name="Financial Reports",
+        volume_id="finance-vol-1",
         size_bytes=1024 * 1024 * 1024 * 100,  # 100GB
-        primary_pool_id="pool-1",
-        tiering_policy=TieringPolicy(
-            enabled=True,
-            target_tiers=[TierType.PERFORMANCE, TierType.CAPACITY]
+        used_bytes=0,
+        created_at=datetime.now(),
+        last_accessed_at=datetime.now(),
+        locations=[],
+        tiering_policy=CloudTieringPolicy(
+            cold_tier_after_days=30,
+            archive_tier_after_days=90
+        ),
+        protection=DataProtection(
+            replica_count=3,
+            consistency_level="strong",
+            sync_replication=True,
+            backup_schedule="0 0 * * *"  # Daily backup at midnight
         )
     )
 
     # Test financial data path
     file_path = "financial/reports/q2_2023.xlsx"
-    temp_data = DataTemperature(
-        access_frequency=5,
-        days_since_last_access=2,
-        size_bytes=1024 * 1024 * 10,  # 10MB
-        current_tier=TierType.CAPACITY
-    )
+    temp_data = DataTemperature.HOT
 
     # Get policy decision
     decision = engine.evaluate_tiering_decision(volume, file_path, temp_data)
@@ -76,24 +82,27 @@ def example_log_data_handling():
 
     # Create a test volume with log data
     volume = Volume(
-        id="logs-vol-1",
-        name="Application Logs",
+        volume_id="logs-vol-1",
         size_bytes=1024 * 1024 * 1024 * 500,  # 500GB
-        primary_pool_id="pool-1",
-        tiering_policy=TieringPolicy(
-            enabled=True,
-            target_tiers=[TierType.CAPACITY, TierType.COLD, TierType.ARCHIVE]
+        used_bytes=0,
+        created_at=datetime.now(),
+        last_accessed_at=datetime.now(),
+        locations=[],
+        tiering_policy=CloudTieringPolicy(
+            cold_tier_after_days=30,
+            archive_tier_after_days=60
+        ),
+        protection=DataProtection(
+            replica_count=2,
+            consistency_level="eventual",
+            sync_replication=False,
+            backup_schedule="0 0 * * 0"  # Weekly backup on Sunday
         )
     )
 
     # Test log data path
     file_path = "logs/app/2023/11/app.log"
-    temp_data = DataTemperature(
-        access_frequency=0,
-        days_since_last_access=60,
-        size_bytes=1024 * 1024 * 100,  # 100MB
-        current_tier=TierType.CAPACITY
-    )
+    temp_data = DataTemperature.COLD
 
     # Get policy decision
     decision = engine.evaluate_tiering_decision(volume, file_path, temp_data)
@@ -109,24 +118,27 @@ def example_ml_training_data():
 
     # Create a test volume with ML training data
     volume = Volume(
-        id="ml-vol-1",
-        name="ML Training Sets",
+        volume_id="ml-vol-1",
         size_bytes=1024 * 1024 * 1024 * 1000,  # 1TB
-        primary_pool_id="pool-1",
-        tiering_policy=TieringPolicy(
-            enabled=True,
-            target_tiers=[TierType.PERFORMANCE, TierType.CAPACITY]
+        used_bytes=0,
+        created_at=datetime.now(),
+        last_accessed_at=datetime.now(),
+        locations=[],
+        tiering_policy=CloudTieringPolicy(
+            cold_tier_after_days=30,
+            archive_tier_after_days=90
+        ),
+        protection=DataProtection(
+            replica_count=3,
+            consistency_level="strong",
+            sync_replication=True,
+            backup_schedule="0 0 * * *"  # Daily backup at midnight
         )
     )
 
     # Test ML training data path
     file_path = "ml-training-data/image_dataset_v2.npz"
-    temp_data = DataTemperature(
-        access_frequency=20,
-        days_since_last_access=1,
-        size_bytes=1024 * 1024 * 1024 * 10,  # 10GB
-        current_tier=TierType.CAPACITY
-    )
+    temp_data = DataTemperature.HOT
 
     # Get policy decision
     decision = engine.evaluate_tiering_decision(volume, file_path, temp_data)
@@ -139,24 +151,27 @@ def example_backup_volume():
 
     # Create a test backup volume
     volume = Volume(
-        id="backup-vol-1",
-        name="Weekly Backups",
+        volume_id="backup-vol-1",
         size_bytes=1024 * 1024 * 1024 * 2000,  # 2TB
-        primary_pool_id="pool-1",
-        tiering_policy=TieringPolicy(
-            enabled=True,
-            target_tiers=[TierType.COLD, TierType.ARCHIVE]
+        used_bytes=0,
+        created_at=datetime.now(),
+        last_accessed_at=datetime.now(),
+        locations=[],
+        tiering_policy=CloudTieringPolicy(
+            cold_tier_after_days=30,
+            archive_tier_after_days=60
+        ),
+        protection=DataProtection(
+            replica_count=2,
+            consistency_level="eventual",
+            sync_replication=False,
+            backup_schedule="0 0 * * 0"  # Weekly backup on Sunday
         )
     )
 
     # Test backup data
     file_path = "backups/weekly/2023_w45.tar.gz"
-    temp_data = DataTemperature(
-        access_frequency=0,
-        days_since_last_access=30,
-        size_bytes=1024 * 1024 * 1024 * 100,  # 100GB
-        current_tier=TierType.COLD
-    )
+    temp_data = DataTemperature.COLD
 
     # Get policy decision
     decision = engine.evaluate_tiering_decision(volume, file_path, temp_data)

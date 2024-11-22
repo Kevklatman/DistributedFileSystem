@@ -30,6 +30,30 @@ class StoragePool:
     tier: DataTemperature
 
 @dataclass
+class DeduplicationState:
+    """State tracking for data deduplication."""
+    total_savings: int = 0
+    last_run: Optional[datetime] = None
+    chunks_deduped: int = 0
+    total_chunks: int = 0
+
+@dataclass
+class CompressionState:
+    """State tracking for data compression."""
+    total_savings: int = 0
+    compression_ratio: float = 1.0
+    algorithm: str = 'zlib'
+    last_run: Optional[datetime] = None
+
+@dataclass
+class ThinProvisioningState:
+    """State tracking for thin provisioning."""
+    allocated_size: int = 0
+    used_size: int = 0
+    oversubscription_ratio: float = 2.0
+    last_reclaim: Optional[datetime] = None
+
+@dataclass
 class Volume:
     """Logical storage volume."""
     volume_id: str
@@ -38,6 +62,11 @@ class Volume:
     created_at: datetime
     last_accessed_at: datetime
     locations: List[StorageLocation]
+    primary_pool_id: str = "default"
+    deduplication_enabled: bool = False
+    deduplication_state: Optional[DeduplicationState] = None
+    compression_state: Optional[CompressionState] = None
+    thin_provisioning_state: Optional[ThinProvisioningState] = None
     tiering_policy: Optional['CloudTieringPolicy'] = None
     protection: Optional['DataProtection'] = None
 
