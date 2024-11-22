@@ -1,0 +1,50 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web-ui
+  namespace: distributed-fs
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: web-ui
+  template:
+    metadata:
+      labels:
+        app: web-ui
+    spec:
+      containers:
+      - name: web-ui
+        image: node:16-slim
+        workingDir: /app
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            npm install
+            npm start
+        ports:
+        - containerPort: 3000
+        env:
+        - name: PORT
+          value: "3000"
+        volumeMounts:
+        - name: app-code
+          mountPath: /app
+      volumes:
+      - name: app-code
+        hostPath:
+          path: /Users/kevinklatman/Development/Code/DistributedFileSystem
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web-ui
+  namespace: distributed-fs
+spec:
+  type: NodePort
+  ports:
+  - port: 3000
+    targetPort: 3000
+    nodePort: 30300
+  selector:
+    app: web-ui

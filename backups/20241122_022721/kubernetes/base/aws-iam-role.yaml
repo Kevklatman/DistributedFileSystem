@@ -1,0 +1,8 @@
+# k8s/base/aws-iam-role.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ebs-csi-controller-sa
+  namespace: dfs-system
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::<ACCOUNT-ID>:role/dfs-ebs-csi-driver

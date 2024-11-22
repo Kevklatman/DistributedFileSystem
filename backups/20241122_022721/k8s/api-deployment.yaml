@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-service
+  namespace: distributed-fs
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: api-service
+  template:
+    metadata:
+      labels:
+        app: api-service
+    spec:
+      containers:
+      - name: api-service
+        image: dfs-core:latest
+        imagePullPolicy: Never
+        ports:
+        - containerPort: 8000
+        env:
+        - name: NODE_TYPE
+          value: "core"
+        - name: QUORUM_SIZE
+          value: "2"
+        volumeMounts:
+        - name: data
+          mountPath: /app/data
+      volumes:
+      - name: data
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-service
+  namespace: distributed-fs
+spec:
+  type: NodePort
+  ports:
+  - port: 5555
+    targetPort: 5555
+    nodePort: 30555
+  selector:
+    app: api-service

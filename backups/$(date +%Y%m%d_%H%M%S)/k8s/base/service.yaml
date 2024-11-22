@@ -1,0 +1,21 @@
+# storage-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: dfs-storage-service
+  namespace: distributed-fs
+  labels:
+    app: dfs-storage-node
+spec:
+  selector:
+    app: dfs-storage-node
+  ports:
+    - name: http
+      protocol: TCP
+      port: 8080
+      targetPort: 8080
+    - name: metrics
+      protocol: TCP
+      port: 9090
+      targetPort: 9090
+  type: LoadBalancer

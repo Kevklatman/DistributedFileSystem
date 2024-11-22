@@ -1,0 +1,112 @@
+apiVersion: storage.k8s.io/v1
+kind: CSIDriver
+metadata:
+  name: dfs.csi.k8s.io
+spec:
+  attachRequired: true
+  podInfoOnMount: true
+  volumeLifecycleModes:
+    - Persistent
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: dfs-csi-controller
+  namespace: default
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: dfs-csi-controller-role
+rules:
+  - apiGroups: [""]
+    resources: ["persistentvolumes"]
+    verbs: ["get", "list", "watch", "create", "delete", "update", "patch"]
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["get", "list", "watch", "update"]
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["storageclasses"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["csinodes"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["list", "watch", "create", "update", "patch"]
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: dfs-csi-controller-binding
+subjects:
+  - kind: ServiceAccount
+    name: dfs-csi-controller
+    namespace: default
+roleRef:
+  kind: ClusterRole
+  name: dfs-csi-controller-role
+  apiGroup: rbac.authorization.k8s.io
+---
+kind: DaemonSet
+apiVersion: apps/v1
+metadata:
+  name: dfs-csi-node
+  namespace: default
+spec:
+  selector:
+    matchLabels:
+      app: dfs-csi-node
+  template:
+    metadata:
+      labels:
+        app: dfs-csi-node
+    spec:
+      serviceAccount: dfs-csi-controller
+      hostNetwork: true
+      containers:
+        - name: csi-driver
+          image: dfs-csi-driver:latest
+          imagePullPolicy: Never
+          securityContext:
+            privileged: true
+          env:
+            - name: NODE_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          volumeMounts:
+            - name: plugin-dir
+              mountPath: /csi
+            - name: pods-mount-dir
+              mountPath: /var/lib/kubelet/pods
+              mountPropagation: "Bidirectional"
+            - name: device-dir
+              mountPath: /dev
+      volumes:
+        - name: plugin-dir
+          hostPath:
+            path: /var/lib/kubelet/plugins/dfs.csi.k8s.io
+            type: DirectoryOrCreate
+        - name: pods-mount-dir
+          hostPath:
+            path: /var/lib/kubelet/pods
+            type: Directory
+        - name: device-dir
+          hostPath:
+            path: /dev
+            type: Directory
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: dfs-hybrid-storage
+provisioner: dfs.csi.k8s.io
+parameters:
+  type: hybrid
+  tieringEnabled: "true"
+reclaimPolicy: Delete
+volumeBindingMode: Immediate

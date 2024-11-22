@@ -1,0 +1,20 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: dfs-storage-monitor
+  labels:
+    app: dfs-storage-node
+    release: prometheus  # This should match your Prometheus Operator release name
+spec:
+  selector:
+    matchLabels:
+      app: dfs-storage-node
+  endpoints:
+  - port: metrics  # This will match the service port name
+    path: /metrics
+    interval: 15s
+    scrapeTimeout: 14s
+    metricRelabelings:
+    - sourceLabels: [__name__]
+      regex: 'dfs_.*'  # Only keep metrics starting with dfs_
+      action: keep
