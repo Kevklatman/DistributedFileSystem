@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 import boto3
 from botocore.client import Config
-from config import current_config, STORAGE_ENV
+from .config import current_config, STORAGE_ENV
 import uuid
 import datetime
 import hashlib

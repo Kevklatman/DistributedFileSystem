@@ -43,7 +43,7 @@ class StoragePoolResource(Resource):
     def post(self):
         """Create a new storage pool"""
         data = request.json
-        
+
         location = StorageLocation(
             type=data['location']['type'],
             path=data['location']['path'],
@@ -51,7 +51,7 @@ class StoragePoolResource(Resource):
             availability_zone=data['location'].get('availability_zone'),
             performance_tier=data['location'].get('performance_tier', 'standard')
         )
-        
+
         try:
             pool = storage_manager.create_storage_pool(
                 name=data['name'],
@@ -85,7 +85,7 @@ class VolumeResource(Resource):
     def post(self):
         """Create a new volume"""
         data = request.json
-        
+
         try:
             volume = storage_manager.create_volume(
                 name=data['name'],

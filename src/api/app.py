@@ -14,10 +14,10 @@ from prometheus_client import Counter, Gauge, generate_latest, CONTENT_TYPE_LATE
 # Add the current directory to Python path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from storage_backend import get_storage_backend
-from s3_api import s3_api, S3ApiHandler
-from mock_fs_manager import FileSystemManager
-from config import API_HOST, API_PORT, DEBUG
+from core.storage_backend import get_storage_backend
+from routes.s3 import s3_api, S3ApiHandler
+from core.fs_manager import FileSystemManager
+from core.config import API_HOST, API_PORT, DEBUG
 
 # Configure Flask app
 app = Flask(__name__,

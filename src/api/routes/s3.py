@@ -7,6 +7,7 @@ import hashlib
 import os
 import logging
 from ..core.storage_backend import get_storage_backend
+from ..core.fs_manager import FileSystemManager
 
 logger = logging.getLogger(__name__)
 
