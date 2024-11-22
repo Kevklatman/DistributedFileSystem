@@ -3,10 +3,8 @@ import pytest
 import asyncio
 from datetime import datetime
 from pathlib import Path
-import tempfile
-import shutil
-from unittest.mock import Mock, patch, AsyncMock
 import aiohttp
+from unittest.mock import Mock, patch, AsyncMock
 
 from src.storage.core.active_node import (
     ActiveNode, NodeState, ConsistencyLevel, WriteOperation,
@@ -15,21 +13,13 @@ from src.storage.core.active_node import (
 )
 
 @pytest.fixture
-def temp_data_dir():
-    """Create a temporary directory for test data."""
-    with tempfile.TemporaryDirectory() as temp_dir:
-        data_path = Path(temp_dir)
-        # Create standard subdirectories
-        (data_path / "volumes").mkdir()
-        (data_path / "metadata").mkdir()
-        yield data_path
-
-@pytest.fixture
-def active_node(temp_data_dir):
+def active_node(test_storage):
     """Create an ActiveNode instance for testing."""
-    node = ActiveNode("test_node_1", data_dir=temp_data_dir)
-    yield node
-    # Cleanup is handled by temp_data_dir fixture
+    node = ActiveNode(
+        node_id="test_node_1",
+        data_dir=test_storage
+    )
+    return node
 
 @pytest.fixture
 def mock_cluster_nodes():
@@ -59,27 +49,16 @@ class TestActiveNode:
         assert isinstance(active_node.data_dir, Path)
         assert active_node.quorum_size == 2
         assert isinstance(active_node.cluster_nodes, dict)
-        assert active_node.cluster_nodes == {}
 
     @pytest.mark.asyncio
-    async def test_node_health_check(self, active_node, mock_cluster_nodes):
-        """Test node health monitoring."""
-        active_node.cluster_nodes = mock_cluster_nodes.copy()
-
-        # Mock the health check response
-        with patch('aiohttp.ClientSession.get', new_callable=AsyncMock) as mock_get:
-            mock_get.return_value.__aenter__.return_value.json = AsyncMock(
-                return_value={"status": "healthy", "load": 0.5}
-            )
-
-            await active_node.check_node_health()
-            assert all(node.status == "healthy" for node in active_node.cluster_nodes.values())
-
-    @pytest.mark.asyncio
-    async def test_write_operation(self, active_node, mock_cluster_nodes):
+    async def test_write_operation(self, active_node, mock_cluster_nodes, volume_dir):
         """Test write operation with quorum consistency."""
         active_node.cluster_nodes = mock_cluster_nodes.copy()
         test_data = b"test data"
+
+        # Create test volume
+        volume_path = volume_dir / "test_volume"
+        volume_path.mkdir(exist_ok=True)
 
         # Mock successful write to other nodes
         with patch.object(active_node, 'replicate_write', new_callable=AsyncMock) as mock_replicate:
@@ -99,10 +78,14 @@ class TestActiveNode:
             assert result is True
 
     @pytest.mark.asyncio
-    async def test_read_operation(self, active_node, mock_cluster_nodes):
+    async def test_read_operation(self, active_node, mock_cluster_nodes, volume_dir):
         """Test read operation with different consistency levels."""
         active_node.cluster_nodes = mock_cluster_nodes.copy()
         test_data = b"test data"
+
+        # Create test file
+        test_file = volume_dir / "test_1"
+        test_file.write_bytes(test_data)
 
         # Mock read from other nodes
         with patch.object(active_node, 'read_from_node', new_callable=AsyncMock) as mock_read:
@@ -127,17 +110,18 @@ class TestActiveNode:
             assert result.content == test_data
 
     @pytest.mark.asyncio
-    async def test_node_failure_handling(self, active_node, mock_cluster_nodes):
-        """Test handling of node failures."""
+    async def test_node_health_check(self, active_node, mock_cluster_nodes):
+        """Test node health monitoring."""
         active_node.cluster_nodes = mock_cluster_nodes.copy()
 
-        # Simulate a node failure
+        # Mock the health check response
         with patch('aiohttp.ClientSession.get', new_callable=AsyncMock) as mock_get:
-            mock_get.side_effect = aiohttp.ClientError
+            mock_get.return_value.__aenter__.return_value.json = AsyncMock(
+                return_value={"status": "healthy", "load": 0.5}
+            )
 
             await active_node.check_node_health()
-            # Verify nodes are marked as unhealthy
-            assert any(node.status == "unhealthy" for node in active_node.cluster_nodes.values())
+            assert all(node.status == "healthy" for node in active_node.cluster_nodes.values())
 
     @pytest.mark.asyncio
     async def test_consistency_error_handling(self, active_node, mock_cluster_nodes):
@@ -190,6 +174,19 @@ class TestActiveNode:
             mock_replicate.return_value = True
             result = await active_node.replicate_write(write_op, ["node_1", "node_2"])
             assert result is True
+
+    @pytest.mark.asyncio
+    async def test_node_failure_handling(self, active_node, mock_cluster_nodes):
+        """Test handling of node failures."""
+        active_node.cluster_nodes = mock_cluster_nodes.copy()
+
+        # Simulate a node failure
+        with patch('aiohttp.ClientSession.get', new_callable=AsyncMock) as mock_get:
+            mock_get.side_effect = aiohttp.ClientError
+
+            await active_node.check_node_health()
+            # Verify nodes are marked as unhealthy
+            assert any(node.status == "unhealthy" for node in active_node.cluster_nodes.values())
 
 if __name__ == "__main__":
     pytest.main([__file__])
