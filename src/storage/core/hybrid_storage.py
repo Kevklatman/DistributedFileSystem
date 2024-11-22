@@ -7,7 +7,7 @@ import shutil
 import dataclasses
 from providers import get_cloud_provider, CloudProviderBase
 
-from .models import (
+from models import (
     StorageLocation,
     StoragePool,
     Volume,

@@ -8,7 +8,7 @@ import logging
 from pathlib import Path
 import json
 
-from .models import (
+from models import (
     Volume,
     StorageLocation,
     TieringPolicy,
@@ -41,18 +41,18 @@ class PolicyConstraints:
 
 class HybridPolicyEngine:
     """Central policy engine combining ML and manual policies"""
-    
+
     def __init__(self, data_path: Path):
         self.data_path = data_path
         self.logger = logging.getLogger(__name__)
         self.mode = PolicyMode.HYBRID
         self.ml_model = None  # To be initialized with ML model
         self.constraints = PolicyConstraints()
-        
+
         # Load manual policy overrides if exists
         self.manual_overrides_path = data_path / "config" / "policy_overrides.json"
         self.manual_overrides = self._load_manual_overrides()
-        
+
     def _load_manual_overrides(self) -> Dict:
         """Load manual policy overrides from config"""
         if self.manual_overrides_path.exists():
@@ -62,13 +62,13 @@ class HybridPolicyEngine:
                 self.logger.error("Failed to load manual overrides")
                 return {}
         return {}
-        
-    def evaluate_tiering_decision(self, 
+
+    def evaluate_tiering_decision(self,
                                 volume: Volume,
                                 file_path: str,
                                 temp_data: DataTemperature) -> PolicyDecision:
         """Evaluate tiering decision using hybrid approach"""
-        
+
         # Check for manual overrides first
         override = self._check_manual_override(volume.id, file_path)
         if override:
@@ -79,26 +79,26 @@ class HybridPolicyEngine:
                 reason="Manual policy override applied",
                 manual_override=True
             )
-            
+
         # Get ML prediction if enabled
         ml_decision = None
         if self.mode in [PolicyMode.ML, PolicyMode.HYBRID] and self.ml_model:
             ml_decision = self._get_ml_tiering_prediction(volume, file_path, temp_data)
-            
+
         # In manual or low confidence cases, use traditional logic
-        if (self.mode == PolicyMode.MANUAL or 
+        if (self.mode == PolicyMode.MANUAL or
             (ml_decision and ml_decision.confidence < 0.7)):
             return self._apply_traditional_tiering_logic(temp_data, volume.tiering_policy)
-            
+
         return ml_decision or self._apply_traditional_tiering_logic(
             temp_data, volume.tiering_policy
         )
-        
+
     def evaluate_replication_decision(self,
                                    volume: Volume,
                                    target_location: StorageLocation) -> PolicyDecision:
         """Evaluate replication decision using hybrid approach"""
-        
+
         # Check compliance requirements first
         if self._requires_compliance_replication(volume):
             return PolicyDecision(
@@ -111,20 +111,20 @@ class HybridPolicyEngine:
                 reason="Compliance requirement",
                 manual_override=True
             )
-            
+
         # Get ML prediction if enabled
         ml_decision = None
         if self.mode in [PolicyMode.ML, PolicyMode.HYBRID] and self.ml_model:
             ml_decision = self._get_ml_replication_prediction(volume, target_location)
-            
+
         # Apply constraints
         decision = ml_decision or self._apply_traditional_replication_logic(
             volume, target_location
         )
         decision = self._apply_constraints(decision)
-        
+
         return decision
-        
+
     def _check_manual_override(self, volume_id: str, file_path: str) -> Optional[Dict]:
         """Check if manual override exists for path"""
         for override in self.manual_overrides.get("path_overrides", []):
@@ -134,7 +134,7 @@ class HybridPolicyEngine:
             ):
                 return override
         return None
-        
+
     def _get_ml_tiering_prediction(self,
                                  volume: Volume,
                                  file_path: str,
@@ -142,7 +142,7 @@ class HybridPolicyEngine:
         """Get ML-based tiering prediction"""
         if not self.ml_model:
             return None
-            
+
         # Extract features for ML
         features = {
             "access_frequency": temp_data.access_frequency,
@@ -151,11 +151,11 @@ class HybridPolicyEngine:
             "current_tier": temp_data.current_tier.value,
             # Add more features as needed
         }
-        
+
         # Get prediction from ML model
         prediction = self.ml_model.predict(features)
         confidence = self.ml_model.predict_proba(features).max()
-        
+
         return PolicyDecision(
             action="move_tier",
             parameters={"target_tier": prediction},
@@ -163,7 +163,7 @@ class HybridPolicyEngine:
             reason="ML prediction based on access patterns",
             ml_factors=features
         )
-        
+
     def _apply_traditional_tiering_logic(self,
                                       temp_data: DataTemperature,
                                       policy: TieringPolicy) -> PolicyDecision:
@@ -174,7 +174,7 @@ class HybridPolicyEngine:
             0.4 * min(1.0, temp_data.access_frequency / 10) +
             0.2 * (1 - min(1.0, temp_data.size_bytes / (1024**3)))
         )
-        
+
         # Determine tier based on temperature score
         if temperature_score > 0.7:
             target_tier = TierType.PERFORMANCE
@@ -184,18 +184,18 @@ class HybridPolicyEngine:
             target_tier = TierType.COLD
         else:
             target_tier = TierType.ARCHIVE
-            
+
         return PolicyDecision(
             action="move_tier",
             parameters={"target_tier": target_tier},
             confidence=0.8,  # High confidence in traditional logic
             reason="Traditional temperature-based decision"
         )
-        
+
     def _apply_constraints(self, decision: PolicyDecision) -> PolicyDecision:
         """Apply policy constraints to decision"""
         modified = False
-        
+
         # Apply region constraints
         if "target_location" in decision.parameters:
             target_loc = decision.parameters["target_location"]
@@ -209,7 +209,7 @@ class HybridPolicyEngine:
                     target_loc
                 )
                 modified = True
-                
+
         # Apply cost constraints
         if "target_tier" in decision.parameters:
             tier_costs = {
@@ -226,28 +226,28 @@ class HybridPolicyEngine:
                         decision.parameters["target_tier"] = tier
                         modified = True
                         break
-                        
+
         if modified:
             decision.reason += " (modified by constraints)"
-            
+
         return decision
-        
+
     def update_constraints(self, constraints: Dict[str, Any]) -> None:
         """Update policy constraints"""
         for key, value in constraints.items():
             if hasattr(self.constraints, key):
                 setattr(self.constraints, key, value)
-                
+
     def set_mode(self, mode: PolicyMode) -> None:
         """Set policy evaluation mode"""
         self.mode = mode
-        
+
     def add_manual_override(self, override: Dict[str, Any]) -> None:
         """Add a manual policy override"""
         if "path_overrides" not in self.manual_overrides:
             self.manual_overrides["path_overrides"] = []
         self.manual_overrides["path_overrides"].append(override)
-        
+
         # Save to file
         self.manual_overrides_path.parent.mkdir(parents=True, exist_ok=True)
         self.manual_overrides_path.write_text(json.dumps(self.manual_overrides, indent=2))

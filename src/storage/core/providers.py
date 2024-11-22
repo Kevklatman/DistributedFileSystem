@@ -11,8 +11,8 @@ from azure.core.exceptions import AzureError
 from dotenv import load_dotenv
 import logging
 import psutil
-from api.storage.interfaces import BaseCloudProvider
-from api.storage.metrics.collector import SystemMetricsCollector
+from src.storage.core.interfaces import BaseCloudProvider
+from src.storage.metrics.collector import SystemMetricsCollector
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

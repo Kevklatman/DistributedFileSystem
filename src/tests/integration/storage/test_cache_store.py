@@ -2,7 +2,7 @@
 import unittest
 import time
 from datetime import datetime, timedelta
-from storage.cache_store import CacheStore, ConsistencyLevel
+from storage.data.cache_store import CacheStore, ConsistencyLevel
 
 class TestCacheStore(unittest.TestCase):
     """Test cases for cache store."""

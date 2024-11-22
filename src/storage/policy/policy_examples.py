@@ -7,7 +7,7 @@ import json
 import logging
 
 from .policy_engine import HybridPolicyEngine, PolicyMode
-from .models import DataTemperature, Volume, StorageLocation, TieringPolicy
+from models import DataTemperature, Volume, StorageLocation, TieringPolicy
 from .tiering_manager import TierType
 
 logging.basicConfig(level=logging.INFO)

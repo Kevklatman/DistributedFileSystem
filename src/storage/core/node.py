@@ -15,7 +15,7 @@ from prometheus_client import (
     Gauge,
     CollectorRegistry
 )
-from .cache_store import CacheStore
+from data.cache_store import CacheStore
 
 # Create a custom registry for DFS metrics
 DFS_REGISTRY = CollectorRegistry()
@@ -349,18 +349,18 @@ class StorageNode:
                     self.cache.put(file_id, data)
                     file_size = len(data)
                     NETWORK_TRANSMITTED.labels(node_id=self.node_id).inc(file_size)
-                
+
             elif operation == 'post':
                 # Simulate receiving file data
                 file_size = 1024 * (2 ** random.randint(0, 16))
                 file_id = f"file_{random.randint(1000, 9999)}"
                 data = "Simulated file content"
-                
+
                 # Store in cache
                 self.cache.put(file_id, data)
                 FILE_SIZE_HISTOGRAM.labels(node_id=self.node_id).observe(file_size)
                 NETWORK_RECEIVED.labels(node_id=self.node_id).inc(file_size)
-                
+
             elif operation == 'delete':
                 file_id = request.match_info.get('file_id')
                 # Remove from cache if exists

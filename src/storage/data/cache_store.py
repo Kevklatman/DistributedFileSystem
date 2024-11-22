@@ -3,7 +3,7 @@ from typing import Any, Dict, Optional, Set, Tuple
 from datetime import datetime
 import threading
 from dataclasses import dataclass
-from .interfaces import CacheInterface
+from core.interfaces import CacheInterface
 
 @dataclass
 class CacheEntry:

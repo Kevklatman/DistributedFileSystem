@@ -6,7 +6,7 @@ from datetime import datetime
 import asyncio
 import logging
 from collections import defaultdict
-from ..metrics.collector import MetricsCollector, NetworkMetrics
+from storage.metrics.collector import MetricsCollector, NetworkMetrics
 
 logger = logging.getLogger(__name__)
 

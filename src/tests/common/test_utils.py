@@ -1,6 +1,6 @@
 """Test utilities and mock classes."""
 from unittest.mock import create_autospec
-from src.api.storage.cloud.providers import CloudStorageProvider
+from src.storage.core.providers import CloudStorageProvider
 
 def create_mock_provider(success=True, latency=50, offline_mode=False):
     """Create a mock cloud provider with configurable behavior."""

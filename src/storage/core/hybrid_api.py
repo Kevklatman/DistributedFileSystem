@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Dict
 import io
 
-from .models import StorageLocation, StoragePool, Volume
+from models import StorageLocation, StoragePool, Volume
 from .hybrid_storage import HybridStorageManager
 
 app = Flask(__name__)

@@ -9,7 +9,7 @@ import json
 from pathlib import Path
 import hashlib
 from dataclasses import dataclass
-from .models import (
+from models import (
     Volume,
     ReplicationPolicy,
     ReplicationState,
@@ -18,7 +18,7 @@ from .models import (
     NodeState,
     VersionedData
 )
-from .policy_engine import HybridPolicyEngine, PolicyMode
+from policy.policy_engine import HybridPolicyEngine, PolicyMode
 import logging
 import random
 
@@ -50,7 +50,7 @@ class ConsistencyManager:
 
 class ReplicationManager:
     """Manages cross-region replication with SnapMirror-like functionality"""
-    
+
     def __init__(self, data_path: Path):
         self.data_path = data_path
         self.chunk_size = 1024 * 1024  # 1MB default chunk size
@@ -66,18 +66,18 @@ class ReplicationManager:
         """Initialize replication for a volume"""
         if volume.id in self.active_replications:
             return
-            
+
         # Use policy engine for decision
         decision = HybridPolicyEngine(self.data_path).evaluate_replication_decision(
             volume, target_location
         )
-        
+
         if decision.action != "replicate":
             self.logger.info(
                 f"Skipping replication for {volume.id}. Reason: {decision.reason}"
             )
             return
-            
+
         state = ReplicationState(
             source_volume=volume,
             target_location=decision.parameters["target_location"],
@@ -87,11 +87,11 @@ class ReplicationManager:
             priority=decision.parameters.get("priority", "normal")
         )
         self.active_replications[volume.id] = state
-        
+
         # Initialize baseline snapshot if needed
         if not volume.snapshots:
             await self._create_baseline_snapshot(volume)
-            
+
     async def _create_baseline_snapshot(self, volume: Volume) -> None:
         """Create initial snapshot for replication"""
         snapshot = SnapshotState(
@@ -99,97 +99,97 @@ class ReplicationManager:
             metadata={"type": "replication_baseline"}
         )
         volume.snapshots[snapshot.id] = snapshot
-        
+
     async def start_replication(self, volume_id: str) -> None:
         """Start replication process for a volume"""
         if volume_id not in self.active_replications:
             raise ValueError(f"Replication not set up for volume {volume_id}")
-            
+
         state = self.active_replications[volume_id]
         if state.in_progress:
             return
-            
+
         state.in_progress = True
         try:
             await self._replicate_volume(state)
         finally:
             state.in_progress = False
-            
+
     async def _replicate_volume(self, state: ReplicationState) -> None:
         """Perform volume replication"""
         volume = state.source_volume
         policy = state.policy
-        
+
         # Get latest snapshot
         latest_snapshot = max(
             volume.snapshots.values(),
             key=lambda s: s.creation_time
         )
-        
+
         # Get changed blocks since last sync
         changed_blocks = await self._get_changed_blocks(
             volume,
             latest_snapshot,
             state.last_sync
         )
-        
+
         # Optimize chunk size based on network conditions
         optimal_chunk_size = await self._calculate_optimal_chunk_size()
         chunks = await self._prepare_chunks(volume, changed_blocks, optimal_chunk_size)
-        
+
         # Start transfer with bandwidth management
         async with self._bandwidth_limiter():
             await self._transfer_chunks(chunks, state.target_location)
-            
+
         # Update replication state
         state.last_sync = datetime.now()
-        
+
     async def _get_changed_blocks(self, volume: Volume, snapshot: SnapshotState,
                                 last_sync: Optional[datetime]) -> Set[int]:
         """Get blocks that changed since last sync"""
         if not last_sync:
             # First sync, return all blocks
             return set(range(volume.size // self.chunk_size))
-            
+
         changed = set()
         # Compare with previous snapshot
         for block_id in snapshot.changed_blocks:
             changed.add(block_id)
-            
+
         return changed
-        
+
     async def _prepare_chunks(self, volume: Volume, block_ids: Set[int],
                             chunk_size: int) -> List[ChunkMetadata]:
         """Prepare chunks for transfer with deduplication"""
         chunks = []
         volume_path = self.data_path / volume.primary_pool_id / volume.id
-        
+
         for block_id in block_ids:
             offset = block_id * chunk_size
             with open(volume_path, 'rb') as f:
                 f.seek(offset)
                 data = f.read(chunk_size)
-                
+
             checksum = hashlib.sha256(data).hexdigest()
-            
+
             # Check if chunk is in cache
             if checksum not in self.chunk_cache:
                 self.chunk_cache[checksum] = data
-                
+
             chunks.append(ChunkMetadata(
                 offset=offset,
                 size=len(data),
                 checksum=checksum
             ))
-            
+
         return chunks
-        
+
     async def _calculate_optimal_chunk_size(self) -> int:
         """Calculate optimal chunk size based on network conditions"""
         # Implement network speed test and RTT measurement
         # For now, return default
         return self.chunk_size
-        
+
     async def _transfer_chunks(self, chunks: List[ChunkMetadata],
                              target: StorageLocation) -> None:
         """Transfer chunks to target with bandwidth management"""
@@ -198,26 +198,26 @@ class ReplicationManager:
             for chunk in chunks:
                 if self.bandwidth_limit:
                     await self._wait_for_bandwidth(chunk.size)
-                    
+
                 task = asyncio.create_task(
                     self._transfer_chunk(session, chunk, target)
                 )
                 tasks.append(task)
-                
+
             await asyncio.gather(*tasks)
-            
+
     async def _transfer_chunk(self, session: aiohttp.ClientSession,
                             chunk: ChunkMetadata, target: StorageLocation) -> None:
         """Transfer a single chunk"""
         data = self.chunk_cache[chunk.checksum]
-        
+
         # Compress if beneficial
         if len(data) > 1024:  # Only compress chunks > 1KB
             compressed = await self._compress_chunk(data)
             if len(compressed) < len(data):
                 data = compressed
                 chunk.compressed = True
-                
+
         # Upload to target
         async with session.put(
             f"{target.endpoint}/{chunk.offset}",
@@ -228,33 +228,33 @@ class ReplicationManager:
             }
         ) as response:
             await response.read()
-            
+
     async def _compress_chunk(self, data: bytes) -> bytes:
         """Compress chunk data"""
         import zlib
         return zlib.compress(data)
-        
+
     async def _wait_for_bandwidth(self, size: int) -> None:
         """Wait to respect bandwidth limit"""
         if not self.bandwidth_limit:
             return
-            
+
         wait_time = size / self.bandwidth_limit
         await asyncio.sleep(wait_time)
-        
+
     @asyncio.contextmanager
     async def _bandwidth_limiter(self):
         """Context manager for bandwidth limiting"""
         # Could implement token bucket algorithm here
         yield
-        
+
     def update_policy(self, volume_id: str, policy: ReplicationPolicy) -> None:
         """Update replication policy for a volume"""
         if volume_id not in self.active_replications:
             raise ValueError(f"No active replication for volume {volume_id}")
-            
+
         self.active_replications[volume_id].policy = policy
-        
+
     def set_bandwidth_limit(self, limit_bytes_per_sec: Optional[int]) -> None:
         """Set bandwidth limit for replication"""
         self.bandwidth_limit = limit_bytes_per_sec
@@ -343,14 +343,14 @@ class ReplicationManager:
         try:
             # Get current replicas
             current_replicas = self._get_data_locations(data_id)
-            
+
             # Calculate how many new replicas we need
             needed_replicas = max(0, self.consistency_manager.quorum_size - len(current_replicas))
-            
+
             if needed_replicas > 0:
                 # Find suitable nodes for new replicas
                 target_nodes = self._select_replica_nodes(needed_replicas, current_replicas)
-                
+
                 # Replicate to new nodes
                 replication_tasks = []
                 for node in target_nodes:
@@ -358,7 +358,7 @@ class ReplicationManager:
                         node, data_id, version_data.content, version_data.checksum
                     )
                     replication_tasks.append(task)
-                
+
                 await asyncio.gather(*replication_tasks)
 
         except Exception as e:
@@ -385,49 +385,49 @@ class ReplicationManager:
         - Geographic location for data locality
         - Current load and capacity
         - Network latency
-        
+
         Args:
             count: Number of replica nodes needed
             exclude_nodes: Set of node IDs to exclude from selection
-            
+
         Returns:
             List of selected NodeState objects
         """
         try:
             # Get all available nodes from cluster state
             available_nodes = self._get_available_nodes()
-            
+
             # Filter out excluded nodes
             candidate_nodes = [
-                node for node in available_nodes 
+                node for node in available_nodes
                 if node.node_id not in exclude_nodes
             ]
-            
+
             if not candidate_nodes:
                 raise ValueError("No available nodes for replication")
-                
+
             # Score each node based on multiple factors
             scored_nodes = []
             for node in candidate_nodes:
                 score = self._calculate_node_score(node)
                 scored_nodes.append((score, node))
-                
+
             # Sort by score (highest first) and select top nodes
             scored_nodes.sort(reverse=True, key=lambda x: x[0])
             selected_nodes = [node for _, node in scored_nodes[:count]]
-            
+
             if len(selected_nodes) < count:
                 self.logger.warning(
                     f"Could only find {len(selected_nodes)} nodes for replication, "
                     f"wanted {count}"
                 )
-                
+
             return selected_nodes
-            
+
         except Exception as e:
             self.logger.error(f"Error selecting replica nodes: {str(e)}")
             return []
-            
+
     def _calculate_node_score(self, node: NodeState) -> float:
         """
         Calculate a score for a node based on various metrics.
@@ -436,41 +436,41 @@ class ReplicationManager:
         try:
             # Start with base score
             score = 100.0
-            
+
             # Factor 1: System Load (0-30 points)
             # Lower load is better
             load_score = 30 * (1 - min(1.0, node.system_load / 10.0))
             score += load_score
-            
+
             # Factor 2: Available Storage (0-25 points)
             # More free storage is better
             storage_ratio = node.available_storage / node.total_storage
             storage_score = 25 * storage_ratio
             score += storage_score
-            
+
             # Factor 3: Memory Usage (0-20 points)
             # Lower memory usage is better
             memory_ratio = node.used_memory / node.total_memory
             memory_score = 20 * (1 - memory_ratio)
             score += memory_score
-            
+
             # Factor 4: Network Health (0-15 points)
             # Lower latency and higher bandwidth is better
             if node.network_latency > 0:
                 latency_score = 15 * (1 - min(1.0, node.network_latency / 1000.0))
                 score += latency_score
-                
+
             # Factor 5: Geographic Location (0-10 points)
             # Prefer nodes in different regions for redundancy
             geo_score = self._calculate_geo_distribution_score(node)
             score += geo_score
-            
+
             return max(0.0, min(200.0, score))
-            
+
         except Exception as e:
             self.logger.error(f"Error calculating node score: {str(e)}")
             return 0.0
-            
+
     def _calculate_geo_distribution_score(self, node: NodeState) -> float:
         """Calculate score based on geographic distribution of replicas"""
         try:
@@ -479,16 +479,16 @@ class ReplicationManager:
             for existing_node in self._get_available_nodes():
                 if existing_node.region:
                     current_regions.add(existing_node.region)
-                    
+
             # Reward nodes in new regions
             if node.region and node.region not in current_regions:
                 return 10.0
             return 5.0
-            
+
         except Exception as e:
             self.logger.error(f"Error calculating geo distribution score: {str(e)}")
             return 0.0
-            
+
     def _get_available_nodes(self) -> List[NodeState]:
         """Get list of all available nodes in the cluster"""
         try:
@@ -502,13 +502,13 @@ class ReplicationManager:
                     node_state = self._get_node_state(node_id)
                     if node_state:
                         available_nodes.add(node_state)
-            
+
             return list(available_nodes)
-            
+
         except Exception as e:
             self.logger.error(f"Error getting available nodes: {str(e)}")
             return []
-            
+
     def _get_node_state(self, node_id: str) -> Optional[NodeState]:
         """Get current state of a node"""
         try:
@@ -525,7 +525,7 @@ class ReplicationManager:
                 network_latency=random.uniform(10, 1000),
                 region=f"region-{random.randint(1, 5)}"
             )
-            
+
         except Exception as e:
             self.logger.error(f"Error getting node state: {str(e)}")
             return None

@@ -12,7 +12,7 @@ import os
 import json
 from pathlib import Path
 
-from .models import (
+from models import (
     DeduplicationState,
     CompressionState,
     ThinProvisioningState,
