@@ -6,7 +6,7 @@ For proper tests, see tests/unit/ and tests/integration/.
 
 import os
 import time
-from api.storage.cloud.providers import AWSS3Provider
+from ..src.api.storage.providers import AWSS3Provider
 from storage.metrics.visualizer import MetricsVisualizer
 from dotenv import load_dotenv
 
