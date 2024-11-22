@@ -17,7 +17,7 @@ RUN pip install --no-cache-dir \
     grpcio-tools \
     protobuf
 
-# Copy CSI driver code
+# Copy source code
 COPY src/csi /app/csi
 COPY src/api /app/api
 
@@ -29,6 +29,13 @@ RUN python -m grpc_tools.protoc \
     /app/csi/proto/csi.proto
 
 WORKDIR /app/csi
+
+# Create socket directory
+RUN mkdir -p /csi
+
+# Set environment variables
+ENV PYTHONPATH=/app
+ENV CSI_ENDPOINT=unix:///csi/csi.sock
 
 # Run the CSI driver
 CMD ["python", "driver.py"]

@@ -1,30 +1,42 @@
-FROM python:3.8-slim
+FROM python:3.9-slim
 
-# Set working directory
 WORKDIR /app
 
-# Copy requirements first for better caching
-COPY requirements.txt .
+# Install system dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
 
-# Install dependencies
+# Copy requirements first to leverage Docker cache
+COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy source code
+# Copy the application code
 COPY src/api ./api
 
-# Copy environment file
-COPY .env.example .env
+# Create data and cache directories
+RUN mkdir -p /data /data/cache && \
+    chmod 750 /data
 
 # Set environment variables
+ENV PYTHONUNBUFFERED=1
+ENV STORAGE_DATA_DIR=/data
+ENV CACHE_DIR=/data/cache
 ENV PYTHONPATH=/app
-ENV PORT=8000
+ENV NODE_ID=
+ENV PORT=8080
 ENV HOST=0.0.0.0
 
-# Create data directory
-RUN mkdir -p /app/data
+# Create volume for persistent storage
+VOLUME ["/data"]
 
-# Expose port
-EXPOSE 8000
+# Expose the HTTP port
+EXPOSE 8080
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8080/health || exit 1
 
 # Run the storage node
-CMD ["python", "-u", "/app/api/storage/node.py"]
+CMD ["python", "-m", "api.storage.node"]
