@@ -64,3 +64,5 @@ Thumbs.db
 
 # Metrics reports
 metrics_reports/
+
+.DS_Store
