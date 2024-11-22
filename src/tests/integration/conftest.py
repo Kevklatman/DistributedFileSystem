@@ -1,62 +1,46 @@
 import os
 import sys
 import pytest
+import tempfile
+import shutil
+from pathlib import Path
 
 # Set environment variables before any imports
 os.environ['STORAGE_ENV'] = 'local'
-os.environ['API_PORT'] = '8001'
-os.environ['API_HOST'] = '0.0.0.0'
+os.environ['NODE_ID'] = 'test-node-1'
+os.environ['POD_IP'] = '10.0.0.1'
 
 # Add the src directory to the Python path
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../src/api')))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 
-from storage_backend import LocalStorageBackend
-from fs_manager import FileSystemManager
-import app
+from src.storage.core.hybrid_storage import HybridStorageManager
+from src.storage.core.active_node import ActiveNode
+from src.storage.core.cluster_manager import StorageClusterManager
 
 @pytest.fixture(autouse=True)
 def setup_test_storage():
     """Set up and clean up test storage directory"""
-    test_storage_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), 'test_storage'))
+    test_storage_dir = tempfile.mkdtemp()
     os.environ['LOCAL_STORAGE_DIR'] = test_storage_dir
     
-    # Create test storage directory
-    os.makedirs(test_storage_dir, exist_ok=True)
-    
-    yield
+    yield test_storage_dir
     
     # Clean up test storage directory
-    if os.path.exists(test_storage_dir):
-        for root, dirs, files in os.walk(test_storage_dir, topdown=False):
-            for name in files:
-                os.remove(os.path.join(root, name))
-            for name in dirs:
-                os.rmdir(os.path.join(root, name))
-        os.rmdir(test_storage_dir)
+    shutil.rmtree(test_storage_dir)
 
 @pytest.fixture
-def fs_manager():
-    """Create a fresh FileSystemManager for each test"""
-    manager = FileSystemManager()
-    yield manager
+def hybrid_manager(setup_test_storage):
+    """Create a fresh HybridStorageManager for each test"""
+    manager = HybridStorageManager(setup_test_storage)
+    return manager
 
 @pytest.fixture
-def storage_backend(fs_manager):
-    """Create a fresh LocalStorageBackend for each test"""
-    backend = LocalStorageBackend(fs_manager)
-    yield backend
+def active_node(setup_test_storage):
+    """Create a fresh ActiveNode for each test"""
+    node = ActiveNode(storage_path=setup_test_storage)
+    return node
 
 @pytest.fixture
-def test_app():
-    """Create a fresh Flask app for each test"""
-    yield app.app
-
-@pytest.fixture
-def client(test_app):
-    """Create a test client"""
-    return test_app.test_client()
-
-@pytest.fixture
-def runner(test_app):
-    """Create a CLI test runner"""
-    return test_app.test_cli_runner()
+def cluster_manager():
+    """Create a fresh StorageClusterManager for each test"""
+    return StorageClusterManager(namespace="test-namespace")

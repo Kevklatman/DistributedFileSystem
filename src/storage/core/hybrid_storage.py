@@ -5,9 +5,11 @@ from typing import Dict, List, Optional, Tuple, Set
 from pathlib import Path
 import shutil
 import dataclasses
-from providers import get_cloud_provider, CloudProviderBase
+import asyncio
+import logging
+from src.storage.core.providers import get_cloud_provider, CloudProviderBase
 
-from models import (
+from src.storage.core.models import (
     StorageLocation,
     StoragePool,
     Volume,
@@ -43,6 +45,7 @@ class HybridStorageManager:
         self.metadata_path = self.root_path / "metadata"
         self.data_path = self.root_path / "data"
         self.system = self._load_or_create_system()
+        self.logger = logging.getLogger(__name__)
 
         # Initialize cloud provider if environment is set to AWS
         self.cloud_provider = None
@@ -50,7 +53,7 @@ class HybridStorageManager:
             try:
                 self.cloud_provider = get_cloud_provider('aws_s3')
             except Exception as e:
-                print(f"Warning: Failed to initialize cloud provider: {e}")
+                self.logger.error(f"Failed to initialize cloud provider: {e}")
 
         # Ensure required directories exist
         self.metadata_path.mkdir(parents=True, exist_ok=True)
@@ -62,49 +65,7 @@ class HybridStorageManager:
         if system_file.exists():
             with open(system_file, 'r') as f:
                 data = json.load(f, object_hook=decode_datetime)
-
-                # Reconstruct objects from JSON
-                storage_pools = {}
-                for pool_id, pool_data in data.get('storage_pools', {}).items():
-                    location = StorageLocation(**pool_data['location'])
-                    pool = StoragePool(
-                        name=pool_data['name'],
-                        location=location,
-                        total_capacity_gb=pool_data['total_capacity_gb'],
-                        available_capacity_gb=pool_data['available_capacity_gb'],
-                        id=pool_id,
-                        is_thin_provisioned=pool_data.get('is_thin_provisioned', False),
-                        encryption_enabled=pool_data.get('encryption_enabled', True),
-                        created_at=pool_data.get('created_at', datetime.now())
-                    )
-                    storage_pools[pool_id] = pool
-
-                volumes = {}
-                for vol_id, vol_data in data.get('volumes', {}).items():
-                    cloud_location = None
-                    if vol_data.get('cloud_location'):
-                        cloud_location = StorageLocation(**vol_data['cloud_location'])
-                    volume = Volume(
-                        name=vol_data['name'],
-                        size_gb=vol_data['size_gb'],
-                        primary_pool_id=vol_data['primary_pool_id'],
-                        id=vol_id,
-                        cloud_backup_enabled=vol_data.get('cloud_backup_enabled', False),
-                        cloud_tiering_enabled=vol_data.get('cloud_tiering_enabled', False),
-                        cloud_location=cloud_location,
-                        encryption_at_rest=vol_data.get('encryption_at_rest', True),
-                        compression_enabled=vol_data.get('compression_enabled', True),
-                        deduplication_enabled=vol_data.get('deduplication_enabled', True),
-                        created_at=vol_data.get('created_at', datetime.now())
-                    )
-                    volumes[vol_id] = volume
-
-                return HybridStorageSystem(
-                    name=data.get('name', 'default'),
-                    id=data.get('id'),
-                    storage_pools=storage_pools,
-                    volumes=volumes
-                )
+                return HybridStorageSystem(**data)
         return HybridStorageSystem(name="default")
 
     def _save_system_state(self) -> None:
@@ -113,7 +74,7 @@ class HybridStorageManager:
         with open(system_file, 'w') as f:
             json.dump(dataclasses.asdict(self.system), f, cls=EnhancedJSONEncoder, indent=2)
 
-    def create_storage_pool(
+    async def create_storage_pool(
         self,
         name: str,
         location: StorageLocation,
@@ -131,11 +92,11 @@ class HybridStorageManager:
         pool_path = self.data_path / pool.id
         pool_path.mkdir(parents=True, exist_ok=True)
 
-        self.system.add_storage_pool(pool)
+        self.system.pools[pool.id] = pool
         self._save_system_state()
         return pool
 
-    def create_volume(
+    async def create_volume(
         self,
         name: str,
         size_gb: int,
@@ -144,7 +105,17 @@ class HybridStorageManager:
         cloud_tiering: bool = False
     ) -> Volume:
         """Create a new volume in a storage pool"""
-        volume = self.system.create_volume(name, size_gb, pool_id)
+        if pool_id not in self.system.pools:
+            raise ValueError(f"Pool {pool_id} not found")
+
+        volume = Volume(
+            name=name,
+            size_gb=size_gb,
+            primary_pool_id=pool_id,
+            cloud_backup_enabled=cloud_backup,
+            cloud_tiering_enabled=cloud_tiering,
+            created_at=datetime.now()
+        )
 
         # Create volume directory
         pool_path = self.data_path / pool_id
@@ -154,18 +125,23 @@ class HybridStorageManager:
         if (cloud_backup or cloud_tiering) and self.cloud_provider:
             # Create a bucket for this volume
             bucket_name = f"hybrid-storage-{volume.id.lower()}"
-            if self.cloud_provider.create_bucket(bucket_name):
-                volume.cloud_backup_enabled = cloud_backup
-                volume.cloud_tiering_enabled = cloud_tiering
+            try:
+                await self.cloud_provider.create_bucket(bucket_name)
                 volume.cloud_location = StorageLocation(
-                    type='aws_s3',
-                    path=bucket_name
+                    node_id="cloud",
+                    path=bucket_name,
+                    size_bytes=0,
+                    replicas=[],
+                    temperature=DataTemperature.COLD
                 )
+            except Exception as e:
+                self.logger.error(f"Failed to create cloud bucket: {e}")
 
+        self.system.volumes[volume.id] = volume
         self._save_system_state()
         return volume
 
-    def write_data(self, volume_id: str, path: str, data: bytes) -> None:
+    async def write_data(self, volume_id: str, path: str, data: bytes) -> None:
         """Write data to a volume"""
         if volume_id not in self.system.volumes:
             raise ValueError(f"Volume {volume_id} not found")
@@ -178,22 +154,26 @@ class HybridStorageManager:
         full_path.parent.mkdir(parents=True, exist_ok=True)
 
         # Write locally
-        with open(full_path, 'wb') as f:
-            f.write(data)
+        async with asyncio.Lock():
+            with open(full_path, 'wb') as f:
+                f.write(data)
 
-        # If cloud backup is enabled, write to cloud immediately
+        # If cloud backup is enabled, write to cloud
         if volume.cloud_backup_enabled and self.cloud_provider and volume.cloud_location:
-            self.cloud_provider.upload_file(
-                data,
-                path,
-                volume.cloud_location.path
-            )
+            try:
+                await self.cloud_provider.upload_file(
+                    data,
+                    path,
+                    volume.cloud_location.path
+                )
+            except Exception as e:
+                self.logger.error(f"Failed to backup to cloud: {e}")
 
         # Check if we need to tier this data
         if volume.cloud_tiering_enabled:
-            self._check_tiering_policy(volume_id, path)
+            await self._check_tiering_policy(volume_id, path)
 
-    def read_data(self, volume_id: str, path: str) -> bytes:
+    async def read_data(self, volume_id: str, path: str) -> bytes:
         """Read data from a volume"""
         if volume_id not in self.system.volumes:
             raise ValueError(f"Volume {volume_id} not found")
@@ -201,134 +181,98 @@ class HybridStorageManager:
         volume = self.system.volumes[volume_id]
         pool_id = volume.primary_pool_id
 
-        # Try local first
-        local_path = self.data_path / pool_id / volume_id / path
-        if local_path.exists():
-            # Check if it's a stub file
-            with open(local_path, 'r') as f:
-                first_line = f.readline().strip()
-                if first_line.startswith('TIERED_TO_CLOUD:'):
-                    return self._read_from_cloud(volume, path)
+        # Try reading from local storage first
+        full_path = self.data_path / pool_id / volume_id / path
+        if full_path.exists():
+            async with asyncio.Lock():
+                with open(full_path, 'rb') as f:
+                    return f.read()
 
-            # Regular local file
-            with open(local_path, 'rb') as f:
-                return f.read()
-
-        # If not found locally and cloud is enabled, check cloud
+        # If not found locally and cloud tiering is enabled, try cloud
         if volume.cloud_tiering_enabled and self.cloud_provider and volume.cloud_location:
-            return self._read_from_cloud(volume, path)
+            try:
+                data = await self.cloud_provider.download_file(
+                    path,
+                    volume.cloud_location.path
+                )
+                if data:
+                    # Cache data locally
+                    async with asyncio.Lock():
+                        with open(full_path, 'wb') as f:
+                            f.write(data)
+                    return data
+            except Exception as e:
+                self.logger.error(f"Failed to read from cloud: {e}")
 
-        raise FileNotFoundError(f"File {path} not found in volume {volume_id}")
+        raise FileNotFoundError(f"Data not found: {path}")
 
-    def _read_from_cloud(self, volume: Volume, path: str) -> bytes:
-        """Read data from cloud storage"""
-        if not self.cloud_provider or not volume.cloud_location:
-            raise RuntimeError("Cloud provider not configured")
-
-        data = self.cloud_provider.download_file(path, volume.cloud_location.path)
-        if data is None:
-            raise FileNotFoundError(f"File {path} not found in cloud storage")
-        return data
-
-    def _check_tiering_policy(self, volume_id: str, path: str) -> None:
-        """Check if data should be tiered to cloud based on temperature and cost"""
-        if volume_id not in self.system.tiering_policies:
+    async def _check_tiering_policy(self, volume_id: str, path: str) -> None:
+        """Check if data should be tiered to cloud storage"""
+        volume = self.system.volumes[volume_id]
+        if not volume.cloud_tiering_enabled or not volume.cloud_location:
             return
 
-        policy = self.system.tiering_policies[volume_id]
-        volume = self.system.volumes[volume_id]
         full_path = self.data_path / volume.primary_pool_id / volume_id / path
-
-        # Get or create temperature tracking
-        if path not in volume.data_temperature:
-            volume.data_temperature[path] = DataTemperature(
-                last_access=datetime.fromtimestamp(full_path.stat().st_atime)
-            )
-        temp_data = volume.data_temperature[path]
-
-        # Update access pattern
-        file_size = full_path.stat().st_size
-        if file_size < policy.minimum_file_size_mb * 1024 * 1024:
+        if not full_path.exists():
             return
 
-        # Calculate data temperature score
-        current_time = datetime.now()
-        age_days = (current_time - temp_data.last_access).days
+        # Get file stats
+        stats = full_path.stat()
+        age = datetime.now() - datetime.fromtimestamp(stats.st_mtime)
 
-        # Determine temperature based on thresholds
-        if age_days > policy.temperature_thresholds["cold_to_frozen_days"]:
-            new_temp = "frozen"
-        elif age_days > policy.temperature_thresholds["warm_to_cold_days"]:
-            new_temp = "cold"
-        elif age_days > policy.temperature_thresholds["hot_to_warm_days"]:
-            new_temp = "warm"
-        else:
-            new_temp = "hot"
+        # Check if file should be tiered
+        if age > timedelta(days=7):  # Cold tier after 7 days
+            try:
+                # Read file
+                with open(full_path, 'rb') as f:
+                    data = f.read()
 
-        if new_temp != temp_data.temperature:
-            temp_data.temperature = new_temp
+                # Upload to cloud
+                await self.cloud_provider.upload_file(
+                    data,
+                    path,
+                    volume.cloud_location.path
+                )
 
-            # Calculate cost savings
-            current_tier = self.system.storage_pools[volume.primary_pool_id].location
-            target_tier = policy.target_cloud_location
-            cost_savings = (current_tier.cost_per_gb - target_tier.cost_per_gb) * (file_size / (1024 * 1024 * 1024))
+                # Remove local copy
+                full_path.unlink()
+            except Exception as e:
+                self.logger.error(f"Failed to tier data to cloud: {e}")
 
-            # Decision to tier based on temperature and cost
-            if (new_temp in ["cold", "frozen"] and
-                cost_savings > policy.cost_threshold_per_gb and
-                self._should_tier_based_on_prediction(temp_data)):
-                self._tier_to_cloud(volume_id, path)
+    async def get_data_temperature(self, volume_id: str) -> DataTemperature:
+        """Get the current temperature of volume data"""
+        if volume_id not in self.system.volumes:
+            raise ValueError(f"Volume {volume_id} not found")
 
-    def _should_tier_based_on_prediction(self, temp_data: DataTemperature) -> bool:
-        """Use access pattern and prediction to decide on tiering"""
-        if temp_data.predicted_next_access:
-            days_until_next_access = (temp_data.predicted_next_access - datetime.now()).days
-            if days_until_next_access < 7:  # If predicted access is soon, don't tier
-                return False
-        return True
-
-    def _tier_to_cloud(self, volume_id: str, path: str) -> None:
-        """Move data to cloud tier with optimization"""
         volume = self.system.volumes[volume_id]
-        if not self.cloud_provider or not volume.cloud_location:
-            return
+        pool_id = volume.primary_pool_id
 
-        source = self.data_path / volume.primary_pool_id / volume_id / path
+        # Check if data exists locally
+        volume_path = self.data_path / pool_id / volume_id
+        if not volume_path.exists():
+            return DataTemperature.COLD
 
-        # Optimize data before upload
-        with open(source, 'rb') as f:
-            data = f.read()
+        # Calculate average file age
+        total_age = 0
+        file_count = 0
+        for path in volume_path.rglob('*'):
+            if path.is_file():
+                age = datetime.now() - datetime.fromtimestamp(path.stat().st_mtime)
+                total_age += age.days
+                file_count += 1
 
-        # Apply compression if enabled
-        if volume.compression_enabled:
-            pool = self.system.storage_pools[volume.primary_pool_id]
-            if pool.compression_state.adaptive:
-                # Choose compression algorithm based on data type
-                data = self._compress_data_adaptive(data)
-            else:
-                data = self._compress_data(data, pool.compression_state.algorithm)
+        if file_count == 0:
+            return DataTemperature.COLD
 
-        # Apply deduplication if enabled
-        if volume.deduplication_enabled:
-            data = self._deduplicate_data(data, volume_id, path)
+        avg_age = total_age / file_count
+        if avg_age <= 1:
+            return DataTemperature.HOT
+        elif avg_age <= 7:
+            return DataTemperature.WARM
+        else:
+            return DataTemperature.COLD
 
-        # Upload to cloud with optimal chunk size
-        if self.cloud_provider.upload_file(data, path, volume.cloud_location.path):
-            # Create space-efficient stub
-            self._create_cloud_stub(source, volume.cloud_location.path, path)
-
-    def _create_cloud_stub(self, source_path: Path, bucket: str, path: str) -> None:
-        """Create space-efficient stub file for tiered data"""
-        stub_data = {
-            "tiered_to_cloud": True,
-            "bucket": bucket,
-            "path": path,
-            "timestamp": datetime.now().isoformat()
-        }
-        with open(source_path, 'w') as f:
-            json.dump(stub_data, f)
-
-    def create_snapshot(self, volume_id: str, name: str = None) -> str:
+    async def create_snapshot(self, volume_id: str, name: str = None) -> str:
         """Create space-efficient snapshot"""
         volume = self.system.volumes[volume_id]
         protection = self.system.protection_policies.get(volume_id)
@@ -356,7 +300,7 @@ class HybridStorageManager:
 
         # If cloud backup enabled, replicate snapshot
         if protection.cloud_backup_enabled and self.cloud_provider:
-            self._backup_snapshot_to_cloud(volume_id, snapshot.id)
+            await self._backup_snapshot_to_cloud(volume_id, snapshot.id)
 
         return snapshot.id
 
@@ -375,7 +319,7 @@ class HybridStorageManager:
         # For now, return empty set
         return set()
 
-    def _backup_snapshot_to_cloud(self, volume_id: str, snapshot_id: str) -> None:
+    async def _backup_snapshot_to_cloud(self, volume_id: str, snapshot_id: str) -> None:
         """Backup snapshot to cloud storage"""
         volume = self.system.volumes[volume_id]
         protection = self.system.protection_policies[volume_id]
@@ -388,8 +332,64 @@ class HybridStorageManager:
         changed_data = self._get_snapshot_changed_data(volume_id, snapshot)
 
         # Upload with compression and dedup
-        self.cloud_provider.upload_snapshot(
+        await self.cloud_provider.upload_snapshot(
             changed_data,
             f"snapshots/{snapshot_id}",
             volume.cloud_location.path
         )
+
+    def _get_snapshot_changed_data(self, volume_id: str, snapshot: SnapshotState) -> bytes:
+        """Get changed data for snapshot"""
+        # Implementation would get changed data
+        # For now, return empty bytes
+        return b''
+
+    async def _should_tier_based_on_prediction(self, temp_data: DataTemperature) -> bool:
+        """Use access pattern and prediction to decide on tiering"""
+        if temp_data.predicted_next_access:
+            days_until_next_access = (temp_data.predicted_next_access - datetime.now()).days
+            if days_until_next_access < 7:  # If predicted access is soon, don't tier
+                return False
+        return True
+
+    async def _tier_to_cloud(self, volume_id: str, path: str) -> None:
+        """Move data to cloud tier with optimization"""
+        volume = self.system.volumes[volume_id]
+        if not self.cloud_provider or not volume.cloud_location:
+            return
+
+        source = self.data_path / volume.primary_pool_id / volume_id / path
+
+        # Optimize data before upload
+        with open(source, 'rb') as f:
+            data = f.read()
+
+        # Apply compression if enabled
+        if volume.compression_enabled:
+            pool = self.system.storage_pools[volume.primary_pool_id]
+            if pool.compression_state.adaptive:
+                # Choose compression algorithm based on data type
+                data = self._compress_data_adaptive(data)
+            else:
+                data = self._compress_data(data, pool.compression_state.algorithm)
+
+        # Apply deduplication if enabled
+        if volume.deduplication_enabled:
+            data = self._deduplicate_data(data, volume_id, path)
+
+        # Upload to cloud with optimal chunk size
+        if await self.cloud_provider.upload_file(data, path, volume.cloud_location.path):
+            # Create space-efficient stub
+            await self._create_cloud_stub(source, volume.cloud_location.path, path)
+
+    async def _create_cloud_stub(self, source_path: Path, bucket: str, path: str) -> None:
+        """Create space-efficient stub file for tiered data"""
+        stub_data = {
+            "tiered_to_cloud": True,
+            "bucket": bucket,
+            "path": path,
+            "timestamp": datetime.now().isoformat()
+        }
+        async with asyncio.Lock():
+            with open(source_path, 'w') as f:
+                json.dump(stub_data, f)
