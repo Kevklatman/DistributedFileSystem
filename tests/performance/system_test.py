@@ -5,7 +5,7 @@ import logging
 import pytest
 from datetime import datetime
 import docker
-from tests.test_utils import create_mock_provider
+from tests.unit.test_utils import create_mock_provider
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
