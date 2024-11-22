@@ -15,6 +15,7 @@ from prometheus_client import (
     Gauge,
     CollectorRegistry
 )
+from .cache_store import CacheStore
 
 # Create a custom registry for DFS metrics
 DFS_REGISTRY = CollectorRegistry()
@@ -201,8 +202,9 @@ class StorageNode:
         self._last_net_io = psutil.net_io_counters()
         self._last_net_io_time = time.time()
 
-        # Initialize cache stats
-        self._cache_hits = 0
+        # Initialize cache with proper store
+        self.cache = CacheStore(max_size=1000, ttl_seconds=3600)
+        self._cache_hits = 0  # Keep counters for metrics
         self._cache_misses = 0
 
         # Initialize process stats
@@ -327,26 +329,42 @@ class StorageNode:
         start_time = time.time()
 
         try:
-            # Simulate file operation
-            await asyncio.sleep(random.uniform(0.1, 0.5))  # Simulate operation latency
-
-            # Simulate file size for POST operations
-            if operation == 'post':
-                # Simulate random file size between 1KB and 64MB
+            # Handle different operations
+            if operation == 'get':
+                file_id = request.match_info.get('file_id')
+                # Try to get from cache first
+                data = self.cache.get(file_id)
+                if data is not None:
+                    self._cache_hits += 1
+                    CACHE_HITS.labels(node_id=self.node_id).inc()
+                    file_size = len(data)
+                    NETWORK_TRANSMITTED.labels(node_id=self.node_id).inc(file_size)
+                else:
+                    self._cache_misses += 1
+                    CACHE_MISSES.labels(node_id=self.node_id).inc()
+                    # Simulate fetching from disk
+                    await asyncio.sleep(random.uniform(0.1, 0.5))
+                    data = "Simulated file content"
+                    # Cache the fetched data
+                    self.cache.put(file_id, data)
+                    file_size = len(data)
+                    NETWORK_TRANSMITTED.labels(node_id=self.node_id).inc(file_size)
+                
+            elif operation == 'post':
+                # Simulate receiving file data
                 file_size = 1024 * (2 ** random.randint(0, 16))
+                file_id = f"file_{random.randint(1000, 9999)}"
+                data = "Simulated file content"
+                
+                # Store in cache
+                self.cache.put(file_id, data)
                 FILE_SIZE_HISTOGRAM.labels(node_id=self.node_id).observe(file_size)
                 NETWORK_RECEIVED.labels(node_id=self.node_id).inc(file_size)
-            elif operation == 'get':
-                file_size = 1024 * (2 ** random.randint(0, 16))
-                NETWORK_TRANSMITTED.labels(node_id=self.node_id).inc(file_size)
-
-            # Simulate cache operations
-            if random.random() < 0.7:  # 70% cache hit rate
-                self._cache_hits += 1
-                CACHE_HITS.labels(node_id=self.node_id).inc()
-            else:
-                self._cache_misses += 1
-                CACHE_MISSES.labels(node_id=self.node_id).inc()
+                
+            elif operation == 'delete':
+                file_id = request.match_info.get('file_id')
+                # Remove from cache if exists
+                self.cache.delete(file_id)
 
             # Record operation
             FILE_OPERATIONS.labels(

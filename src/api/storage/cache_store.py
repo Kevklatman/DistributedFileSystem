@@ -3,7 +3,7 @@ from typing import Any, Dict, Optional, Set, Tuple
 from datetime import datetime
 import threading
 from dataclasses import dataclass
-from ..interfaces import CacheInterface
+from .interfaces import CacheInterface
 
 @dataclass
 class CacheEntry:
@@ -15,36 +15,36 @@ class CacheEntry:
 
 class CacheStore(CacheInterface):
     """Thread-safe cache store with consistency levels."""
-    
+
     def __init__(
         self,
         max_size: int = 1000,
         ttl_seconds: float = 3600
     ):
         """Initialize cache store.
-        
+
         Args:
             max_size: Maximum number of entries
             ttl_seconds: Time-to-live in seconds
         """
         self._max_size = max_size
         self._ttl_seconds = ttl_seconds
-        
+
         self._cache: Dict[str, CacheEntry] = {}
         self._dirty_keys: Set[str] = set()
         self._version = 0
-        
+
         # Use RLock to allow recursive locking
         self._lock = threading.RLock()
         self._write_lock = threading.RLock()
-        
+
     def get(self, key: str, consistency_level: Optional[str] = None) -> Optional[Any]:
         """Get value from cache.
-        
+
         Args:
             key: Cache key
             consistency_level: Consistency level for this operation
-            
+
         Returns:
             Value if found, None if not found
         """
@@ -61,15 +61,15 @@ class CacheStore(CacheInterface):
                 return None
 
             return entry.value
-            
+
     def put(self, key: str, value: Any, ttl: Optional[float] = None) -> bool:
         """Put value in cache.
-        
+
         Args:
             key: Cache key
             value: Value to cache
             ttl: Time-to-live in seconds
-            
+
         Returns:
             True if entry was added
         """
@@ -91,13 +91,13 @@ class CacheStore(CacheInterface):
                 timestamp=datetime.now()
             )
             return True
-            
+
     def delete(self, key: str) -> bool:
         """Delete cache entry.
-        
+
         Args:
             key: Cache key
-            
+
         Returns:
             True if entry was found and deleted
         """
@@ -108,24 +108,24 @@ class CacheStore(CacheInterface):
                     self._dirty_keys.remove(key)
                 return True
             return False
-            
+
     def clear(self) -> None:
         """Clear all cache entries."""
         with self._write_lock:
             self._cache.clear()
             self._dirty_keys.clear()
             self._version = 0
-            
+
     def get_dirty_keys(self) -> Set[str]:
         """Get keys that have been modified but not synced."""
         return self._dirty_keys.copy()
-        
+
     def mark_dirty(self, key: str) -> None:
         """Mark a key as dirty (needs syncing)."""
         with self._lock:
             if key in self._cache:
                 self._dirty_keys.add(key)
-                
+
     def mark_clean(self, key: str) -> None:
         """Mark a key as clean (synced)."""
         with self._lock:
