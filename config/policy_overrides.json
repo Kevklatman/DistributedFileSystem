@@ -185,5 +185,16 @@
     "cost_thresholds": {
         "max_storage_cost_per_gb": 0.15,
         "min_cost_savings_for_move": 0.05
+    },
+    "storage_policies": {
+        "compression_enabled": true,
+        "deduplication_enabled": true,
+        "max_file_size_gb": 10,
+        "retention_days": 30
+    },
+    "distribution_policies": {
+        "min_replicas": 2,
+        "max_replicas": 5,
+        "target_availability": 0.99999
     }
 }
