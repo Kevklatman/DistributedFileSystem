@@ -543,38 +543,50 @@ docker-compose up -d prometheus grafana
 
 ## Project Structure
 
+TO obtain structure run:
+
+tree src -I __pycache__.pytest_cache --dirsfirst
+
 ```
-.
-├── API/                 # S3-compatible API service
-├── buckets/            # Local bucket storage directory
-├── config/             # System configuration files
-├── csi-driver/         # Container Storage Interface driver
-│   ├── cmd/           # CSI driver commands
-│   └── pkg/           # Driver implementation
-├── data/              # Persistent data storage
-├── docs/              # Documentation
-│   └── diagrams/     # Architecture diagrams
-├── examples/          # Usage examples
-├── frontend/          # Web interface
-│   ├── public/       # Static assets
-│   └── src/          # Frontend source
-├── k8s/               # Kubernetes configs
-│   ├── base/         # Base manifests
-│   └── overlays/     # Environment overlays
-├── src/               # Core source code
-│   ├── api/          # API implementation
-│   ├── edge/         # Edge computing
-│   ├── monitoring/   # Metrics collection
-│   ├── policy/       # Policy engine
-│   └── storage/      # Storage backends
-├── tests/             # Test suites
-│   ├── unit/         # Unit tests
-│   ├── integration/  # Integration tests
-│   ├── edge/         # Edge tests
-│   └── load/         # Load tests
-├── docker-compose.yml # Docker composition
-├── Dockerfile        # Main Dockerfile
-└── requirements.txt  # Dependencies
+├── config
+├── credentials
+├── data
+│   ├── edge1
+│   ├── edge2
+│   ├── node1
+│   ├── node2
+│   └── node3
+├── docs
+├── examples
+├── grafana
+│   ├── dashboards
+│   └── provisioning
+├── k8s
+│   ├── base
+│   └── overlays
+├── kubernetes
+│   ├── base
+│   └── overlays
+├── metrics_report
+├── monitoring
+├── requirements
+├── scripts
+├── src
+│   ├── __pycache__
+│   ├── api
+│   ├── csi
+│   ├── monitoring
+│   ├── storage
+│   └── web
+├── storage
+├── storage-node
+│   └── cmd
+└── tests
+    ├── load
+    ├── performance
+    ├── storage
+    ├── storage_tests
+    └── unit
 ```
 
 ## Contributing
