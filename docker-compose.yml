@@ -12,7 +12,7 @@ services:
       - NODE_TYPE=core
       - QUORUM_SIZE=2
     ports:
-      - "8000"  # Using dynamic port allocation
+      - "8000" # Using dynamic port allocation
     volumes:
       - type: volume
         source: dfs_core_data
@@ -33,7 +33,7 @@ services:
       - NODE_TYPE=edge
       - DEVICE_TYPE={{.Task.Slot}} # Will be 1=mobile, 2=iot
     ports:
-      - "8000"  # Using dynamic port allocation
+      - "8000" # Using dynamic port allocation
     volumes:
       - type: volume
         source: dfs_edge_data
@@ -45,7 +45,7 @@ services:
   prometheus:
     image: prom/prometheus:latest
     ports:
-      - "9090"  # Using dynamic port allocation
+      - "9090" # Using dynamic port allocation
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml
     deploy:
@@ -57,13 +57,13 @@ services:
   grafana:
     image: grafana/grafana:latest
     ports:
-      - "3000"  # Using dynamic port allocation
+      - "3000" # Using dynamic port allocation
     volumes:
       - type: bind
-        source: ./grafana/dashboards
+        source: ./src/grafana/dashboards
         target: /etc/grafana/provisioning/dashboards
       - type: bind
-        source: ./grafana/provisioning/dashboards
+        source: ./src/grafana/provisioning/dashboards
         target: /etc/grafana/provisioning/dashboards/config
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=admin
