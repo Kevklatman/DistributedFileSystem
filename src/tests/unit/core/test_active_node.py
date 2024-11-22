@@ -17,15 +17,19 @@ from src.storage.core.active_node import (
 @pytest.fixture
 def temp_data_dir():
     """Create a temporary directory for test data."""
-    temp_dir = tempfile.mkdtemp()
-    yield Path(temp_dir)
-    shutil.rmtree(temp_dir)
+    with tempfile.TemporaryDirectory() as temp_dir:
+        data_path = Path(temp_dir)
+        # Create standard subdirectories
+        (data_path / "volumes").mkdir()
+        (data_path / "metadata").mkdir()
+        yield data_path
 
 @pytest.fixture
 def active_node(temp_data_dir):
     """Create an ActiveNode instance for testing."""
-    node = ActiveNode("test_node_1", temp_data_dir)
-    return node
+    node = ActiveNode("test_node_1", data_dir=temp_data_dir)
+    yield node
+    # Cleanup is handled by temp_data_dir fixture
 
 @pytest.fixture
 def mock_cluster_nodes():

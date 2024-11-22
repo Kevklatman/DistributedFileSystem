@@ -1,43 +1,46 @@
-import os
-import sys
+"""Common test fixtures for integration tests."""
 import pytest
+import sys
+from pathlib import Path
 import tempfile
 import shutil
-from pathlib import Path
+import os
 
 # Set environment variables before any imports
 os.environ['STORAGE_ENV'] = 'local'
 os.environ['NODE_ID'] = 'test-node-1'
 os.environ['POD_IP'] = '10.0.0.1'
 
-# Add the src directory to the Python path
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
+# Add project root to Python path
+PROJECT_ROOT = Path(__file__).parent.parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.storage.core.hybrid_storage import HybridStorageManager
 from src.storage.core.active_node import ActiveNode
 from src.storage.core.cluster_manager import StorageClusterManager
 
-@pytest.fixture(autouse=True)
-def setup_test_storage():
-    """Set up and clean up test storage directory"""
-    test_storage_dir = tempfile.mkdtemp()
-    os.environ['LOCAL_STORAGE_DIR'] = test_storage_dir
-    
-    yield test_storage_dir
-    
-    # Clean up test storage directory
-    shutil.rmtree(test_storage_dir)
+@pytest.fixture(scope="session")
+def test_data_dir():
+    """Create a temporary directory for test data."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        data_path = Path(temp_dir)
+        # Create standard test directories
+        (data_path / "volumes").mkdir()
+        (data_path / "metadata").mkdir()
+        (data_path / "cache").mkdir()
+        os.environ['LOCAL_STORAGE_DIR'] = str(data_path)
+        yield data_path
 
 @pytest.fixture
-def hybrid_manager(setup_test_storage):
+def hybrid_manager(test_data_dir):
     """Create a fresh HybridStorageManager for each test"""
-    manager = HybridStorageManager(setup_test_storage)
+    manager = HybridStorageManager(str(test_data_dir))
     return manager
 
 @pytest.fixture
-def active_node(setup_test_storage):
+def active_node(test_data_dir):
     """Create a fresh ActiveNode for each test"""
-    node = ActiveNode(storage_path=setup_test_storage)
+    node = ActiveNode(storage_path=str(test_data_dir))
     return node
 
 @pytest.fixture

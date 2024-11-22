@@ -7,20 +7,26 @@ import signal
 from pathlib import Path
 import tempfile
 
+# Get project root directory
+PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
+STORAGE_NODE_DIR = PROJECT_ROOT / "src" / "storage-node"
+
 class StorageNodeTestServer:
     def __init__(self, port, data_dir):
         self.port = port
-        self.data_dir = data_dir
+        self.data_dir = Path(data_dir)
         self.process = None
         
     def start(self):
-        cmd = ["./storage-node",
-               "-port", str(self.port),
-               "-datadir", self.data_dir,
-               "-nodeid", "test-node"]
+        cmd = [
+            str(STORAGE_NODE_DIR / "storage-node"),
+            "-port", str(self.port),
+            "-datadir", str(self.data_dir),
+            "-nodeid", "test-node"
+        ]
         self.process = subprocess.Popen(
             cmd,
-            cwd="/Users/kevinklatman/Development/Code/DistributedFileSystem/src/storage-node"
+            cwd=str(STORAGE_NODE_DIR)
         )
         # Wait for server to start
         time.sleep(2)  # Give more time for server to start
@@ -34,7 +40,8 @@ class StorageNodeTestServer:
 def storage_node():
     # Create temporary directory for storage node data
     with tempfile.TemporaryDirectory() as temp_dir:
-        server = StorageNodeTestServer(port=8080, data_dir=temp_dir)
+        temp_path = Path(temp_dir)
+        server = StorageNodeTestServer(port=8080, data_dir=temp_path)
         server.start()
         yield server
         server.stop()
@@ -60,9 +67,8 @@ def test_volume_lifecycle(storage_node):
     assert response.status_code == 201
     
     # Verify volume directory exists
-    volume_path = Path(storage_node.data_dir) / volume_id
-    assert volume_path.exists()
-    assert volume_path.is_dir()
+    volume_path = storage_node.data_dir / volume_id
+    assert volume_path.exists() and volume_path.is_dir()
     
     # Delete volume
     response = requests.delete(
