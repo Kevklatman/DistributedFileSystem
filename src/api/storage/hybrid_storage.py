@@ -5,7 +5,7 @@ from typing import Dict, List, Optional, Tuple, Set
 from pathlib import Path
 import shutil
 import dataclasses
-from .cloud.providers import get_cloud_provider, CloudStorageProvider
+from providers import get_cloud_provider, CloudStorageProvider
 
 from .models import (
     StorageLocation,
