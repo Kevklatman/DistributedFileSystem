@@ -6,7 +6,7 @@ import sys
 # Add parent directory to path to import storage modules
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src.storage.core.hybrid_storage import HybridStorageManager
-from storage.models import StorageLocation, Volume
+from src.api.models import StorageLocation, Volume
 
 class CSIStorageManager:
     """Storage Manager for CSI Driver Integration"""

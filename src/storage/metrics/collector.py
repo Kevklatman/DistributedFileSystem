@@ -11,7 +11,7 @@ from datetime import datetime
 # Add parent directory to Python path for imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
 
-from api.storage.interfaces import MetricsCollector
+from storage.core.interfaces import MetricsCollector
 import logging
 
 logger = logging.getLogger(__name__)
@@ -46,10 +46,10 @@ class NetworkMetrics:
 
 class SystemMetricsCollector(MetricsCollector):
     """System-wide metrics collector implementation."""
-    
+
     def __init__(self, history_window: int = 300):
         """Initialize metrics collector.
-        
+
         Args:
             history_window: Time window in seconds to keep metrics history
         """
@@ -64,12 +64,12 @@ class SystemMetricsCollector(MetricsCollector):
         self._network_metrics: Dict[str, NetworkMetrics] = {}
         self._last_network_counters = psutil.net_io_counters()
         self._current_operation: str = ""
-        
+
         # Initialize baseline IO counters
         self._last_disk_io = psutil.disk_io_counters()
         self._last_net_io = psutil.net_io_counters()
         self._last_check_time = time.time()
-        
+
     def record_operation_latency(self, operation: str, duration: float) -> None:
         """Record the latency of an operation."""
         with self._lock:
@@ -77,7 +77,7 @@ class SystemMetricsCollector(MetricsCollector):
             # Keep only last 1000 samples per operation
             if len(self._operation_latencies[operation]) > 1000:
                 self._operation_latencies[operation] = self._operation_latencies[operation][-1000:]
-                
+
     def record_resource_usage(self, cpu: float, memory: float, disk_io: float, network_io: float) -> None:
         """Record system resource usage."""
         current_time = time.time()
@@ -88,13 +88,13 @@ class SystemMetricsCollector(MetricsCollector):
                 'disk_io': disk_io,
                 'network_io': network_io
             }
-            
+
             # Clean up old metrics
             cutoff_time = current_time - self._history_window
             old_times = [t for t in self._metrics_history if t < cutoff_time]
             for t in old_times:
                 del self._metrics_history[t]
-                
+
     def record_cache_operation(self, operation: str, hit: bool) -> None:
         """Record cache operation (hit/miss)."""
         with self._lock:
@@ -102,7 +102,7 @@ class SystemMetricsCollector(MetricsCollector):
                 self._cache_stats['hits'] += 1
             else:
                 self._cache_stats['misses'] += 1
-                
+
     def start_network_operation(self, operation_name: str, file_size: int = 0) -> None:
         """Start tracking network metrics for an operation."""
         self._current_operation = operation_name
@@ -120,7 +120,7 @@ class SystemMetricsCollector(MetricsCollector):
             # Get final network counters
             current_counters = psutil.net_io_counters()
             metrics = self._network_metrics[operation_name]
-            
+
             # Calculate network usage for this operation
             metrics.bytes_sent = current_counters.bytes_sent - self._last_network_counters.bytes_sent
             metrics.bytes_recv = current_counters.bytes_recv - self._last_network_counters.bytes_recv
@@ -147,22 +147,22 @@ class SystemMetricsCollector(MetricsCollector):
     def get_metrics(self) -> Dict[str, Any]:
         """Get current metrics."""
         current_time = time.time()
-        
+
         # Get current resource usage
         cpu_usage = psutil.cpu_percent(interval=None)
         memory = psutil.virtual_memory()
-        
+
         # Calculate IO rates
         current_disk_io = psutil.disk_io_counters()
         current_net_io = psutil.net_io_counters()
         time_diff = current_time - self._last_check_time
-        
+
         if time_diff > 0:
             disk_io_rate = (
                 (current_disk_io.read_bytes + current_disk_io.write_bytes) -
                 (self._last_disk_io.read_bytes + self._last_disk_io.write_bytes)
             ) / time_diff
-            
+
             network_io_rate = (
                 (current_net_io.bytes_sent + current_net_io.bytes_recv) -
                 (self._last_net_io.bytes_sent + self._last_net_io.bytes_recv)
@@ -170,11 +170,11 @@ class SystemMetricsCollector(MetricsCollector):
         else:
             disk_io_rate = 0
             network_io_rate = 0
-            
+
         self._last_disk_io = current_disk_io
         self._last_net_io = current_net_io
         self._last_check_time = current_time
-        
+
         # Calculate operation latencies
         operation_stats = {}
         with self._lock:
@@ -186,14 +186,14 @@ class SystemMetricsCollector(MetricsCollector):
                         'max_latency': max(latencies),
                         'samples': len(latencies)
                     }
-                    
+
             # Calculate cache hit rate
             total_cache_ops = self._cache_stats['hits'] + self._cache_stats['misses']
             cache_hit_rate = (
                 self._cache_stats['hits'] / total_cache_ops
                 if total_cache_ops > 0 else 0
             )
-            
+
         return {
             'system': {
                 'cpu_usage': cpu_usage,
@@ -212,7 +212,7 @@ class SystemMetricsCollector(MetricsCollector):
                 for op in self._network_metrics
             }
         }
-        
+
     def reset_stats(self) -> None:
         """Reset all collected statistics."""
         with self._lock:
