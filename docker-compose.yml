@@ -1,5 +1,3 @@
-version: "3.8"
-
 services:
   # Core nodes
   dfs_core:
@@ -14,10 +12,7 @@ services:
       - NODE_TYPE=core
       - QUORUM_SIZE=2
     ports:
-      - target: 8000
-        published: 30000
-        protocol: tcp
-        mode: ingress
+      - "8000"  # Using dynamic port allocation
     volumes:
       - type: volume
         source: dfs_core_data
@@ -38,10 +33,7 @@ services:
       - NODE_TYPE=edge
       - DEVICE_TYPE={{.Task.Slot}} # Will be 1=mobile, 2=iot
     ports:
-      - target: 8000
-        published: 30010
-        protocol: tcp
-        mode: ingress
+      - "8000"  # Using dynamic port allocation
     volumes:
       - type: volume
         source: dfs_edge_data
@@ -53,7 +45,7 @@ services:
   prometheus:
     image: prom/prometheus:latest
     ports:
-      - "9090:9090"
+      - "9090"  # Using dynamic port allocation
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml
     deploy:
@@ -65,7 +57,7 @@ services:
   grafana:
     image: grafana/grafana:latest
     ports:
-      - "3000:3000"
+      - "3000"  # Using dynamic port allocation
     volumes:
       - type: bind
         source: ./grafana/dashboards
