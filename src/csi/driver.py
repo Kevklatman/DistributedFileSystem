@@ -11,14 +11,14 @@ from pathlib import Path
 import logging
 
 from kubernetes import client, config
-from csi import csi_pb2, csi_pb2_grpc
+from src.csi.proto import csi_pb2, csi_pb2_grpc, IdentityServicer, ControllerServicer, NodeServicer
 
-from models import Volume, StoragePool
-from storage.core.hybrid_storage import HybridStorageManager
+from src.api.models import Volume, StoragePool
+from src.storage.core.hybrid_storage import HybridStorageManager
 
-class CSIDriver(csi_pb2_grpc.IdentityServicer,
-               csi_pb2_grpc.ControllerServicer,
-               csi_pb2_grpc.NodeServicer):
+class CSIDriver(IdentityServicer,
+               ControllerServicer,
+               NodeServicer):
     """CSI driver implementation for hybrid cloud storage"""
 
     def __init__(self, storage_manager: HybridStorageManager):
@@ -195,21 +195,20 @@ class CSIDriver(csi_pb2_grpc.IdentityServicer,
         """Create a bind mount"""
         os.system(f"mount --bind {source} {target}")
 
-def run_csi_driver(storage_manager: HybridStorageManager,
-                   endpoint: str = "unix:///csi/csi.sock"):
-    """Run the CSI driver server"""
-    server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
+def serve(storage_manager: HybridStorageManager,
+         endpoint: str = "unix:///csi/csi.sock",
+         max_workers: int = 10):
+    """Start the CSI driver server."""
+    server = grpc.server(futures.ThreadPoolExecutor(max_workers=max_workers))
     driver = CSIDriver(storage_manager)
-
+    
+    # Register services
     csi_pb2_grpc.add_IdentityServicer_to_server(driver, server)
     csi_pb2_grpc.add_ControllerServicer_to_server(driver, server)
     csi_pb2_grpc.add_NodeServicer_to_server(driver, server)
-
+    
+    # Start server
     server.add_insecure_port(endpoint)
     server.start()
-
-    try:
-        while True:
-            time.sleep(60 * 60 * 24)  # Sleep for 24 hours
-    except KeyboardInterrupt:
-        server.stop(0)
+    
+    return server

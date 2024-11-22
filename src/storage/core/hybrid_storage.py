@@ -7,17 +7,21 @@ import shutil
 import dataclasses
 import asyncio
 import logging
+from enum import Enum
 from src.storage.core.providers import get_cloud_provider, CloudProviderBase
 
 from src.storage.core.models import (
-    StorageLocation,
-    StoragePool,
-    Volume,
     CloudTieringPolicy,
     DataProtection,
     HybridStorageSystem,
     DataTemperature,
     SnapshotState
+)
+
+from src.api.models import (
+    StorageLocation,
+    StoragePool,
+    Volume
 )
 
 class EnhancedJSONEncoder(json.JSONEncoder):
@@ -26,6 +30,8 @@ class EnhancedJSONEncoder(json.JSONEncoder):
             return dataclasses.asdict(obj)
         if isinstance(obj, datetime):
             return obj.isoformat()
+        if isinstance(obj, Enum):
+            return obj.value
         return super().default(obj)
 
 def decode_datetime(obj):
@@ -66,7 +72,13 @@ class HybridStorageManager:
             with open(system_file, 'r') as f:
                 data = json.load(f, object_hook=decode_datetime)
                 return HybridStorageSystem(**data)
-        return HybridStorageSystem(name="default")
+        return HybridStorageSystem(
+            pools={},
+            volumes={},
+            total_capacity_bytes=0,
+            used_capacity_bytes=0,
+            node_count=0
+        )
 
     def _save_system_state(self) -> None:
         """Save system state to disk"""
@@ -81,11 +93,15 @@ class HybridStorageManager:
         capacity_gb: int
     ) -> StoragePool:
         """Create a new storage pool"""
+        # Generate a unique ID for the pool
+        pool_id = f"pool-{len(self.system.pools)}"
+        
         pool = StoragePool(
+            id=pool_id,
             name=name,
             location=location,
-            total_capacity_gb=capacity_gb,
-            available_capacity_gb=capacity_gb
+            capacity_gb=capacity_gb,
+            used_gb=0
         )
 
         # Create pool directory
@@ -108,23 +124,26 @@ class HybridStorageManager:
         if pool_id not in self.system.pools:
             raise ValueError(f"Pool {pool_id} not found")
 
+        # Generate a unique ID for the volume
+        volume_id = f"volume-{len(self.system.volumes)}"
+
         volume = Volume(
+            id=volume_id,
             name=name,
             size_gb=size_gb,
             primary_pool_id=pool_id,
-            cloud_backup_enabled=cloud_backup,
-            cloud_tiering_enabled=cloud_tiering,
+            cloud_tiering=cloud_tiering,
             created_at=datetime.now()
         )
 
         # Create volume directory
         pool_path = self.data_path / pool_id
-        volume_path = pool_path / volume.id
+        volume_path = pool_path / volume_id
         volume_path.mkdir(parents=True, exist_ok=True)
 
         if (cloud_backup or cloud_tiering) and self.cloud_provider:
             # Create a bucket for this volume
-            bucket_name = f"hybrid-storage-{volume.id.lower()}"
+            bucket_name = f"hybrid-storage-{volume_id.lower()}"
             try:
                 await self.cloud_provider.create_bucket(bucket_name)
                 volume.cloud_location = StorageLocation(

@@ -24,12 +24,12 @@ from storage.models import (
 def storage_manager(volume):
     """Mock storage manager fixture."""
     manager = Mock()
-    
+
     # Configure get_volume to be async and return the volume
     async def get_volume(volume_id):
         return volume
     manager.get_volume = get_volume
-    
+
     return manager
 
 @pytest.fixture
@@ -65,7 +65,7 @@ class TestDataProtectionManager:
         """Test snapshot creation."""
         # Create initial snapshot
         snapshot = await protection_manager.create_snapshot(volume, "test-snap-1")
-        
+
         assert snapshot.id is not None
         assert snapshot.parent_id is None
         assert snapshot.metadata["name"] == "test-snap-1"
@@ -154,7 +154,7 @@ class TestDataProtectionManager:
              patch.object(protection_manager, '_download_backup'), \
              patch.object(protection_manager, '_restore_data'), \
              patch.object(protection_manager, '_swap_volume_data'):
-            
+
             await protection_manager.restore_volume(volume, recovery_point, tmp_path)
             # If no exception is raised, the test passes
 
@@ -163,7 +163,7 @@ class TestDataProtectionManager:
         """Test retention policy application."""
         # Create snapshots with different ages
         now = datetime.now()
-        
+
         # Hourly snapshots
         for i in range(5):
             snapshot = SnapshotState(
@@ -196,9 +196,9 @@ class TestDataProtectionManager:
             parent_id=None,
             metadata={"type": "user", "name": "test-snap"}
         )
-        
+
         protection_manager._update_recovery_points(volume, snapshot)
-        
+
         recovery_points = protection_manager.get_recovery_points(volume)
         assert len(recovery_points) == 1
         assert recovery_points[0].snapshot_id == snapshot.id
@@ -210,17 +210,17 @@ class TestDataProtectionManager:
         # Valid recovery point
         snapshot = SnapshotState(parent_id=None)
         volume.snapshots[snapshot.id] = snapshot
-        
+
         backup = BackupState(snapshot_id=snapshot.id)
         volume.backups["test-backup"] = backup
-        
+
         recovery_point = RecoveryPoint(
             snapshot_id=snapshot.id,
             backup_id="test-backup",
             timestamp=datetime.now(),
             type="user"
         )
-        
+
         assert protection_manager._validate_recovery_point(volume, recovery_point)
 
         # Invalid recovery point
@@ -230,5 +230,5 @@ class TestDataProtectionManager:
             timestamp=datetime.now(),
             type="user"
         )
-        
+
         assert not protection_manager._validate_recovery_point(volume, invalid_recovery_point)

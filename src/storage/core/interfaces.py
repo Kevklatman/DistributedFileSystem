@@ -3,6 +3,34 @@ from abc import ABC, abstractmethod
 from typing import Any, List, Optional, Dict, Union, BinaryIO, Tuple
 from datetime import datetime
 
+class BaseCloudProvider(ABC):
+    """Base interface for cloud storage providers."""
+    
+    @abstractmethod
+    def upload_file(self, local_path: str, remote_path: str) -> bool:
+        """Upload a file to cloud storage."""
+        pass
+        
+    @abstractmethod
+    def download_file(self, remote_path: str, local_path: str) -> bool:
+        """Download a file from cloud storage."""
+        pass
+        
+    @abstractmethod
+    def delete_file(self, remote_path: str) -> bool:
+        """Delete a file from cloud storage."""
+        pass
+        
+    @abstractmethod
+    def list_files(self, prefix: str = "") -> List[str]:
+        """List files in cloud storage with optional prefix."""
+        pass
+        
+    @abstractmethod
+    def get_file_metadata(self, remote_path: str) -> Optional[Dict[str, Any]]:
+        """Get metadata for a file in cloud storage."""
+        pass
+
 class StorageInterface(ABC):
     """Base interface for all storage operations."""
     
