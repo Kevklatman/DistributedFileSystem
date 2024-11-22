@@ -6,7 +6,7 @@ import os
 # Add the project root to Python path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.api.storage.metrics.simulated_collector import (
+from storage.simulation.simulated_collector import (
     SimulatedMetricsCollector,
     NodeLocation
 )
@@ -27,9 +27,9 @@ async def main():
         'gcp1': NodeLocation('us-east', 'us-east1-b', 'gcp', 6),
         'azure1': NodeLocation('eu-west', 'westeurope', 'azure', 7)
     }
-    
+
     sim_metrics = SimulatedMetricsCollector(nodes)
-    
+
     # Simulate some operations
     async def run_operations():
         # Simulate file transfers between nodes
@@ -39,30 +39,30 @@ async def main():
             ('node3', 'edge1', 'read', 512 * 1024),        # 512KB read EU to Edge
             ('gcp1', 'azure1', 'write', 2 * 1024 * 1024),  # 2MB write GCP to Azure
         ]
-        
+
         for source, dest, op, size in operations:
             logger.info(f"Simulating {op} operation from {source} to {dest}")
             duration = await sim_metrics.simulate_operation(source, dest, op, size)
             logger.info(f"Operation took {duration:.2f} seconds")
-            
+
             # Get metrics for source and dest nodes
             source_metrics = sim_metrics.get_node_metrics(source)
             dest_metrics = sim_metrics.get_node_metrics(dest)
-            
+
             logger.info(f"{source} metrics: CPU {source_metrics.cpu_usage:.1f}%, "
                        f"Network Out: {source_metrics.network_out / 1024 / 1024:.2f}MB")
             logger.info(f"{dest} metrics: CPU {dest_metrics.cpu_usage:.1f}%, "
                        f"Network In: {dest_metrics.network_in / 1024 / 1024:.2f}MB")
-            
+
             # Get network latency
             latency = sim_metrics.get_network_latency(source, dest)
             logger.info(f"Network latency between {source} and {dest}: {latency:.1f}ms")
-            
+
             await asyncio.sleep(1)  # Wait between operations
-    
+
     # Run simulated operations
     await run_operations()
-    
+
     # Get overall system view
     all_metrics = sim_metrics.get_all_metrics()
     logger.info("\nFinal System State:")

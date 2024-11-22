@@ -6,7 +6,7 @@ from datetime import datetime
 import asyncio
 import logging
 from collections import defaultdict
-from .collector import MetricsCollector, NetworkMetrics
+from ..metrics.collector import MetricsCollector, NetworkMetrics
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +32,7 @@ class SimulatedNodeMetrics:
 
 class NetworkSimulator:
     """Simulates network conditions between different regions and cloud providers."""
-    
+
     # Base latencies between regions (ms)
     REGION_LATENCIES = {
         ('us-east', 'us-west'): 60,
@@ -42,7 +42,7 @@ class NetworkSimulator:
         ('us-west', 'ap-south'): 150,
         ('eu-west', 'ap-south'): 120
     }
-    
+
     # Provider-specific latency adjustments (ms)
     PROVIDER_ADJUSTMENTS = {
         'aws': 1.0,      # baseline
@@ -50,34 +50,34 @@ class NetworkSimulator:
         'azure': 1.2,    # 20% slower
         'edge': 2.0      # edge nodes have higher latency
     }
-    
+
     @classmethod
     def get_latency(cls, source: NodeLocation, dest: NodeLocation) -> float:
         """Calculate simulated latency between two locations."""
         if source.region == dest.region:
             return random.uniform(1, 5)  # Local latency 1-5ms
-            
+
         # Get base latency
         regions = tuple(sorted([source.region, dest.region]))
         base_latency = cls.REGION_LATENCIES.get(regions, 150)  # Default 150ms
-        
+
         # Apply provider adjustments
         provider_factor = max(
             cls.PROVIDER_ADJUSTMENTS[source.provider],
             cls.PROVIDER_ADJUSTMENTS[dest.provider]
         )
-        
+
         # Add jitter (±10%)
         jitter = random.uniform(-0.1, 0.1) * base_latency
-        
+
         return (base_latency * provider_factor) + jitter
 
 class SimulatedMetricsCollector(MetricsCollector):
     """Metrics collector that simulates a distributed system."""
-    
+
     def __init__(self, nodes: Dict[str, NodeLocation]):
         """Initialize simulated metrics collector.
-        
+
         Args:
             nodes: Dictionary mapping node IDs to their locations
         """
@@ -100,71 +100,71 @@ class SimulatedMetricsCollector(MetricsCollector):
         while True:
             for node_id, metrics in self._metrics.items():
                 # Simulate CPU usage (fluctuating between 10-90%)
-                metrics.cpu_usage = min(90, max(10, 
+                metrics.cpu_usage = min(90, max(10,
                     metrics.cpu_usage + random.uniform(-5, 5)))
-                
+
                 # Simulate memory usage (more stable, 20-80%)
-                metrics.memory_usage = min(80, max(20, 
+                metrics.memory_usage = min(80, max(20,
                     metrics.memory_usage + random.uniform(-2, 2)))
-                
+
                 # Simulate disk usage (slowly increasing)
-                metrics.disk_usage = min(95, 
+                metrics.disk_usage = min(95,
                     metrics.disk_usage + random.uniform(0, 0.1))
-                
+
                 # Simulate network I/O
-                metrics.network_in = max(0, 
+                metrics.network_in = max(0,
                     metrics.network_in + random.uniform(-1, 1))
-                metrics.network_out = max(0, 
+                metrics.network_out = max(0,
                     metrics.network_out + random.uniform(-1, 1))
-                
+
                 metrics.last_update = time.time()
-            
+
             await asyncio.sleep(1)  # Update every second
 
-    async def simulate_operation(self, source_node: str, dest_node: str, 
+    async def simulate_operation(self, source_node: str, dest_node: str,
                                operation: str, data_size: int) -> float:
         """Simulate a storage operation between nodes.
-        
+
         Args:
             source_node: ID of source node
             dest_node: ID of destination node
             operation: Type of operation (e.g., 'read', 'write')
             data_size: Size of data in bytes
-            
+
         Returns:
             Simulated operation duration in seconds
         """
         if source_node not in self._metrics or dest_node not in self._metrics:
             raise ValueError("Invalid node ID")
-            
+
         # Calculate network latency
         latency = self.network_sim.get_latency(
             self.nodes[source_node],
             self.nodes[dest_node]
         )
-        
+
         # Simulate network transfer time based on data size
         # Assume average speed of 100MB/s with variation
         transfer_speed = random.uniform(50, 150) * 1024 * 1024  # bytes/s
         transfer_time = data_size / transfer_speed
-        
+
         # Total operation time
         total_time = (latency / 1000) + transfer_time  # Convert latency to seconds
-        
+
         # Update metrics
         source_metrics = self._metrics[source_node]
         dest_metrics = self._metrics[dest_node]
-        
+
         source_metrics.operation_count += 1
         dest_metrics.operation_count += 1
-        
+
         if operation == 'write':
             source_metrics.network_out += data_size
             dest_metrics.network_in += data_size
         else:  # read
             source_metrics.network_in += data_size
             dest_metrics.network_out += data_size
-            
+
         # Simulate the operation time
         await asyncio.sleep(total_time)
         return total_time
@@ -211,7 +211,7 @@ class SimulatedMetricsCollector(MetricsCollector):
         """Get the current simulated network latency between two nodes."""
         if source_node not in self.nodes or dest_node not in self.nodes:
             raise ValueError("Invalid node ID")
-            
+
         return self.network_sim.get_latency(
             self.nodes[source_node],
             self.nodes[dest_node]

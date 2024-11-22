@@ -56,16 +56,16 @@ class S3ApiHandler:
         """List all buckets in the distributed file system"""
         try:
             buckets, error = self.storage.list_buckets()
-            
+
             # Handle potential errors
             if error:
                 logger.error(f"Error listing buckets: {error}")
                 return jsonify({'error': str(error)}), 400
-            
+
             # Return the bucket list
             response = {'buckets': buckets if buckets else []}
             return jsonify(response), 200
-        
+
         except Exception as e:
             logger.error(f"Unexpected error listing buckets: {str(e)}")
             return jsonify({'error': str(e)}), 500
@@ -254,24 +254,24 @@ class S3ApiHandler:
         """List all buckets in the distributed file system"""
         try:
             storage = get_storage_backend()
-            
+
             # Call list_buckets method
             buckets, error = storage.list_buckets()
-            
+
             # Handle potential errors
             if error:
                 logger.error(f"Error listing buckets: {error}")
                 if isinstance(error, Response):
                     return error
                 return jsonify({'error': str(error)}), 400
-            
+
             # Return the bucket list
             if isinstance(buckets, Response):
                 return buckets
-            
+
             response = {'buckets': buckets if buckets else []}
             return jsonify(response), 200
-        
+
         except Exception as e:
             logger.error(f"Unexpected error listing buckets: {str(e)}")
             return jsonify({'error': str(e)}), 500
