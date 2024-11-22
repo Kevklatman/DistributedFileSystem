@@ -131,16 +131,30 @@ class AWSS3Provider(CloudProviderBase):
 class GCPStorageProvider(CloudProviderBase):
     """Google Cloud Storage provider implementation."""
 
-    def __init__(self, credentials_path: Optional[str] = None):
-        """Initialize Google Cloud Storage client.
-
-        Args:
-            credentials_path: Path to GCP credentials JSON file
-        """
+    def __init__(self):
+        """Initialize Google Cloud Storage client using environment variables."""
         super().__init__()
-        if credentials_path:
-            os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = credentials_path
-        self.storage_client = storage.Client()
+        
+        # Get credentials from environment variables
+        project_id = os.getenv('GCP_PROJECT_ID')
+        client_email = os.getenv('GCP_CLIENT_EMAIL')
+        private_key = os.getenv('GCP_PRIVATE_KEY')
+        
+        if not all([project_id, client_email, private_key]):
+            raise ValueError("GCP credentials not provided in environment variables")
+        
+        # Create credentials dictionary
+        credentials_info = {
+            "type": "service_account",
+            "project_id": project_id,
+            "private_key": private_key.replace('\\n', '\n'),  # Handle newline escaping
+            "client_email": client_email,
+            "token_uri": "https://oauth2.googleapis.com/token"
+        }
+        
+        # Create credentials object
+        credentials = storage.Credentials.from_service_account_info(credentials_info)
+        self.storage_client = storage.Client(credentials=credentials, project=project_id)
 
     def upload_file(self, file_data: Union[bytes, BinaryIO], object_key: str, bucket: str, **kwargs) -> bool:
         """Upload a file to GCS bucket."""
