@@ -8,12 +8,12 @@ import logging
 import json
 from pathlib import Path
 
-from models import (
+from src.api.models import (
     Volume, StoragePool, StorageLocation, TierType,
     DataTemperature, HybridStorageSystem
 )
-from src.api.storage.policy_engine import PolicyMode
-from src.api.storage.tiering_manager import TierCost
+from src.storage.policy.policy_engine import PolicyMode
+from src.storage.policy.tiering_manager import TierCost
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

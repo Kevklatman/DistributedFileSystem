@@ -1,12 +1,7 @@
 import asyncio
 import logging
-import sys
-import os
 import json
 from datetime import datetime
-
-# Add project root to Python path
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.simulation.scenario_config import ScenarioGenerator
 from src.simulation.scenario_simulator import ScenarioSimulator
