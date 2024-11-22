@@ -14,6 +14,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"syscall"
 )
 
 const (
@@ -151,31 +152,97 @@ func (d *DFSDriver) Probe(ctx context.Context, req *csi.ProbeRequest) (*csi.Prob
 
 // Controller Server Implementation
 func (d *DFSDriver) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest) (*csi.CreateVolumeResponse, error) {
-	volID := fmt.Sprintf("vol-%s", uuid.New().String())
-	vol := &Volume{
-		VolID:   volID,
-		VolName: req.Name,
-		VolSize: req.CapacityRange.RequiredBytes,
-		VolPath: filepath.Join("/data", volID),
+	// Validate request
+	if req.Name == "" {
+		return nil, status.Error(codes.InvalidArgument, "Volume name is required")
+	}
+	if req.VolumeCapabilities == nil || len(req.VolumeCapabilities) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "Volume capabilities are required")
 	}
 
 	d.volLock.Lock()
+	defer d.volLock.Unlock()
+
+	// Check if volume already exists
+	for _, vol := range d.volumes {
+		if vol.VolName == req.Name {
+			// Volume already exists, check if compatible
+			return &csi.CreateVolumeResponse{
+				Volume: &csi.Volume{
+					VolumeId:      vol.VolID,
+					CapacityBytes: vol.VolSize,
+					VolumeContext: req.Parameters,
+				},
+			}, nil
+		}
+	}
+
+	// Create new volume
+	volID := uuid.New().String()
+	volPath := filepath.Join("/var/lib/dfs/volumes", volID)
+
+	// Create volume directory
+	if err := os.MkdirAll(volPath, 0750); err != nil {
+		return nil, status.Errorf(codes.Internal, "Failed to create volume directory: %s", err)
+	}
+
+	// Calculate volume size
+	var volSize int64 = 1 * 1024 * 1024 * 1024 // Default 1GB
+	if req.CapacityRange != nil && req.CapacityRange.RequiredBytes > 0 {
+		volSize = req.CapacityRange.RequiredBytes
+	}
+
+	// Store volume metadata
+	vol := &Volume{
+		VolID:      volID,
+		VolName:    req.Name,
+		VolSize:    volSize,
+		VolPath:    volPath,
+		AccessMode: req.VolumeCapabilities[0].GetMount().GetMountFlags()[0],
+	}
 	d.volumes[volID] = vol
-	d.volLock.Unlock()
 
 	return &csi.CreateVolumeResponse{
 		Volume: &csi.Volume{
 			VolumeId:      volID,
-			CapacityBytes: req.CapacityRange.RequiredBytes,
+			CapacityBytes: volSize,
 			VolumeContext: req.Parameters,
 		},
 	}, nil
 }
 
 func (d *DFSDriver) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequest) (*csi.DeleteVolumeResponse, error) {
+	if req.VolumeId == "" {
+		return nil, status.Error(codes.InvalidArgument, "Volume ID is required")
+	}
+
 	d.volLock.Lock()
+	defer d.volLock.Unlock()
+
+	vol, exists := d.volumes[req.VolumeId]
+	if !exists {
+		// Volume already deleted or doesn't exist
+		return &csi.DeleteVolumeResponse{}, nil
+	}
+
+	// Check if volume is mounted
+	d.mountLock.RLock()
+	for _, mount := range d.mounts {
+		if mount.VolID == req.VolumeId {
+			d.mountLock.RUnlock()
+			return nil, status.Error(codes.FailedPrecondition, "Volume is still mounted")
+		}
+	}
+	d.mountLock.RUnlock()
+
+	// Delete volume directory
+	if err := os.RemoveAll(vol.VolPath); err != nil {
+		return nil, status.Errorf(codes.Internal, "Failed to delete volume directory: %s", err)
+	}
+
+	// Remove volume from map
 	delete(d.volumes, req.VolumeId)
-	d.volLock.Unlock()
+
 	return &csi.DeleteVolumeResponse{}, nil
 }
 
@@ -188,6 +255,42 @@ func (d *DFSDriver) ControllerUnpublishVolume(ctx context.Context, req *csi.Cont
 }
 
 func (d *DFSDriver) ValidateVolumeCapabilities(ctx context.Context, req *csi.ValidateVolumeCapabilitiesRequest) (*csi.ValidateVolumeCapabilitiesResponse, error) {
+	if req.VolumeId == "" {
+		return nil, status.Error(codes.InvalidArgument, "Volume ID is required")
+	}
+
+	d.volLock.RLock()
+	_, exists := d.volumes[req.VolumeId]
+	d.volLock.RUnlock()
+
+	if !exists {
+		return nil, status.Error(codes.NotFound, "Volume not found")
+	}
+
+	// Check each capability
+	for _, cap := range req.VolumeCapabilities {
+		switch cap.GetAccessType().(type) {
+		case *csi.VolumeCapability_Mount:
+			// We support mount volumes
+		default:
+			return &csi.ValidateVolumeCapabilitiesResponse{
+				Message: "Unsupported access type",
+			}, nil
+		}
+
+		// Check access mode
+		switch cap.GetAccessMode().GetMode() {
+		case csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER,
+			csi.VolumeCapability_AccessMode_SINGLE_NODE_READER_ONLY,
+			csi.VolumeCapability_AccessMode_MULTI_NODE_READER_ONLY:
+			// These modes are supported
+		default:
+			return &csi.ValidateVolumeCapabilitiesResponse{
+				Message: "Unsupported access mode",
+			}, nil
+		}
+	}
+
 	return &csi.ValidateVolumeCapabilitiesResponse{
 		Confirmed: &csi.ValidateVolumeCapabilitiesResponse_Confirmed{
 			VolumeCapabilities: req.VolumeCapabilities,
@@ -213,12 +316,63 @@ func (d *DFSDriver) ControllerGetCapabilities(ctx context.Context, req *csi.Cont
 					},
 				},
 			},
+			{
+				Type: &csi.ControllerServiceCapability_Rpc{
+					Rpc: &csi.ControllerServiceCapability_RPC{
+						Type: csi.ControllerServiceCapability_RPC_PUBLISH_UNPUBLISH_VOLUME,
+					},
+				},
+			},
+			{
+				Type: &csi.ControllerServiceCapability_Rpc{
+					Rpc: &csi.ControllerServiceCapability_RPC{
+						Type: csi.ControllerServiceCapability_RPC_LIST_VOLUMES,
+					},
+				},
+			},
+			{
+				Type: &csi.ControllerServiceCapability_Rpc{
+					Rpc: &csi.ControllerServiceCapability_RPC{
+						Type: csi.ControllerServiceCapability_RPC_GET_CAPACITY,
+					},
+				},
+			},
+			{
+				Type: &csi.ControllerServiceCapability_Rpc{
+					Rpc: &csi.ControllerServiceCapability_RPC{
+						Type: csi.ControllerServiceCapability_RPC_EXPAND_VOLUME,
+					},
+				},
+			},
 		},
 	}, nil
 }
 
 func (d *DFSDriver) ControllerExpandVolume(ctx context.Context, req *csi.ControllerExpandVolumeRequest) (*csi.ControllerExpandVolumeResponse, error) {
-	return &csi.ControllerExpandVolumeResponse{}, nil
+	if req.VolumeId == "" {
+		return nil, status.Error(codes.InvalidArgument, "Volume ID is required")
+	}
+
+	if req.CapacityRange == nil {
+		return nil, status.Error(codes.InvalidArgument, "Capacity range is required")
+	}
+
+	d.volLock.Lock()
+	vol, exists := d.volumes[req.VolumeId]
+	if !exists {
+		d.volLock.Unlock()
+		return nil, status.Error(codes.NotFound, "Volume not found")
+	}
+
+	// Update volume size
+	vol.VolSize = req.CapacityRange.RequiredBytes
+	d.volumes[req.VolumeId] = vol
+	d.volLock.Unlock()
+
+	return &csi.ControllerExpandVolumeResponse{
+		CapacityBytes:         req.CapacityRange.RequiredBytes,
+		NodeExpansionRequired: true,
+	}, nil
 }
 
 func (d *DFSDriver) ControllerGetVolume(ctx context.Context, req *csi.ControllerGetVolumeRequest) (*csi.ControllerGetVolumeResponse, error) {
@@ -263,46 +417,126 @@ func (d *DFSDriver) NodeUnstageVolume(ctx context.Context, req *csi.NodeUnstageV
 }
 
 func (d *DFSDriver) NodePublishVolume(ctx context.Context, req *csi.NodePublishVolumeRequest) (*csi.NodePublishVolumeResponse, error) {
-	d.volLock.RLock()
-	_, exists := d.volumes[req.VolumeId]
-	d.volLock.RUnlock()
+	// Validate request
+	if req.VolumeId == "" || req.TargetPath == "" {
+		return nil, status.Error(codes.InvalidArgument, "Volume ID and target path are required")
+	}
 
+	d.volLock.RLock()
+	vol, exists := d.volumes[req.VolumeId]
+	d.volLock.RUnlock()
 	if !exists {
 		return nil, status.Error(codes.NotFound, "Volume not found")
 	}
 
-	targetPath := req.GetTargetPath()
-	if err := os.MkdirAll(targetPath, 0750); err != nil {
-		return nil, status.Error(codes.Internal, err.Error())
+	d.mountLock.Lock()
+	defer d.mountLock.Unlock()
+
+	// Check if already mounted
+	for _, mount := range d.mounts {
+		if mount.VolID == req.VolumeId && mount.TargetPath == req.TargetPath {
+			return &csi.NodePublishVolumeResponse{}, nil
+		}
 	}
 
-	mount := &Mount{
+	// Create target directory if it doesn't exist
+	if err := os.MkdirAll(req.TargetPath, 0750); err != nil {
+		return nil, status.Errorf(codes.Internal, "Failed to create target directory: %s", err)
+	}
+
+	// Mount the volume
+	mountFlags := []string{}
+	if req.Readonly {
+		mountFlags = append(mountFlags, "ro")
+	}
+
+	if err := d.mounter.Mount(vol.VolPath, req.TargetPath, "bind", mountFlags); err != nil {
+		return nil, status.Errorf(codes.Internal, "Failed to mount volume: %s", err)
+	}
+
+	// Record mount
+	d.mounts[req.TargetPath] = &Mount{
 		VolID:      req.VolumeId,
-		TargetPath: targetPath,
-		FSType:     req.VolumeCapability.GetMount().FsType,
+		TargetPath: req.TargetPath,
 		ReadOnly:   req.Readonly,
 	}
-
-	d.mountLock.Lock()
-	d.mounts[req.VolumeId] = mount
-	d.mountLock.Unlock()
 
 	return &csi.NodePublishVolumeResponse{}, nil
 }
 
 func (d *DFSDriver) NodeUnpublishVolume(ctx context.Context, req *csi.NodeUnpublishVolumeRequest) (*csi.NodeUnpublishVolumeResponse, error) {
 	d.mountLock.Lock()
-	delete(d.mounts, req.VolumeId)
-	d.mountLock.Unlock()
-	return &csi.NodeUnpublishVolumeResponse{}, nil
+	defer d.mountLock.Unlock()
+
+	// Check if volume is mounted
+	for _, mount := range d.mounts {
+		if mount.TargetPath == req.TargetPath {
+			// Unmount the volume
+			if err := d.mounter.Unmount(req.TargetPath); err != nil {
+				return nil, status.Errorf(codes.Internal, "Failed to unmount volume: %s", err)
+			}
+
+			// Remove mount record
+			delete(d.mounts, req.TargetPath)
+			return &csi.NodeUnpublishVolumeResponse{}, nil
+		}
+	}
+
+	return nil, status.Errorf(codes.NotFound, "Volume not found")
 }
 
 func (d *DFSDriver) NodeGetVolumeStats(ctx context.Context, req *csi.NodeGetVolumeStatsRequest) (*csi.NodeGetVolumeStatsResponse, error) {
-	return &csi.NodeGetVolumeStatsResponse{}, nil
+	if req.VolumeId == "" || req.VolumePath == "" {
+		return nil, status.Error(codes.InvalidArgument, "Volume ID and volume path are required")
+	}
+
+	var stat syscall.Statfs_t
+	if err := syscall.Statfs(req.VolumePath, &stat); err != nil {
+		return nil, status.Errorf(codes.Internal, "Failed to get volume stats: %v", err)
+	}
+
+	available := stat.Bavail * uint64(stat.Bsize)
+	total := stat.Blocks * uint64(stat.Bsize)
+	used := (stat.Blocks - stat.Bfree) * uint64(stat.Bsize)
+
+	return &csi.NodeGetVolumeStatsResponse{
+		Usage: []*csi.VolumeUsage{
+			{
+				Available: int64(available),
+				Total:     int64(total),
+				Used:      int64(used),
+				Unit:      csi.VolumeUsage_BYTES,
+			},
+			{
+				Available: int64(stat.Ffree),
+				Total:     int64(stat.Files),
+				Used:      int64(stat.Files - stat.Ffree),
+				Unit:      csi.VolumeUsage_INODES,
+			},
+		},
+	}, nil
 }
 
 func (d *DFSDriver) NodeExpandVolume(ctx context.Context, req *csi.NodeExpandVolumeRequest) (*csi.NodeExpandVolumeResponse, error) {
-	return &csi.NodeExpandVolumeResponse{}, nil
+	if req.VolumeId == "" || req.VolumePath == "" {
+		return nil, status.Error(codes.InvalidArgument, "Volume ID and volume path are required")
+	}
+
+	d.volLock.Lock()
+	vol, exists := d.volumes[req.VolumeId]
+	if !exists {
+		d.volLock.Unlock()
+		return nil, status.Error(codes.NotFound, "Volume not found")
+	}
+
+	// Update volume size
+	vol.VolSize = req.CapacityRange.RequiredBytes
+	d.volumes[req.VolumeId] = vol
+	d.volLock.Unlock()
+
+	return &csi.NodeExpandVolumeResponse{
+		CapacityBytes: req.CapacityRange.RequiredBytes,
+	}, nil
 }
 
 func (d *DFSDriver) NodeGetCapabilities(ctx context.Context, req *csi.NodeGetCapabilitiesRequest) (*csi.NodeGetCapabilitiesResponse, error) {
@@ -315,6 +549,20 @@ func (d *DFSDriver) NodeGetCapabilities(ctx context.Context, req *csi.NodeGetCap
 					},
 				},
 			},
+			{
+				Type: &csi.NodeServiceCapability_Rpc{
+					Rpc: &csi.NodeServiceCapability_RPC{
+						Type: csi.NodeServiceCapability_RPC_GET_VOLUME_STATS,
+					},
+				},
+			},
+			{
+				Type: &csi.NodeServiceCapability_Rpc{
+					Rpc: &csi.NodeServiceCapability_RPC{
+						Type: csi.NodeServiceCapability_RPC_EXPAND_VOLUME,
+					},
+				},
+			},
 		},
 	}, nil
 }
@@ -322,5 +570,11 @@ func (d *DFSDriver) NodeGetCapabilities(ctx context.Context, req *csi.NodeGetCap
 func (d *DFSDriver) NodeGetInfo(ctx context.Context, req *csi.NodeGetInfoRequest) (*csi.NodeGetInfoResponse, error) {
 	return &csi.NodeGetInfoResponse{
 		NodeId: d.nodeID,
+		MaxVolumesPerNode: 256, // Reasonable default
+		AccessibleTopology: &csi.Topology{
+			Segments: map[string]string{
+				"kubernetes.io/hostname": d.nodeID,
+			},
+		},
 	}, nil
 }

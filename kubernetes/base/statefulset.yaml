@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: dfs-node
+spec:
+  serviceName: dfs-service
+  replicas: 3
+  selector:
+    matchLabels:
+      app: dfs-node
+  template:
+    metadata:
+      labels:
+        app: dfs-node
+    spec:
+      containers:
+      - name: dfs-node
+        image: dfs-node:latest
+        ports:
+        - containerPort: 8080
+          name: api
+        - containerPort: 9090
+          name: metrics
+        volumeMounts:
+        - name: data
+          mountPath: /data
+        env:
+        - name: NODE_ID
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: STORAGE_ENV
+          value: "hybrid"
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      storageClassName: dfs-hybrid-storage
+      resources:
+        requests:
+          storage: 10Gi
