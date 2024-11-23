@@ -9,7 +9,7 @@ from collections import defaultdict
 from storage.metrics.collector import MetricsCollector, NetworkMetrics
 
 logger = logging.getLogger(__name__)
-
+#e
 @dataclass
 class NodeLocation:
     region: str
