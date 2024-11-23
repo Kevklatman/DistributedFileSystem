@@ -21,18 +21,20 @@ RUN mkdir -p /data /data/cache && \
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
-ENV PYTHONPATH=/app/src:$PYTHONPATH
+ENV PYTHONPATH=/app/src
 ENV STORAGE_DATA_DIR=/data
 ENV CACHE_DIR=/data/cache
 ENV NODE_ID=
 ENV PORT=8080
+ENV METRICS_PORT=9091
 ENV HOST=0.0.0.0
 
 # Create volume for persistent storage
 VOLUME ["/data"]
 
-# Expose the HTTP port
+# Expose ports
 EXPOSE 8080
+EXPOSE 9091
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
