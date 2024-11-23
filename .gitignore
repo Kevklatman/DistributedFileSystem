@@ -84,3 +84,7 @@ logs/
 # Generated files
 node_modules/
 *.generated.*
+
+# Prevent old manager files from reappearing
+src/storage/data/consistency_manager.py
+src/storage/data/replication_manager.py
