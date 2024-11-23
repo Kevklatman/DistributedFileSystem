@@ -1,11 +1,17 @@
 # Build directory
 build/
+dist/
 
 # IDE specific files
 .vscode/
 .idea/
 *.swp
 *.swo
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
 
 # Compiled files
 *.o
@@ -21,7 +27,26 @@ Makefile
 # Environment files
 .env
 .env.*
-!.env.example
+.venv/
+venv/
+ENV/
+env/
+
+# Credentials
+/credentials/
+*.pem
+*.key
+*.crt
+*.cer
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.json
+!package.json
+!package-lock.json
+!tsconfig.json
+!composer.json
 
 # Python
 __pycache__/
@@ -29,19 +54,42 @@ __pycache__/
 *$py.class
 *.so
 .Python
-env/
-venv/
-ENV/
-.env
-.venv
 pip-log.txt
 pip-delete-this-directory.txt
 
 # System files
-.DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
 ehthumbs.db
 Thumbs.db
+
+/grafana/data/*
+
+# Metrics reports
+metrics_reports/
+
+# Metrics files
+src/storage/metrics/**/*.pyc
+src/storage/metrics/**/__pycache__
+src/storage/metrics/example.py
+
+# Logs and temporary files
+*.log
+tmp/
+temp/
+logs/
+
+# Cache files
+.cache/
+*.pyc
+*.pyo
+*.pyd
+
+# Project specific
+/backups/
+
+# Generated files
+node_modules/
+*.generated.*
+
+# Prevent old manager files from reappearing
+src/storage/data/consistency_manager.py
+src/storage/data/replication_manager.py

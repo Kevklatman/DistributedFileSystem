@@ -1,0 +1,40 @@
+graph TB
+    subgraph "Lifecycle Policies"
+        L1[Age-Based Migration<br/>30 Days → S3-IA<br/>90 Days → Glacier]
+        L2[Access-Based Tiering<br/>No Access 7 Days → Cool Tier<br/>No Access 30 Days → Cold Tier]
+        L3[Version Control<br/>Keep Last 5 Versions<br/>Archive Older Versions]
+    end
+
+    subgraph "Performance Policies"
+        P1[Hot Data Caching<br/>Cache if 3+ Access/Hour<br/>Keep in Local SSD]
+        P2[Prefetch Rules<br/>Load Related Files<br/>Predictive Caching]
+        P3[I/O Priority<br/>High: Real-time Data<br/>Medium: Active Projects<br/>Low: Archives]
+    end
+
+    subgraph "Protection Policies"
+        PR1[Replication Rules<br/>Critical: 3 Copies<br/>Important: 2 Copies<br/>Standard: 1 Copy]
+        PR2[Backup Schedule<br/>Hourly: Critical DBs<br/>Daily: User Data<br/>Weekly: Archives]
+        PR3[Encryption Policy<br/>At-Rest: All Data<br/>In-Transit: External Access]
+    end
+
+    subgraph "Cost Optimization"
+        C1[Deduplication<br/>Block-Level<br/>File-Level]
+        C2[Compression<br/>Text: High<br/>Images: Low]
+        C3[Auto-Delete<br/>Temp Files: 24h<br/>Logs: 30 Days]
+    end
+
+    style L1 fill:#f9d,stroke:#333,stroke-width:2px
+    style L2 fill:#f9d,stroke:#333,stroke-width:2px
+    style L3 fill:#f9d,stroke:#333,stroke-width:2px
+    
+    style P1 fill:#9df,stroke:#333,stroke-width:2px
+    style P2 fill:#9df,stroke:#333,stroke-width:2px
+    style P3 fill:#9df,stroke:#333,stroke-width:2px
+    
+    style PR1 fill:#fd9,stroke:#333,stroke-width:2px
+    style PR2 fill:#fd9,stroke:#333,stroke-width:2px
+    style PR3 fill:#fd9,stroke:#333,stroke-width:2px
+    
+    style C1 fill:#9fd,stroke:#333,stroke-width:2px
+    style C2 fill:#9fd,stroke:#333,stroke-width:2px
+    style C3 fill:#9fd,stroke:#333,stroke-width:2px

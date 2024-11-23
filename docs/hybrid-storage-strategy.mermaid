@@ -1,0 +1,52 @@
+graph TB
+    subgraph "Local Storage Candidates"
+        direction TB
+        L1[Sensitive Data<br/>PII, Financial Records]
+        L2[Performance-Critical<br/>Active Databases, Real-time Analytics]
+        L3[Frequently Accessed<br/>Current Projects, Active Files]
+        L4[Compliance Required<br/>Regulated Data, Audit Logs]
+    end
+
+    subgraph "Cloud Storage Candidates"
+        direction TB
+        C1[Backups & Archives<br/>Historical Data]
+        C2[Public Content<br/>Marketing Assets, Documentation]
+        C3[Collaboration Files<br/>Shared Resources]
+        C4[Disaster Recovery<br/>System Images]
+    end
+
+    subgraph "Decision Factors"
+        direction TB
+        D1[Access Frequency]
+        D2[Data Sensitivity]
+        D3[Performance Needs]
+        D4[Cost Considerations]
+        D5[Compliance Requirements]
+    end
+
+    D1 --> L3
+    D1 --> C1
+    D2 --> L1
+    D2 --> C2
+    D3 --> L2
+    D3 --> C3
+    D4 --> C1
+    D4 --> C4
+    D5 --> L4
+    D5 --> C4
+
+    style L1 fill:#f77,stroke:#333,stroke-width:2px
+    style L2 fill:#7f7,stroke:#333,stroke-width:2px
+    style L3 fill:#77f,stroke:#333,stroke-width:2px
+    style L4 fill:#f7f,stroke:#333,stroke-width:2px
+    
+    style C1 fill:#ff7,stroke:#333,stroke-width:2px
+    style C2 fill:#7ff,stroke:#333,stroke-width:2px
+    style C3 fill:#f7f,stroke:#333,stroke-width:2px
+    style C4 fill:#777,stroke:#333,stroke-width:2px
+    
+    style D1 fill:#ddd,stroke:#333,stroke-width:2px
+    style D2 fill:#ddd,stroke:#333,stroke-width:2px
+    style D3 fill:#ddd,stroke:#333,stroke-width:2px
+    style D4 fill:#ddd,stroke:#333,stroke-width:2px
+    style D5 fill:#ddd,stroke:#333,stroke-width:2px

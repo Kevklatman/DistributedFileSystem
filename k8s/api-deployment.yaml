@@ -1,56 +1,64 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: api-service
-  namespace: distributed-fs
+  name: dfs-api
+  labels:
+    app: dfs-api
 spec:
-  replicas: 1
+  replicas: 3
   selector:
     matchLabels:
-      app: api-service
+      app: dfs-api
   template:
     metadata:
       labels:
-        app: api-service
+        app: dfs-api
     spec:
       containers:
-      - name: api-service
-        image: python:3.8.13-slim
-        workingDir: /app
-        command: ["/bin/sh", "-c"]
-        args:
-          - |
-            pip install -r requirements.txt
-            python src/api/app.py
+      - name: dfs-api
+        image: dfs-api:latest
+        imagePullPolicy: IfNotPresent
         ports:
-        - containerPort: 5555
+        - containerPort: 8080
         env:
-        - name: STORAGE_ENV
-          value: "local"
+        - name: PYTHONPATH
+          value: "/app/src"
+        - name: LOCAL_STORAGE_DIR
+          value: "/app/storage"
         - name: API_HOST
           value: "0.0.0.0"
         - name: API_PORT
-          value: "5555"
-        - name: DEBUG
-          value: "true"
+          value: "8080"
+        - name: FLASK_ENV
+          value: "production"
         volumeMounts:
-        - name: app-code
-          mountPath: /app
+        - name: storage-volume
+          mountPath: /app/storage
       volumes:
-      - name: app-code
-        hostPath:
-          path: /Users/kevinklatman/Development/Code/DistributedFileSystem
+      - name: storage-volume
+        persistentVolumeClaim:
+          claimName: dfs-storage-claim
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: api-service
-  namespace: distributed-fs
+  name: dfs-api-service
 spec:
-  type: NodePort
-  ports:
-  - port: 5555
-    targetPort: 5555
-    nodePort: 30555
   selector:
-    app: api-service
+    app: dfs-api
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8080
+  type: LoadBalancer
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: dfs-storage-claim
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 10Gi

@@ -1,0 +1,84 @@
+services:
+  # Core nodes
+  dfs_core:
+    image: dfs_core:latest
+    build: .
+    deploy:
+      mode: replicated
+      replicas: 3
+      labels:
+        - "node_type=core"
+    environment:
+      - NODE_TYPE=core
+      - QUORUM_SIZE=2
+    ports:
+      - "8000" # Using dynamic port allocation
+    volumes:
+      - type: volume
+        source: dfs_core_data
+        target: /app/data
+    networks:
+      - dfs_network
+
+  # Edge nodes
+  dfs_edge:
+    image: dfs_edge:latest
+    build: .
+    deploy:
+      mode: replicated
+      replicas: 2
+      labels:
+        - "node_type=edge"
+    environment:
+      - NODE_TYPE=edge
+      - DEVICE_TYPE={{.Task.Slot}} # Will be 1=mobile, 2=iot
+    ports:
+      - "8000" # Using dynamic port allocation
+    volumes:
+      - type: volume
+        source: dfs_edge_data
+        target: /app/data
+    networks:
+      - dfs_network
+
+  # Monitoring stack
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090" # Using dynamic port allocation
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    deploy:
+      mode: replicated
+      replicas: 1
+    networks:
+      - dfs_network
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000" # Using dynamic port allocation
+    volumes:
+      - type: bind
+        source: ./src/grafana/dashboards
+        target: /etc/grafana/provisioning/dashboards
+      - type: bind
+        source: ./src/grafana/provisioning/dashboards
+        target: /etc/grafana/provisioning/dashboards/config
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_PATHS_PROVISIONING=/etc/grafana/provisioning
+    networks:
+      - dfs_network
+
+networks:
+  dfs_network:
+    driver: overlay
+    attachable: true
+
+volumes:
+  dfs_core_data:
+    driver: local
+  dfs_edge_data:
+    driver: local

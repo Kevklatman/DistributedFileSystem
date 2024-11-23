@@ -1,0 +1,54 @@
+graph TB
+    subgraph "ML Features"
+        F1[Access Patterns<br/>Time, Frequency, Duration]
+        F2[File Metadata<br/>Size, Type, Owner]
+        F3[System Context<br/>Load, Capacity, Network]
+        F4[Business Context<br/>Projects, Deadlines]
+    end
+
+    subgraph "ML Models"
+        M1[Access Prediction<br/>Next Access Time]
+        M2[Usage Pattern<br/>Hot/Warm/Cold]
+        M3[Resource Needs<br/>IO, Storage, Network]
+        M4[Cost Prediction<br/>Storage/Transfer Costs]
+    end
+
+    subgraph "Policy Actions"
+        A1[Tiering Decisions<br/>Move to SSD/HDD/Cloud]
+        A2[Prefetch Strategy<br/>Preload Related Data]
+        A3[Resource Allocation<br/>Cache, Bandwidth]
+        A4[Replication Strategy<br/>Copies, Locations]
+    end
+
+    F1 --> M1
+    F1 --> M2
+    F2 --> M2
+    F2 --> M3
+    F3 --> M3
+    F3 --> M4
+    F4 --> M1
+    F4 --> M4
+
+    M1 --> A1
+    M1 --> A2
+    M2 --> A1
+    M2 --> A3
+    M3 --> A3
+    M3 --> A4
+    M4 --> A1
+    M4 --> A4
+
+    style F1 fill:#f9d,stroke:#333,stroke-width:2px
+    style F2 fill:#f9d,stroke:#333,stroke-width:2px
+    style F3 fill:#f9d,stroke:#333,stroke-width:2px
+    style F4 fill:#f9d,stroke:#333,stroke-width:2px
+
+    style M1 fill:#9df,stroke:#333,stroke-width:2px
+    style M2 fill:#9df,stroke:#333,stroke-width:2px
+    style M3 fill:#9df,stroke:#333,stroke-width:2px
+    style M4 fill:#9df,stroke:#333,stroke-width:2px
+
+    style A1 fill:#fd9,stroke:#333,stroke-width:2px
+    style A2 fill:#fd9,stroke:#333,stroke-width:2px
+    style A3 fill:#fd9,stroke:#333,stroke-width:2px
+    style A4 fill:#fd9,stroke:#333,stroke-width:2px

@@ -1,354 +1,178 @@
+"""
+Monitoring application for the distributed file system.
+"""
 from flask import Flask, render_template, jsonify, Response, request
-from kubernetes import client, config, utils
+from kubernetes import client
 from datetime import datetime
 import os
-import ssl
 import urllib3
 import requests
 import time
 from flask_cors import CORS
-from prometheus_client import Counter, Histogram, start_http_server
+import sys
+import psutil
+import json
+import socket
+import traceback
+import logging
+import threading
+
+from storage.metrics import UnifiedMetricsCollector
+
+# Create a logger
+logger = logging.getLogger(__name__)
 
 # Disable SSL warnings
 urllib3.disable_warnings()
 
-# Initialize Prometheus metrics
-REQUEST_COUNT = Counter(
-    'dfs_request_total',
-    'Total number of requests by endpoint and method',
-    ['endpoint', 'method', 'status']
+# Initialize Flask app with CORS and templates
+app = Flask(__name__,
+           template_folder=os.path.join(os.path.dirname(os.path.abspath(__file__)), 'templates'),
+           static_folder=os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static'))
+CORS(app)
+
+# Initialize metrics collector
+metrics = UnifiedMetricsCollector(
+    instance_id=socket.gethostname(),
+    node_id=os.getenv('NODE_ID', socket.gethostname())
 )
 
-REQUEST_LATENCY = Histogram(
-    'dfs_request_latency_seconds',
-    'Request latency in seconds',
-    ['endpoint', 'method']
-)
+class RequestQueue:
+    def __init__(self):
+        self.queue = []
+        self.lock = threading.Lock()
 
-NETWORK_IO = Counter(
-    'dfs_network_bytes',
-    'Network I/O in bytes',
-    ['direction']  # 'in' or 'out'
-)
+    def add_request(self, request):
+        with self.lock:
+            self.queue.append(request)
 
-app = Flask(__name__)
-CORS(app, resources={
-    r"/*": {
-        "origins": ["http://localhost:3000", "http://localhost:5000", "http://localhost:5555"],
-        "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-        "allow_headers": ["Content-Type", "Accept", "Authorization", "X-Amz-Date", "X-Api-Key", "X-Amz-Security-Token"],
-        "expose_headers": ["ETag", "x-amz-request-id", "x-amz-id-2"],
-        "supports_credentials": True
-    }
-})
+    def remove_request(self):
+        with self.lock:
+            if self.queue:
+                return self.queue.pop(0)
+            return None
+
+    def get_length(self):
+        with self.lock:
+            return len(self.queue)
+
+# Initialize request queue
+app.request_queue = RequestQueue()
 
 @app.before_request
-def before_request():
-    request.start_time = time.time()
-    if request.content_length:
-        NETWORK_IO.labels(direction='in').inc(request.content_length)
+def track_request():
+    """Track incoming requests"""
+    try:
+        if not request.path.startswith(('/metrics', '/static')):  # Don't track metrics endpoint
+            start_time = time.time()
+            request.start_time = start_time
+            app.request_queue.add_request({
+                'path': request.path,
+                'method': request.method,
+                'time': start_time
+            })
+            metrics.update_queue_length(app.request_queue.get_length())
+    except Exception as e:
+        logger.error(f"Error tracking request: {e}")
 
 @app.after_request
-def after_request(response):
-    # Record request latency
-    latency = time.time() - request.start_time
-    REQUEST_LATENCY.labels(
-        endpoint=request.endpoint or 'unknown',
-        method=request.method
-    ).observe(latency)
-    
-    # Record request count
-    REQUEST_COUNT.labels(
-        endpoint=request.endpoint or 'unknown',
-        method=request.method,
-        status=response.status_code
-    ).inc()
-    
-    # Record outgoing network bytes
-    if response.content_length:
-        NETWORK_IO.labels(direction='out').inc(response.content_length)
-    
+def process_request(response):
+    """Process completed requests"""
+    try:
+        if not request.path.startswith(('/metrics', '/static')):
+            duration = time.time() - request.start_time
+            metrics.record_request(
+                endpoint=request.path,
+                method=request.method,
+                duration=duration,
+                error=str(response.status_code) if response.status_code >= 400 else None
+            )
+            app.request_queue.remove_request()
+            metrics.update_queue_length(app.request_queue.get_length())
+    except Exception as e:
+        logger.error(f"Error processing request: {e}")
     return response
 
-# Configure Kubernetes client
-try:
-    # Try to load the local kubeconfig first
-    config.load_kube_config()
-except:
-    try:
-        # If local config fails, try in-cluster config
-        config.load_incluster_config()
-    except:
-        print("Failed to load both local and in-cluster Kubernetes config")
-        v1 = None
-
-# Create the API client if config was loaded
-if 'v1' not in locals():
-    try:
-        v1 = client.CoreV1Api()
-        print("Successfully connected to Kubernetes API")
-    except Exception as e:
-        print(f"Error creating Kubernetes client: {e}")
-        v1 = None
-
-def get_storage_metrics():
-    """Get storage metrics from PersistentVolumeClaims"""
-    try:
-        if not v1:
-            print("Kubernetes client not configured, returning default values")
-            return {
-                'total_storage': '0GB',
-                'used_storage': '0GB',
-                'available_storage': '0GB'
-            }
-            
-        pvcs = v1.list_persistent_volume_claim_for_all_namespaces()
-        total_storage = 0
-        
-        for pvc in pvcs.items:
-            if pvc.spec.resources.requests.get('storage'):
-                # Convert storage string (e.g., "1Gi") to bytes
-                storage_str = pvc.spec.resources.requests['storage']
-                storage_value = int(''.join(filter(str.isdigit, storage_str)))
-                if storage_str.endswith('Gi'):
-                    storage_bytes = storage_value * 1024 * 1024 * 1024
-                elif storage_str.endswith('Mi'):
-                    storage_bytes = storage_value * 1024 * 1024
-                else:
-                    storage_bytes = storage_value
-                total_storage += storage_bytes
-        
-        # Convert bytes to GB for display
-        total_storage_gb = total_storage / (1024 * 1024 * 1024)
-        used_storage_gb = total_storage_gb * 0.25  # Estimated usage
-        available_storage_gb = total_storage_gb - used_storage_gb
-        
-        return {
-            'total_storage': f'{total_storage_gb:.1f}GB',
-            'used_storage': f'{used_storage_gb:.1f}GB',
-            'available_storage': f'{available_storage_gb:.1f}GB'
-        }
-    except Exception as e:
-        print(f"Error getting storage metrics: {e}")
-        return {
-            'total_storage': '0GB',
-            'used_storage': '0GB',
-            'available_storage': '0GB'
-        }
-
-def get_pod_metrics():
-    """Get metrics for all pods in the distributed-fs namespace"""
-    try:
-        if not v1:
-            print("Kubernetes client not configured, returning empty pod list")
-            return []
-            
+def update_system_metrics():
+    """Update system metrics periodically"""
+    while True:
         try:
-            pods = v1.list_namespaced_pod(namespace='distributed-fs')
-        except client.rest.ApiException as e:
-            if e.status == 404:
-                # Namespace doesn't exist, try default namespace
-                pods = v1.list_namespaced_pod(namespace='default')
-            else:
-                raise
-                
-        pod_metrics = []
-        
-        for pod in pods.items:
-            pod_info = {
-                'name': pod.metadata.name,
-                'status': pod.status.phase,
-                'ip': pod.status.pod_ip or 'N/A',
-                'node': pod.spec.node_name or 'N/A',
-                'start_time': pod.status.start_time.strftime('%Y-%m-%d %H:%M:%S') if pod.status.start_time else 'N/A',
-                'ready': all(cont.ready for cont in pod.status.container_statuses) if pod.status.container_statuses else False
-            }
-            pod_metrics.append(pod_info)
-            
-        return pod_metrics
-    except Exception as e:
-        print(f"Error getting pod metrics: {e}")
-        return []
+            metrics.update_system_metrics()
+            metrics.update_storage_metrics()
+            metrics.update_network_metrics()
+            time.sleep(15)  # Update every 15 seconds
+        except Exception as e:
+            logger.error(f"Error updating system metrics: {e}")
+            time.sleep(5)  # Shorter sleep on error
 
-def get_network_metrics():
-    """Get network I/O metrics"""
-    try:
-        in_bytes = NETWORK_IO.labels(direction='in')._value.get()
-        out_bytes = NETWORK_IO.labels(direction='out')._value.get()
-        
-        return {
-            'bytes_in': f'{in_bytes / (1024*1024):.2f}MB',
-            'bytes_out': f'{out_bytes / (1024*1024):.2f}MB',
-            'total_bytes': f'{(in_bytes + out_bytes) / (1024*1024):.2f}MB'
-        }
-    except Exception as e:
-        print(f"Error getting network metrics: {e}")
-        return {
-            'bytes_in': '0MB',
-            'bytes_out': '0MB',
-            'total_bytes': '0MB'
-        }
-
-def get_latency_metrics():
-    """Get request latency metrics"""
-    try:
-        latencies = []
-        for sample in REQUEST_LATENCY.collect()[0].samples:
-            if sample.name.endswith('_sum'):
-                endpoint = dict(sample.labels)['endpoint']
-                method = dict(sample.labels)['method']
-                latencies.append({
-                    'endpoint': endpoint,
-                    'method': method,
-                    'latency': f'{sample.value*1000:.2f}ms'  # Convert to milliseconds
-                })
-        return latencies
-    except Exception as e:
-        print(f"Error getting latency metrics: {e}")
-        return []
+# Start system metrics collection in a background thread
+metrics_thread = threading.Thread(target=update_system_metrics, daemon=True)
+metrics_thread.start()
 
 @app.route('/')
 def index():
+    """Serve the main dashboard page"""
     return render_template('index.html')
 
+@app.route('/metrics')
+def get_metrics():
+    """Prometheus metrics endpoint"""
+    return Response(metrics.get_metrics(), mimetype="text/plain")
+
 @app.route('/api/metrics')
-def metrics():
-    return jsonify({
-        'pods': get_pod_metrics(),
-        'storage': get_storage_metrics(),
-        'network': get_network_metrics(),
-        'latency': get_latency_metrics(),
-        'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    })
-
-@app.route('/api/health')
-def api_health():
+def api_metrics():
+    """API metrics endpoint for the dashboard"""
     try:
-        response = requests.get('http://localhost:5555/api/v1/health', timeout=5)
-        if response.status_code == 200:
-            return jsonify(response.json()), 200
-        return jsonify({'status': 'not available', 'error': f'API returned status {response.status_code}'}), 503
-    except requests.exceptions.RequestException as e:
-        return jsonify({'status': 'not available', 'error': str(e)}), 503
-
-@app.route('/api/docs')
-def api_docs():
-    try:
-        response = requests.get('http://localhost:5555/api/v1/swagger.json', timeout=5)
-        if response.status_code == 200:
-            return response.json(), 200
-        return jsonify({'error': f'API documentation not available (status {response.status_code})'}), 503
-    except requests.exceptions.RequestException as e:
-        return jsonify({'error': str(e)}), 503
-
-@app.route('/api/<path:path>')
-def api_proxy(path):
-    try:
-        # Don't modify health check path
-        if path == 'health':
-            target_url = f'http://localhost:5555/api/v1/health'
-        else:
-            target_url = f'http://localhost:5555/api/v1/{path}'
-            
-        headers = {key: value for key, value in request.headers if key.lower() != 'host'}
-        
-        response = requests.request(
-            method=request.method,
-            url=target_url,
-            headers=headers,
-            data=request.get_data(),
-            cookies=request.cookies,
-            timeout=10
-        )
-        
-        excluded_headers = ['content-length', 'connection', 'content-encoding']
-        headers = [(k, v) for k, v in response.raw.headers.items() if k.lower() not in excluded_headers]
-        
-        return Response(response.content, response.status_code, headers)
-    except requests.exceptions.RequestException as e:
-        return jsonify({'error': str(e)}), 503
-
-@app.route('/web-ui')
-@app.route('/web-ui/<path:path>')
-def web_ui_proxy(path=''):
-    try:
-        target_url = f'http://localhost:3000/{path}'
-        headers = {
-            key: value for key, value 
-            in request.headers.items() 
-            if key.lower() not in ['host', 'content-length']
-        }
-        
-        response = requests.request(
-            method=request.method,
-            url=target_url,
-            headers=headers,
-            data=request.get_data(),
-            cookies=request.cookies,
-            timeout=5,
-            allow_redirects=True
-        )
-        
-        # Only forward specific headers we want
-        allowed_headers = [
-            'content-type',
-            'cache-control',
-            'etag',
-            'date',
-            'last-modified'
-        ]
-        
-        headers = {
-            k: v for k, v in response.headers.items()
-            if k.lower() in allowed_headers
-        }
-        
-        # Ensure we're returning text/html for the main page
-        if not path and 'content-type' not in headers:
-            headers['content-type'] = 'text/html; charset=utf-8'
-            
-        return Response(
-            response.content,
-            response.status_code,
-            headers
-        )
-    except requests.exceptions.RequestException as e:
-        return jsonify({'error': str(e)}), 503
-
-@app.route('/web-ui/status')
-def web_ui_status():
-    """Check Web UI status"""
-    try:
-        response = requests.get('http://localhost:3000/', timeout=5)
-        if response.status_code == 200:
-            return jsonify({'status': 'available'}), 200
         return jsonify({
-            'status': 'not available',
-            'error': f'Web UI returned status {response.status_code}'
-        }), 503
-    except requests.exceptions.RequestException as e:
+            'timestamp': datetime.utcnow().isoformat(),
+            'metrics': {
+                'system': {
+                    'cpu': psutil.cpu_percent(),
+                    'memory': psutil.virtual_memory().percent,
+                    'disk': psutil.disk_usage('/').percent
+                },
+                'queue': {
+                    'length': app.request_queue.get_length()
+                }
+            }
+        })
+    except Exception as e:
+        logger.error(f"Error getting metrics: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/health')
+def health_check():
+    """Health check endpoint"""
+    try:
+        # Basic health checks
+        cpu_ok = psutil.cpu_percent() < 90
+        memory = psutil.virtual_memory()
+        memory_ok = memory.available > (0.1 * memory.total)  # At least 10% free
+        disk = psutil.disk_usage('/')
+        disk_ok = disk.free > (0.1 * disk.total)  # At least 10% free
+
+        status = 'healthy' if all([cpu_ok, memory_ok, disk_ok]) else 'degraded'
+        
         return jsonify({
-            'status': 'not available',
+            'status': status,
+            'timestamp': datetime.utcnow().isoformat(),
+            'checks': {
+                'cpu': 'ok' if cpu_ok else 'warning',
+                'memory': 'ok' if memory_ok else 'warning',
+                'disk': 'ok' if disk_ok else 'warning'
+            }
+        })
+    except Exception as e:
+        logger.error(f"Health check failed: {e}")
+        return jsonify({
+            'status': 'error',
             'error': str(e)
-        }), 503
-
-@app.route('/api/status')
-def api_status():
-    """Check API status"""
-    try:
-        response = requests.get('http://localhost:5555/api/v1/health', timeout=5)
-        if response.status_code == 200:
-            return jsonify(response.json()), 200
-        return jsonify({
-            'status': 'not available',
-            'error': f'API returned status {response.status_code}'
-        }), 503
-    except requests.exceptions.RequestException as e:
-        return jsonify({
-            'status': 'not available',
-            'error': str(e)
-        }), 503
+        }), 500
 
 if __name__ == '__main__':
-    start_http_server(8000)
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
+    try:
+        # Start Flask app
+        app.run(host='0.0.0.0', port=5000, debug=False)
+    except Exception as e:
+        logger.error(f"Application failed to start: {e}")
+        sys.exit(1)

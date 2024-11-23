@@ -1,0 +1,59 @@
+graph TB
+    subgraph Client Layer
+        Client[Client Application]
+        S3Client[S3-Compatible Client]
+    end
+
+    subgraph API Layer
+        API[S3-Compatible API]
+        CSI[Container Storage Interface]
+    end
+
+    subgraph Management Layer
+        CM[Cluster Manager]
+        RM[Replication Manager]
+        TM[Tiering Manager]
+    end
+
+    subgraph Storage Layer
+        SN1[Storage Node 1]
+        SN2[Storage Node 2]
+        SN3[Storage Node 3]
+    end
+
+    subgraph Backend Layer
+        Local[Local Storage]
+        S3[AWS S3]
+    end
+
+    Client --> API
+    S3Client --> API
+    API --> CM
+    CSI --> CM
+    
+    CM --> RM
+    CM --> TM
+    
+    RM --> SN1
+    RM --> SN2
+    RM --> SN3
+    
+    TM --> Local
+    TM --> S3
+    
+    SN1 --> Local
+    SN2 --> Local
+    SN3 --> S3
+
+    style Client fill:#f9f,stroke:#333,stroke-width:2px
+    style S3Client fill:#f9f,stroke:#333,stroke-width:2px
+    style API fill:#bbf,stroke:#333,stroke-width:2px
+    style CSI fill:#bbf,stroke:#333,stroke-width:2px
+    style CM fill:#dfd,stroke:#333,stroke-width:2px
+    style RM fill:#dfd,stroke:#333,stroke-width:2px
+    style TM fill:#dfd,stroke:#333,stroke-width:2px
+    style SN1 fill:#fdd,stroke:#333,stroke-width:2px
+    style SN2 fill:#fdd,stroke:#333,stroke-width:2px
+    style SN3 fill:#fdd,stroke:#333,stroke-width:2px
+    style Local fill:#ddd,stroke:#333,stroke-width:2px
+    style S3 fill:#ddd,stroke:#333,stroke-width:2px

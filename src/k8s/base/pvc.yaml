@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: dfs-storage-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: dfs-hybrid-storage
+  resources:
+    requests:
+      storage: 100Gi

@@ -1,0 +1,17 @@
+# api-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: dfs-api-service
+  namespace: distributed-fs
+  labels:
+    app: dfs-api
+spec:
+  selector:
+    app: dfs-api
+  ports:
+    - name: http
+      protocol: TCP
+      port: 8080
+      targetPort: 8080
+  type: LoadBalancer
