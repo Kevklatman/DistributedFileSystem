@@ -18,7 +18,8 @@ from src.models.models import (
     DataProtection,
     DataTemperature,
     TieringPolicy,
-    HybridStorageSystem
+    HybridStorageSystem,
+    SnapshotState
 )
 
 class EnhancedJSONEncoder(json.JSONEncoder):

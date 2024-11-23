@@ -56,14 +56,19 @@ def example_financial_data_handling():
         last_accessed_at=datetime.now(),
         locations=[],
         tiering_policy=CloudTieringPolicy(
+            volume_id="finance-vol-1",
             cold_tier_after_days=30,
             archive_tier_after_days=90
         ),
         protection=DataProtection(
-            replica_count=3,
-            consistency_level="strong",
-            sync_replication=True,
-            backup_schedule="0 0 * * *"  # Daily backup at midnight
+            volume_id="finance-vol-1",
+            local_snapshot_enabled=True,
+            local_snapshot_schedule="0 0 * * *",  # Daily backup at midnight
+            local_snapshot_retention_days=30,
+            cloud_backup_enabled=True,
+            cloud_backup_schedule="0 0 * * *",
+            cloud_backup_retention_days=90,
+            disaster_recovery_enabled=True
         )
     )
 
@@ -89,14 +94,19 @@ def example_log_data_handling():
         last_accessed_at=datetime.now(),
         locations=[],
         tiering_policy=CloudTieringPolicy(
+            volume_id="logs-vol-1",
             cold_tier_after_days=30,
             archive_tier_after_days=60
         ),
         protection=DataProtection(
-            replica_count=2,
-            consistency_level="eventual",
-            sync_replication=False,
-            backup_schedule="0 0 * * 0"  # Weekly backup on Sunday
+            volume_id="logs-vol-1",
+            local_snapshot_enabled=True,
+            local_snapshot_schedule="0 0 * * 0",  # Weekly backup on Sunday
+            local_snapshot_retention_days=14,
+            cloud_backup_enabled=True,
+            cloud_backup_schedule="0 0 * * 0",
+            cloud_backup_retention_days=60,
+            disaster_recovery_enabled=False
         )
     )
 

@@ -11,7 +11,7 @@ from datetime import datetime
 # Add parent directory to Python path for imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
 
-from storage.infrastructure.interfaces import MetricsCollector
+from src.storage.metrics.unified_metrics import UnifiedMetricsCollector
 import logging
 
 logger = logging.getLogger(__name__)
@@ -44,7 +44,7 @@ class NetworkMetrics:
             return (self.bytes_recv / 1024 / 1024) / self.duration
         return 0.0
 
-class SystemMetricsCollector(MetricsCollector):
+class SystemMetricsCollector(UnifiedMetricsCollector):
     """System-wide metrics collector implementation."""
 
     def __init__(self, history_window: int = 300):

@@ -1,45 +1,41 @@
-from typing import Any, List, Dict, Optional, Set
+"""Active node management for the distributed file system."""
 import asyncio
 import logging
 from datetime import datetime
-from pathlib import Path
-import hashlib
+from typing import Dict, List, Optional, Tuple, Set, Any
+import os
 from dataclasses import dataclass
 from enum import Enum
-
+import hashlib
 import aiohttp
 from aiohttp import web
 
-from storage.infrastructure.load_manager import LoadManager
-from storage.infrastructure.data.replication_manager import ReplicationManager
-from storage.infrastructure.data.consistency_manager import ConsistencyManager, VersionedData, WriteOperation
-
-@dataclass
-class NodeState:
-    node_id: str
-    status: str
-    load: float
-    capacity: float
-    last_heartbeat: datetime
-    address: str
-    available_storage: float
-    network_latency: float = 0.0
+from src.storage.infrastructure.load_manager import LoadManager
+from src.storage.infrastructure.data.consistency_manager import ConsistencyManager
+from src.storage.infrastructure.data.replication_manager import ReplicationManager
+from src.models.models import Volume, NodeState
 
 class ConsistencyLevel(Enum):
+    """Consistency levels for read/write operations."""
     EVENTUAL = "eventual"
     STRONG = "strong"
     QUORUM = "quorum"
 
 class ActiveNode:
-    def __init__(self, node_id: str, data_dir: Path, quorum_size: int = 2):
+    """Active node in the distributed file system."""
+    
+    def __init__(self, node_id: str, data_dir: str = None, quorum_size: int = 2):
+        """Initialize active node."""
         self.node_id = node_id
-        self.data_dir = data_dir
+        self.data_dir = data_dir or os.path.join(os.getcwd(), "data")
         self.quorum_size = quorum_size
         self.cluster_nodes: Dict[str, NodeState] = {}
         self.load_manager = LoadManager()
         self.consistency_manager = ConsistencyManager(quorum_size)
         self.replication_manager = ReplicationManager()
         self.logger = logging.getLogger(__name__)
+        self.heartbeat_timeout = 30  # seconds
+        self.max_latency = 1000  # milliseconds
 
     async def start_health_monitor(self) -> None:
         """Start monitoring node health"""
@@ -202,7 +198,7 @@ class ActiveNode:
         except Exception as e:
             self.logger.error(f"Failed to migrate load: {str(e)}")
 
-    async def migrate_data(self, data_id: str, version_data: VersionedData,
+    async def migrate_data(self, data_id: str, version_data: Volume,
                           exclude_nodes: Set[str]) -> None:
         """Migrate a single piece of data to a new node"""
         try:
@@ -353,7 +349,7 @@ class ActiveNode:
                     return await self.forward_request(request, alternate_node)
 
             # Create versioned data
-            version_data = VersionedData(
+            version_data = Volume(
                 content=content,
                 version=await self.consistency_manager.get_next_version(data_id),
                 timestamp=datetime.now(),
@@ -377,7 +373,7 @@ class ActiveNode:
 
             # Local write first to ensure durability
             try:
-                local_path = self.data_dir / data_id
+                local_path = os.path.join(self.data_dir, data_id)
                 await self.write_local(local_path, content)
                 await self.consistency_manager.update_node_version(
                     self.node_id, data_id, version_data
@@ -443,9 +439,9 @@ class ActiveNode:
         """Rollback a failed write operation"""
         try:
             # Delete local copy
-            local_path = self.data_dir / data_id
-            if local_path.exists():
-                local_path.unlink()
+            local_path = os.path.join(self.data_dir, data_id)
+            if os.path.exists(local_path):
+                os.remove(local_path)
 
             # Remove version from consistency manager
             await self.consistency_manager.remove_version(self.node_id, data_id)
@@ -558,11 +554,7 @@ class ActiveNode:
                 try:
                     result = task.result()
                     if result and result.get('status') == 'success':
-                        read_results.append(ReadResult(
-                            content=result['content'],
-                            version=result['version'],
-                            timestamp=result['timestamp']
-                        ))
+                        read_results.append(result)
                 except Exception as e:
                     self.logger.error(f"Read task failed: {str(e)}")
 
@@ -576,8 +568,8 @@ class ActiveNode:
                 raise ConsistencyError("Inconsistent data detected, repair initiated")
 
             # Return the most recent version
-            latest_result = max(read_results, key=lambda r: (r.version, r.timestamp))
-            return latest_result.content
+            latest_result = max(read_results, key=lambda r: (r['version'], r['timestamp']))
+            return latest_result['content']
 
         except Exception as e:
             self.logger.error(f"Strong read failed: {str(e)}")
@@ -612,11 +604,7 @@ class ActiveNode:
                 try:
                     result = task.result()
                     if result and result.get('status') == 'success':
-                        read_results.append(ReadResult(
-                            content=result['content'],
-                            version=result['version'],
-                            timestamp=result['timestamp']
-                        ))
+                        read_results.append(result)
                 except Exception as e:
                     self.logger.error(f"Read task failed: {str(e)}")
 
@@ -626,15 +614,15 @@ class ActiveNode:
                 )
 
             # Return the most recent version from quorum
-            latest_result = max(read_results, key=lambda r: (r.version, r.timestamp))
+            latest_result = max(read_results, key=lambda r: (r['version'], r['timestamp']))
 
             # Schedule async repair if versions differ
-            if not all(r.version == latest_result.version for r in read_results):
+            if not all(r['version'] == latest_result['version'] for r in read_results):
                 asyncio.create_task(
                     self.repair_inconsistency(data_id, read_results)
                 )
 
-            return latest_result.content
+            return latest_result['content']
 
         except Exception as e:
             self.logger.error(f"Quorum read failed: {str(e)}")
@@ -717,15 +705,17 @@ class ActiveNode:
             self.logger.error(f"Failed to find nodes with data: {str(e)}")
             return []
 
-    async def write_local(self, path: Path, content: bytes) -> None:
+    async def write_local(self, path: str, content: bytes) -> None:
         """Write data locally with proper locking"""
         async with self.consistency_manager.get_write_lock(path):
-            path.write_bytes(content)
+            with open(path, 'wb') as f:
+                f.write(content)
 
-    async def read_local(self, path: Path) -> bytes:
+    async def read_local(self, path: str) -> bytes:
         """Read data locally with proper locking"""
         async with self.consistency_manager.get_read_lock(path):
-            return path.read_bytes()
+            with open(path, 'rb') as f:
+                return f.read()
 
     def get_active_nodes(self) -> List[NodeState]:
         """Get list of active nodes in the cluster"""
@@ -792,13 +782,12 @@ class ActiveNode:
                 )
 
             # Prepare write operation
-            write_op = WriteOperation(
+            write_op = Volume(
                 data_id=data_id,
                 content=content,
                 version=version,
                 checksum=checksum,
-                timestamp=datetime.now(),
-                consistency_level=consistency_level
+                timestamp=datetime.now()
             )
 
             # Execute parallel writes with load-aware routing
@@ -918,7 +907,7 @@ class ActiveNode:
             self.logger.error(f"Failed to calculate node score: {str(e)}")
             return 0.0
 
-    async def execute_parallel_write(self, write_op: WriteOperation,
+    async def execute_parallel_write(self, write_op: Volume,
                                    target_nodes: List[NodeState]) -> List[Dict[str, Any]]:
         """Execute write operation in parallel across target nodes"""
         try:
@@ -957,7 +946,7 @@ class ActiveNode:
             self.logger.error(f"Failed to execute parallel write: {str(e)}")
             raise
 
-    async def write_to_node(self, node: NodeState, write_op: WriteOperation) -> Dict[str, Any]:
+    async def write_to_node(self, node: NodeState, write_op: Volume) -> Dict[str, Any]:
         """Write data to a single node with retries"""
         max_retries = 3
         retry_delay = 1.0  # seconds
@@ -1033,7 +1022,7 @@ class ActiveNode:
             self.logger.error(f"Failed to validate write results: {str(e)}")
             return False
 
-    async def rollback_write(self, write_op: WriteOperation, nodes: List[NodeState]) -> None:
+    async def rollback_write(self, write_op: Volume, nodes: List[NodeState]) -> None:
         """Rollback a failed write operation"""
         try:
             rollback_tasks = []
@@ -1047,7 +1036,7 @@ class ActiveNode:
         except Exception as e:
             self.logger.error(f"Failed to rollback write: {str(e)}")
 
-    async def rollback_node_write(self, node: NodeState, write_op: WriteOperation) -> None:
+    async def rollback_node_write(self, node: NodeState, write_op: Volume) -> None:
         """Rollback write on a single node"""
         try:
             async with aiohttp.ClientSession() as session:
@@ -1069,7 +1058,7 @@ class ActiveNode:
                 f"Error during write rollback on node {node.node_id}: {str(e)}"
             )
 
-    async def update_write_metadata(self, write_op: WriteOperation,
+    async def update_write_metadata(self, write_op: Volume,
                                   results: List[Dict[str, Any]]) -> None:
         """Update metadata after successful write"""
         try:
@@ -1095,6 +1084,34 @@ class ActiveNode:
         except Exception as e:
             self.logger.error(f"Failed to update write metadata: {str(e)}")
 
+    async def is_node_healthy(self, node: NodeState) -> bool:
+        """Check if a node is healthy and can handle requests"""
+        try:
+            # Check if node is active
+            if node.status != "active":
+                return False
+
+            # Check last heartbeat
+            heartbeat_age = datetime.now() - node.last_heartbeat
+            if heartbeat_age.total_seconds() > self.heartbeat_timeout:
+                return False
+
+            # Check load and capacity
+            if node.load >= 0.9:  # 90% load threshold
+                return False
+
+            if node.available_storage <= 0:
+                return False
+
+            # Check network latency
+            if node.network_latency > self.max_latency:
+                return False
+
+            return True
+        except Exception as e:
+            self.logger.error(f"Error checking node health: {e}")
+            return False
+
 class WriteTimeoutError(Exception):
     """Raised when a write operation times out"""
     pass
@@ -1116,21 +1133,13 @@ class NodeUnhealthyError(Exception):
     pass
 
 @dataclass
-class ReadResult:
-    """Result from a read operation"""
-    content: bytes
-    version: int
-    timestamp: datetime
-
-@dataclass
-class WriteOperation:
-    """Write operation metadata"""
+class Volume:
+    """Volume metadata"""
     data_id: str
     content: bytes
     version: int
     checksum: str
     timestamp: datetime
-    consistency_level: str
 
 class EdgeNodeState(NodeState):
     """Extended node state for edge computing"""
@@ -1146,7 +1155,7 @@ class EdgeNodeState(NodeState):
 
 class EdgeAwareNode(ActiveNode):
     """Edge-computing aware node implementation"""
-    def __init__(self, node_id: str, data_dir: Path, quorum_size: int):
+    def __init__(self, node_id: str, data_dir: str, quorum_size: int):
         super().__init__(node_id, data_dir, quorum_size)
         self.edge_nodes: Dict[str, EdgeNodeState] = {}
         self.cache_manager = EdgeCacheManager()

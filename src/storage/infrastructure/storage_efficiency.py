@@ -13,11 +13,10 @@ import json
 from pathlib import Path
 
 from src.models.models import (
+    StoragePool,
     DeduplicationState,
     CompressionState,
-    ThinProvisioningState,
-    Volume,
-    StoragePool
+    Volume
 )
 
 class StorageEfficiencyManager:

@@ -3,6 +3,7 @@ import time
 from dataclasses import dataclass
 from typing import Dict, Optional
 import logging
+from src.models.models import NodeState
 
 @dataclass
 class LoadMetrics:

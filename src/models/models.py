@@ -44,27 +44,27 @@ class StoragePool:
     oversubscription_ratio: float = 1.0  # For thin provisioning
     dedup_state: 'DeduplicationState' = field(default_factory=lambda: DeduplicationState())
     compression_state: 'CompressionState' = field(default_factory=lambda: CompressionState())
+    thin_provisioning_state: 'ThinProvisioningState' = field(default_factory=lambda: ThinProvisioningState())
     created_at: datetime = field(default_factory=datetime.now)
 
 @dataclass(frozen=True)
 class Volume:
     """Represents a logical volume that can span across on-prem and cloud."""
-    name: str
-    size_gb: int
-    primary_pool_id: str
-    id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    snapshots: Dict[str, 'SnapshotState'] = field(default_factory=dict)
-    backups: Dict[str, 'BackupState'] = field(default_factory=dict)
-    cloud_backup_enabled: bool = False
-    cloud_tiering_enabled: bool = False
-    cloud_location: Optional[StorageLocation] = None
-    encryption_at_rest: bool = True
-    compression_enabled: bool = True
-    deduplication_enabled: bool = True
-    data_temperature: Dict[str, 'DataTemperature'] = field(default_factory=dict)
-    tiering_policy: 'TieringPolicy' = field(default_factory=lambda: TieringPolicy())
-    retention_policy: Optional['RetentionPolicy'] = None
+    volume_id: str
+    size_bytes: int
+    used_bytes: int = 0
     created_at: datetime = field(default_factory=datetime.now)
+    last_accessed_at: datetime = field(default_factory=datetime.now)
+    locations: List[str] = field(default_factory=list)
+    deduplication_enabled: bool = True
+    deduplication_state: Optional['DeduplicationState'] = None
+    compression_state: Optional['CompressionState'] = None
+    thin_provisioning_state: Optional['ThinProvisioningState'] = None
+    tiering_policy: Optional['CloudTieringPolicy'] = None
+    protection: Optional['DataProtection'] = None
+    snapshots: Dict[str, 'SnapshotState'] = field(default_factory=dict)
+    backup_location: Optional[str] = None
+    retention_policy: Optional['RetentionPolicy'] = None
 
     def __getitem__(self, key):
         """Support dictionary-like access to snapshots."""
@@ -76,6 +76,15 @@ class Volume:
 
 # Data Efficiency Models
 @dataclass
+class ThinProvisioningState:
+    """Tracks thin provisioning state"""
+    allocated_size: int
+    used_size: int
+    oversubscription_ratio: float = 2.0
+    block_size: int = 4096
+    allocation_map: Dict[int, bool] = field(default_factory=dict)
+
+@dataclass
 class DeduplicationState:
     """Tracks deduplication state"""
     enabled: bool = True
@@ -83,6 +92,7 @@ class DeduplicationState:
     chunk_size: int = 4096  # Chunk size for dedup
     hash_dict: Dict[str, Set[str]] = field(default_factory=dict)  # Hash to paths mapping
     space_saved: float = 0.0  # Space saved in GB
+    total_savings: int = 0  # Total bytes saved by deduplication
 
 @dataclass
 class CompressionState:
@@ -226,3 +236,15 @@ class HybridStorageSystem:
     tiering_policies: Dict[str, CloudTieringPolicy] = field(default_factory=dict)
     protection_policies: Dict[str, DataProtection] = field(default_factory=dict)
     replication_policies: Dict[str, ReplicationPolicy] = field(default_factory=dict)
+
+# New NodeState class
+@dataclass
+class NodeState:
+    """Represents the state of a storage node."""
+    node_id: str
+    status: str  # active, inactive, maintenance, error
+    last_heartbeat: datetime
+    load: float  # 0.0 to 1.0
+    available_storage: int  # bytes
+    network_latency: float  # milliseconds
+    volumes: List[str]  # list of volume IDs

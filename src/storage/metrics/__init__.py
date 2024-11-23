@@ -2,8 +2,7 @@
 
 from .unified_metrics import (
     UnifiedMetricsCollector,
-    StorageMetricsCollector,
-    MetricsManager
+    MetricsContextManager
 )
 
 from .storage_metrics import (
@@ -21,16 +20,15 @@ from .storage_metrics import (
 
 __all__ = [
     'UnifiedMetricsCollector',
+    'MetricsContextManager',
     'StorageMetricsCollector',
-    'MetricsManager',
+    'FileOperationTracker',
+    'create_metrics_collector',
     'STORAGE_USAGE',
     'STORAGE_CAPACITY',
     'STORAGE_IOPS',
     'STORAGE_BANDWIDTH',
     'FILE_OPERATIONS',
     'FILE_OPERATION_ERRORS',
-    'FILE_SIZES',
-    'StorageMetricsCollector',
-    'FileOperationTracker',
-    'create_metrics_collector'
+    'FILE_SIZES'
 ]
