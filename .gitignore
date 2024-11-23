@@ -1,11 +1,17 @@
 # Build directory
 build/
+dist/
 
 # IDE specific files
 .vscode/
 .idea/
 *.swp
 *.swo
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
 
 # Compiled files
 *.o
@@ -21,9 +27,13 @@ Makefile
 # Environment files
 .env
 .env.*
+.venv/
+venv/
+ENV/
+env/
 
 # Credentials
-credentials/
+/credentials/
 *.pem
 *.key
 *.crt
@@ -44,11 +54,6 @@ __pycache__/
 *$py.class
 *.so
 .Python
-env/
-venv/
-ENV/
-.env
-.venv
 pip-log.txt
 pip-delete-this-directory.txt
 
@@ -61,19 +66,21 @@ Thumbs.db
 # Metrics reports
 metrics_reports/
 
-# macOS system files
-.DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
+# Logs and temporary files
+*.log
+tmp/
+temp/
+logs/
 
-# Python package metadata
-*.egg-info/
-*.egg
-
-# Pytest
-.pytest_cache/
+# Cache files
+.cache/
+*.pyc
+*.pyo
+*.pyd
 
 # Project specific
 /backups/
+
+# Generated files
+node_modules/
+*.generated.*
