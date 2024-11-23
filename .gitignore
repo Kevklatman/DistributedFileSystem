@@ -66,6 +66,11 @@ Thumbs.db
 # Metrics reports
 metrics_reports/
 
+# Metrics files
+src/storage/metrics/**/*.pyc
+src/storage/metrics/**/__pycache__
+src/storage/metrics/example.py
+
 # Logs and temporary files
 *.log
 tmp/
