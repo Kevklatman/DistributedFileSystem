@@ -8,126 +8,154 @@ import hashlib
 import logging
 import re
 import os
-
+from core.fs_manager import FileSystemManager
+from typing import Optional, Dict, List, Any, BinaryIO
 logger = logging.getLogger(__name__)
 
 class StorageBackend(ABC):
-    def __init__(self):
-        self.io_metrics = {
-            'bytes_in': 0,
-            'bytes_out': 0,
-            'latency_ms': 0,
-            'iops': 0,
-            'bandwidth_mbps': 0,
-            'throughput_mbps': 0
-        }
-        self._start_time = datetime.datetime.now()
+    """Storage backend implementation that handles both simple S3 and AWS S3 operations"""
 
-    def _update_io_metrics(self, bytes_in=0, bytes_out=0, latency_ms=0):
-        """Update I/O metrics"""
-        self.io_metrics['bytes_in'] += bytes_in
-        self.io_metrics['bytes_out'] += bytes_out
-        self.io_metrics['latency_ms'] = latency_ms  # Use latest latency
+    def __init__(self, fs_manager: FileSystemManager):
+        self.fs_manager = fs_manager
 
-        # Calculate rates
-        time_diff = (datetime.datetime.now() - self._start_time).total_seconds()
-        if time_diff > 0:
-            total_bytes = self.io_metrics['bytes_in'] + self.io_metrics['bytes_out']
-            self.io_metrics['bandwidth_mbps'] = (total_bytes * 8) / (time_diff * 1000000)  # Convert to Mbps
-            self.io_metrics['throughput_mbps'] = total_bytes / (time_diff * 1000000)  # MB/s
-            self.io_metrics['iops'] = int((self.io_metrics['bytes_in'] + self.io_metrics['bytes_out']) / (time_diff * 1024))  # Operations per second
+    def create_bucket(self, bucket_name: str) -> bool:
+        """Create a new bucket"""
+        try:
+            return self.fs_manager.create_directory(bucket_name)
+        except Exception as e:
+            logger.error(f"Failed to create bucket {bucket_name}: {str(e)}")
+            return False
 
-    def get_io_metrics(self):
-        """Get current I/O metrics"""
-        return self.io_metrics
+    def delete_bucket(self, bucket_name: str) -> bool:
+        """Delete a bucket"""
+        try:
+            return self.fs_manager.delete_directory(bucket_name)
+        except Exception as e:
+            logger.error(f"Failed to delete bucket {bucket_name}: {str(e)}")
+            return False
+
+    def list_buckets(self) -> List[Dict[str, Any]]:
+        """List all buckets"""
+        try:
+            buckets = self.fs_manager.list_directories()
+            return [{"Name": bucket, "CreationDate": None} for bucket in buckets]
+        except Exception as e:
+            logger.error(f"Failed to list buckets: {str(e)}")
+            return []
+
+    def put_object(self, bucket_name: str, object_key: str, data: BinaryIO,
+                   metadata: Optional[Dict[str, str]] = None) -> bool:
+        """Put an object into a bucket"""
+        try:
+            full_path = os.path.join(bucket_name, object_key)
+            return self.fs_manager.write_file(full_path, data.read())
+        except Exception as e:
+            logger.error(f"Failed to put object {object_key} in bucket {bucket_name}: {str(e)}")
+            return False
+
+    def get_object(self, bucket_name: str, object_key: str) -> Optional[bytes]:
+        """Get an object from a bucket"""
+        try:
+            full_path = os.path.join(bucket_name, object_key)
+            return self.fs_manager.read_file(full_path)
+        except Exception as e:
+            logger.error(f"Failed to get object {object_key} from bucket {bucket_name}: {str(e)}")
+            return None
+
+    def delete_object(self, bucket_name: str, object_key: str) -> bool:
+        """Delete an object from a bucket"""
+        try:
+            full_path = os.path.join(bucket_name, object_key)
+            return self.fs_manager.delete_file(full_path)
+        except Exception as e:
+            logger.error(f"Failed to delete object {object_key} from bucket {bucket_name}: {str(e)}")
+            return False
+
+    def list_objects(self, bucket_name: str, prefix: str = "") -> List[Dict[str, Any]]:
+        """List objects in a bucket with optional prefix"""
+        try:
+            objects = self.fs_manager.list_files(bucket_name, prefix)
+            return [{"Key": obj, "Size": 0, "LastModified": None} for obj in objects]
+        except Exception as e:
+            logger.error(f"Failed to list objects in bucket {bucket_name}: {str(e)}")
+            return []
+
+    def object_exists(self, bucket_name: str, object_key: str) -> bool:
+        """Check if an object exists"""
+        try:
+            full_path = os.path.join(bucket_name, object_key)
+            return self.fs_manager.file_exists(full_path)
+        except Exception as e:
+            logger.error(f"Failed to check existence of object {object_key} in bucket {bucket_name}: {str(e)}")
+            return False
+
+    def get_object_metadata(self, bucket_name: str, object_key: str) -> Optional[Dict[str, Any]]:
+        """Get object metadata"""
+        try:
+            full_path = os.path.join(bucket_name, object_key)
+            return self.fs_manager.get_file_metadata(full_path)
+        except Exception as e:
+            logger.error(f"Failed to get metadata for object {object_key} in bucket {bucket_name}: {str(e)}")
+            return None
 
     @abstractmethod
-    def create_bucket(self, bucket_name, consistency_level='eventual'):
-        pass
-
-    @abstractmethod
-    def delete_bucket(self, bucket_name):
-        pass
-
-    @abstractmethod
-    def list_buckets(self):
-        pass
-
-    @abstractmethod
-    def put_object(self, bucket_name, object_key, data, consistency_level='eventual'):
-        pass
-
-    @abstractmethod
-    def get_object(self, bucket_name, object_key, consistency_level='eventual'):
-        pass
-
-    @abstractmethod
-    def delete_object(self, bucket_name, object_key):
-        pass
-
-    @abstractmethod
-    def list_objects(self, bucket_name, consistency_level='eventual'):
-        pass
-
-    @abstractmethod
-    def create_multipart_upload(self, bucket_name, object_key):
+    def create_multipart_upload(self, bucket_name: str, object_key: str) -> str:
         """Initialize a multipart upload and return an upload ID."""
         pass
 
     @abstractmethod
-    def upload_part(self, bucket_name, object_key, upload_id, part_number, data):
+    def upload_part(self, bucket_name: str, object_key: str, upload_id: str, part_number: int, data: BinaryIO) -> str:
         """Upload a part of a multipart upload."""
         pass
 
     @abstractmethod
-    def complete_multipart_upload(self, bucket_name, object_key, upload_id, parts):
+    def complete_multipart_upload(self, bucket_name: str, object_key: str, upload_id: str, parts: List[Dict[str, Any]]) -> bool:
         """Complete a multipart upload using the given parts."""
         pass
 
     @abstractmethod
-    def abort_multipart_upload(self, bucket_name, object_key, upload_id):
+    def abort_multipart_upload(self, bucket_name: str, object_key: str, upload_id: str) -> bool:
         """Abort a multipart upload."""
         pass
 
     @abstractmethod
-    def list_multipart_uploads(self, bucket_name):
+    def list_multipart_uploads(self, bucket_name: str) -> List[Dict[str, Any]]:
         """List all in-progress multipart uploads for a bucket."""
         pass
 
     @abstractmethod
-    def enable_versioning(self, bucket_name):
+    def enable_versioning(self, bucket_name: str) -> bool:
         """Enable versioning for a bucket."""
         pass
 
     @abstractmethod
-    def disable_versioning(self, bucket_name):
+    def disable_versioning(self, bucket_name: str) -> bool:
         """Disable versioning for a bucket."""
         pass
 
     @abstractmethod
-    def get_versioning_status(self, bucket_name):
+    def get_versioning_status(self, bucket_name: str) -> bool:
         """Get the versioning status of a bucket."""
         pass
 
     @abstractmethod
-    def list_object_versions(self, bucket_name, prefix=None):
+    def list_object_versions(self, bucket_name: str, prefix: str = "") -> List[Dict[str, Any]]:
         """List all versions of objects in a bucket."""
         pass
 
     @abstractmethod
-    def get_object_version(self, bucket_name, object_key, version_id):
+    def get_object_version(self, bucket_name: str, object_key: str, version_id: str) -> Optional[bytes]:
         """Get a specific version of an object."""
         pass
 
     @abstractmethod
-    def delete_object_version(self, bucket_name, object_key, version_id):
+    def delete_object_version(self, bucket_name: str, object_key: str, version_id: str) -> bool:
         """Delete a specific version of an object."""
         pass
 
 class LocalStorageBackend(StorageBackend):
-    def __init__(self, fs_manager):
-        super().__init__()
-        self.fs_manager = fs_manager
+    def __init__(self, fs_manager: FileSystemManager):
+        super().__init__(fs_manager)
         self.buckets = {}  # In-memory bucket storage
         self.node_status = {}  # Track node status
         self.node_last_seen = {}  # Track last seen time for each node
@@ -623,7 +651,7 @@ class LocalStorageBackend(StorageBackend):
 
 class AWSStorageBackend(StorageBackend):
     def __init__(self):
-        super().__init__()
+        super().__init__(None)
         if not all([current_config['access_key'], current_config['secret_key']]):
             raise ValueError(
                 'AWS credentials not found. Please set AWS_ACCESS_KEY and AWS_SECRET_KEY '

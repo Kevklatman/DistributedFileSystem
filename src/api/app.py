@@ -16,6 +16,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from core.storage_backend import get_storage_backend
 from routes.s3 import s3_api, S3ApiHandler
+from routes.aws_s3 import aws_s3_api, AWSS3ApiHandler
 from core.fs_manager import FileSystemManager
 from core.config import API_HOST, API_PORT, DEBUG
 
@@ -37,9 +38,13 @@ logger = logging.getLogger(__name__)
 fs_manager = FileSystemManager()
 storage_backend = get_storage_backend(fs_manager)
 
-# Initialize S3 API handler and register blueprint
+# Initialize S3-compatible API handler and register blueprint
 s3_handler = S3ApiHandler(fs_manager)
-app.register_blueprint(s3_api)
+app.register_blueprint(s3_api, url_prefix='/s3')
+
+# Initialize AWS S3 API handler and register blueprint
+aws_s3_handler = AWSS3ApiHandler(fs_manager)
+app.register_blueprint(aws_s3_api, url_prefix='/aws-s3')
 
 # Add request logging
 @app.before_request
