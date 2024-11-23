@@ -7,7 +7,7 @@ import shutil
 
 # Add parent directory to path to import storage modules
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from src.storage.core.hybrid_storage import HybridStorageManager
+from storage.infrastructure.hybrid_storage import HybridStorageManager
 from src.models.models import StorageLocation, Volume, DataTemperature
 
 class CSIStorageManager:

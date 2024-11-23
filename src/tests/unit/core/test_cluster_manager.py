@@ -8,7 +8,7 @@ from kubernetes import client, config
 from unittest.mock import Mock, patch, AsyncMock, MagicMock
 import os
 
-from src.storage.core.cluster_manager import StorageClusterManager, StorageNodeInfo
+from storage.infrastructure.cluster_manager import StorageClusterManager, StorageNodeInfo
 
 # Set default fixture loop scope
 pytest.asyncio_default_fixture_loop_scope = "function"

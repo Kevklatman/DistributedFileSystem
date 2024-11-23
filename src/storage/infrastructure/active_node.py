@@ -10,9 +10,9 @@ from enum import Enum
 import aiohttp
 from aiohttp import web
 
-from src.storage.core.load_manager import LoadManager
-from src.storage.core.data.replication_manager import ReplicationManager
-from src.storage.core.data.consistency_manager import ConsistencyManager, VersionedData, WriteOperation
+from storage.infrastructure.load_manager import LoadManager
+from storage.infrastructure.data.replication_manager import ReplicationManager
+from storage.infrastructure.data.consistency_manager import ConsistencyManager, VersionedData, WriteOperation
 
 @dataclass
 class NodeState:

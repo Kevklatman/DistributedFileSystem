@@ -8,10 +8,10 @@ import shutil
 from datetime import datetime, timedelta
 from unittest.mock import Mock, patch, AsyncMock
 
-from src.storage.core.hybrid_storage import HybridStorageManager
-from src.storage.core.active_node import ActiveNode
-from src.storage.core.cluster_manager import StorageClusterManager
-from src.storage.core.providers import get_cloud_provider
+from storage.infrastructure.hybrid_storage import HybridStorageManager
+from storage.infrastructure.active_node import ActiveNode
+from storage.infrastructure.cluster_manager import StorageClusterManager
+from storage.infrastructure.providers import get_cloud_provider
 from src.models.models import (
     StorageLocation,
     StoragePool,

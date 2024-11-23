@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch, AsyncMock
 import asyncio
 
-from storage.core.data.data_protection import (
+from storage.infrastructure.data.data_protection import (
     DataProtectionManager,
     BackupJob,
     RetentionType

@@ -10,18 +10,22 @@ import datetime
 import hashlib
 import os
 import logging
-from ..core.storage_backend import get_storage_backend
-from ..core.fs_manager import FileSystemManager
+from storage.backends import get_storage_backend
+from ..services.fs_manager import FileSystemManager
+from .base import BaseS3Handler
 
 logger = logging.getLogger(__name__)
 
 # Create Blueprint for S3-compatible API routes
 s3_api = Blueprint('s3_api', __name__)
 
-class S3ApiHandler:
+class S3ApiHandler(BaseS3Handler):
+    """Simple S3-compatible API handler."""
+    
     def __init__(self, fs_manager):
-        self.storage = get_storage_backend(fs_manager)
-        self.register_routes()
+        """Initialize the handler with basic S3 functionality."""
+        super().__init__(fs_manager, aws_style=False)
+        self.register_basic_routes(s3_api)
 
     def register_routes(self):
         """Register basic S3-compatible routes"""

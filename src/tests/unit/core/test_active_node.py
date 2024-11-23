@@ -6,7 +6,7 @@ from pathlib import Path
 import aiohttp
 from unittest.mock import Mock, patch, AsyncMock, MagicMock
 
-from src.storage.core.active_node import (
+from storage.infrastructure.active_node import (
     ActiveNode, NodeState, ConsistencyLevel, WriteOperation,
     WriteTimeoutError, ConsistencyError, InsufficientNodesError,
     WriteFailureError, NodeUnhealthyError, ReadResult

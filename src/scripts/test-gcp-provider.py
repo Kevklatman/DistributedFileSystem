@@ -6,7 +6,7 @@ import sys
 sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
 
 from dotenv import load_dotenv
-from storage.core.providers import get_cloud_provider
+from storage.infrastructure.providers import get_cloud_provider
 
 def test_gcp_operations():
     """Test all GCP storage operations."""

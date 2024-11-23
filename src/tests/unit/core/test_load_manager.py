@@ -6,7 +6,7 @@ from unittest.mock import patch, MagicMock
 from dataclasses import dataclass
 from typing import NamedTuple
 
-from src.storage.core.load_manager import LoadManager, LoadMetrics
+from storage.infrastructure.load_manager import LoadManager, LoadMetrics
 
 class MockDiskIO(NamedTuple):
     read_bytes: int

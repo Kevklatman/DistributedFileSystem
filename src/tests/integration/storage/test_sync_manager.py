@@ -2,8 +2,8 @@
 import unittest
 import time
 from unittest.mock import Mock, patch
-from src.storage.core.data.cache_store import CacheStore, ConsistencyLevel
-from src.storage.core.data.sync_manager import SyncManager
+from storage.infrastructure.data.cache_store import CacheStore, ConsistencyLevel
+from storage.infrastructure.data.sync_manager import SyncManager
 
 class TestSyncManager(unittest.TestCase):
     """Test cases for sync manager."""

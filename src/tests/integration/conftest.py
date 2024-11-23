@@ -15,9 +15,9 @@ os.environ['POD_IP'] = '10.0.0.1'
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.storage.core.hybrid_storage import HybridStorageManager
-from src.storage.core.active_node import ActiveNode
-from src.storage.core.cluster_manager import StorageClusterManager
+from storage.infrastructure.hybrid_storage import HybridStorageManager
+from storage.infrastructure.active_node import ActiveNode
+from storage.infrastructure.cluster_manager import StorageClusterManager
 
 @pytest.fixture(scope="session")
 def test_data_dir():

@@ -6,8 +6,8 @@ import hashlib
 from datetime import datetime
 from unittest.mock import patch, mock_open, MagicMock
 
-from src.storage.core.storage_efficiency import StorageEfficiencyManager
-from src.storage.core.models import (
+from storage.infrastructure.storage_efficiency import StorageEfficiencyManager
+from storage.infrastructure.models import (
     Volume,
     DeduplicationState,
     CompressionState,

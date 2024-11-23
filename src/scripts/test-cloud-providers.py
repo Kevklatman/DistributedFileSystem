@@ -12,7 +12,7 @@ sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__f
 from google.cloud import storage as gcp_storage
 from azure.storage.blob import BlobServiceClient
 from azure.core.exceptions import ResourceExistsError, ResourceNotFoundError
-from storage.core.providers import get_cloud_provider
+from storage.infrastructure.providers import get_cloud_provider
 
 def test_gcp(test_bucket="kevinklatman"):
     """Test GCP storage connection and operations."""
