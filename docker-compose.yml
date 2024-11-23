@@ -41,20 +41,6 @@ services:
     networks:
       - dfs_network
 
-  # API Service
-  api:
-    build:
-      context: .
-      dockerfile: src/api/Dockerfile
-    ports:
-      - "8001:8001"
-    environment:
-      - API_PORT=8001
-      - API_HOST=0.0.0.0
-      - DEBUG=True
-    networks:
-      - dfs_network
-
   # Monitoring stack
   prometheus:
     image: prom/prometheus:latest

@@ -19,7 +19,7 @@ spec:
         image: distributed-fs:latest
         imagePullPolicy: Never
         ports:
-        - containerPort: 5000
+        - containerPort: 8080
         env:
         - name: STORAGE_ENV
           value: "aws"
@@ -41,7 +41,9 @@ spec:
         - name: API_HOST
           value: "0.0.0.0"
         - name: API_PORT
-          value: "5000"
+          value: "8080"
+        - name: LOCAL_STORAGE_DIR
+          value: "/app/storage"
         - name: DEBUG
           value: "False"
         - name: FLASK_ENV

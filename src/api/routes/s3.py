@@ -6,13 +6,8 @@ import datetime
 import hashlib
 import os
 import logging
-import sys
-
-# Add the src directory to Python path for imports
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-
-from api.core.storage_backend import get_storage_backend
-from api.core.fs_manager import FileSystemManager
+from ..core.storage_backend import get_storage_backend
+from ..core.fs_manager import FileSystemManager
 
 logger = logging.getLogger(__name__)
 

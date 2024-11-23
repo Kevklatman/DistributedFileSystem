@@ -11,14 +11,13 @@ import sys
 import json
 from prometheus_client import Counter, Gauge, generate_latest, CONTENT_TYPE_LATEST
 
-# Set up the Python path for imports
-import os.path
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Add the current directory to Python path
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from api.core.storage_backend import get_storage_backend
-from api.routes.s3 import s3_api, S3ApiHandler
-from api.core.fs_manager import FileSystemManager
-from api.core.config import API_HOST, API_PORT, DEBUG
+from core.storage_backend import get_storage_backend
+from routes.s3 import s3_api, S3ApiHandler
+from core.fs_manager import FileSystemManager
+from core.config import API_HOST, API_PORT, DEBUG
 
 # Configure Flask app
 app = Flask(__name__,
@@ -26,7 +25,7 @@ app = Flask(__name__,
            static_folder='static')
 
 # Enable CORS for all routes
-CORS(app, resources={r"/*": {"origins": ["http://localhost:3000", "http://localhost:5000", "http://localhost:8080", "http://localhost:8000"],
+CORS(app, resources={r"/*": {"origins": ["http://localhost:3000", "http://localhost:5000", "http://localhost:8000"],
                             "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
                             "allow_headers": ["Content-Type", "Authorization"]}})
 

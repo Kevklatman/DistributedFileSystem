@@ -6,6 +6,7 @@ resources:
   - namespace.yaml
   - service.yaml
   - deployment.yaml
+  - api-service.yaml
   - configmap.yaml
   - secret.yaml
   - storage-node-crd.yaml

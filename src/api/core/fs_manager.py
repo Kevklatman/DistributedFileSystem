@@ -13,7 +13,7 @@ class FileSystemManager:
 
         # Get storage directory from environment variable or use default
         storage_dir = os.environ.get('LOCAL_STORAGE_DIR', os.path.abspath('./storage'))
-        self.root_dir = storage_dir
+        self.root_dir = os.path.join(storage_dir, 'buckets')
 
         # Ensure root directory exists
         os.makedirs(self.root_dir, exist_ok=True)
@@ -21,36 +21,35 @@ class FileSystemManager:
     def createDirectory(self, path: str) -> bool:
         """Create a directory at the specified path"""
         try:
-            # Normalize path and make it absolute
-            path = os.path.normpath(path).lstrip('/')
-            full_path = os.path.join(self.root_dir, path)
+            # Normalize path
+            path = os.path.normpath(path)
 
             # Check if directory already exists
-            if full_path in self.directories:
-                logger.warning(f"Directory already exists: {full_path}")
-                return True
+            if path in self.directories:
+                logger.warning(f"Directory already exists: {path}")
+                return False
 
             # Create physical directory
-            os.makedirs(full_path, exist_ok=True)
+            os.makedirs(path, exist_ok=True)
 
             # Add to in-memory tracking
-            self.directories[full_path] = {
-                'path': full_path,
+            self.directories[path] = {
+                'path': path,
                 'files': [],
                 'subdirs': []
             }
 
             # Update parent directory
-            parent_dir = os.path.dirname(full_path)
+            parent_dir = os.path.dirname(path)
             if parent_dir in self.directories:
-                if full_path not in self.directories[parent_dir]['subdirs']:
-                    self.directories[parent_dir]['subdirs'].append(full_path)
+                if path not in self.directories[parent_dir]['subdirs']:
+                    self.directories[parent_dir]['subdirs'].append(path)
 
-            logger.info(f"Created directory: {full_path}")
+            logger.info(f"Created directory: {path}")
             return True
 
         except Exception as e:
-            logger.error(f"Error creating directory {full_path}: {e}")
+            logger.error(f"Error creating directory {path}: {e}")
             return False
 
     def listDirectory(self, path: str) -> Tuple[List[str], List[str]]:
