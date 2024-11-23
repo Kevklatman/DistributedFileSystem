@@ -16,7 +16,7 @@ ENV FLASK_APP=api/app.py
 ENV FLASK_ENV=development
 
 # Expose port
-EXPOSE 8001
+EXPOSE 8080
 
 # Run the API
-CMD ["python", "-m", "flask", "run", "--host=0.0.0.0", "--port=8001"]
+CMD ["python", "-m", "flask", "run", "--host=0.0.0.0", "--port=8080"]
