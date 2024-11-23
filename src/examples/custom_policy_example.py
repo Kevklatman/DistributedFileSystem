@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 import json
 
 from src.storage.policy.policy_engine import HybridPolicyEngine, PolicyMode, PolicyDecision
-from src.api.models import Volume, StorageLocation, TieringPolicy, DataTemperature
+from src.models.models import Volume, StorageLocation, TieringPolicy, DataTemperature
 from src.storage.policy.tiering_manager import TierType
 
 logging.basicConfig(level=logging.INFO)

@@ -12,7 +12,7 @@ from src.storage.core.hybrid_storage import HybridStorageManager
 from src.storage.core.active_node import ActiveNode
 from src.storage.core.cluster_manager import StorageClusterManager
 from src.storage.core.providers import get_cloud_provider
-from src.storage.core.models import (
+from src.models.models import (
     StorageLocation,
     StoragePool,
     Volume,

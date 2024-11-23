@@ -12,7 +12,7 @@ import json
 import hashlib
 from enum import Enum
 
-from storage.models import (
+from src.models.models import (
     Volume,
     SnapshotState,
     DataProtectionPolicy,

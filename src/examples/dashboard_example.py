@@ -8,7 +8,7 @@ import logging
 import json
 from pathlib import Path
 
-from src.api.models import (
+from src.models.models import (
     Volume, StoragePool, StorageLocation, TierType,
     DataTemperature, HybridStorageSystem
 )

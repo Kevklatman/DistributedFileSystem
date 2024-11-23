@@ -3,7 +3,7 @@ import os
 import asyncio
 from pathlib import Path
 from src.csi.storage_manager import CSIStorageManager
-from src.api.models import StorageLocation, Volume
+from src.models.models import StorageLocation, Volume
 
 @pytest.fixture
 def csi_manager(tmp_path):

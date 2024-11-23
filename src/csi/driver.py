@@ -13,7 +13,7 @@ import logging
 from kubernetes import client, config
 from src.csi.proto import csi_pb2, csi_pb2_grpc, IdentityServicer, ControllerServicer, NodeServicer
 
-from src.api.models import Volume, StoragePool
+from src.models.models import Volume, StoragePool
 from src.storage.core.hybrid_storage import HybridStorageManager
 
 class CSIDriver(IdentityServicer,

@@ -8,7 +8,7 @@ import logging
 from datetime import datetime
 
 from .policy_engine import HybridPolicyEngine, PolicyMode
-from src.storage.core.models import (
+from src.models.models import (
     DataTemperature, Volume, StorageLocation, 
     CloudTieringPolicy, DataProtection
 )

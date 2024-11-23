@@ -12,7 +12,7 @@ import os
 import json
 from pathlib import Path
 
-from src.storage.core.models import (
+from src.models.models import (
     DeduplicationState,
     CompressionState,
     ThinProvisioningState,

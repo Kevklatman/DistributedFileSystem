@@ -10,18 +10,15 @@ import logging
 from enum import Enum
 from src.storage.core.providers import get_cloud_provider, CloudProviderBase
 
-from src.storage.core.models import (
+from src.models.models import (
+    Volume,
+    StoragePool,
+    StorageLocation,
     CloudTieringPolicy,
     DataProtection,
-    HybridStorageSystem,
     DataTemperature,
-    SnapshotState
-)
-
-from src.api.models import (
-    StorageLocation,
-    StoragePool,
-    Volume
+    TieringPolicy,
+    HybridStorageSystem
 )
 
 class EnhancedJSONEncoder(json.JSONEncoder):

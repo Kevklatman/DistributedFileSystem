@@ -12,7 +12,7 @@ from src.storage.policy.policy_examples import (
     example_log_data_handling
 )
 from src.storage.policy.policy_engine import HybridPolicyEngine, PolicyMode
-from src.storage.core.models import (
+from src.models.models import (
     DataTemperature, Volume, StorageLocation,
     CloudTieringPolicy, DataProtection
 )

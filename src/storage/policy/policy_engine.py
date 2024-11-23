@@ -8,7 +8,7 @@ import logging
 from pathlib import Path
 import json
 
-from src.storage.core.models import (
+from src.models.models import (
     Volume,
     StorageLocation,
     CloudTieringPolicy as TieringPolicy,

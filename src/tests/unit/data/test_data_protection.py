@@ -11,7 +11,7 @@ from storage.core.data.data_protection import (
     BackupJob,
     RetentionType
 )
-from storage.models import (
+from src.models.models import (
     Volume,
     SnapshotState,
     DataProtectionPolicy,
