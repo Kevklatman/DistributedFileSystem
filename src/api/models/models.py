@@ -147,7 +147,7 @@ class DataProtection:
     disaster_recovery_enabled: bool = False
     dr_location: Optional[StorageLocation] = None
     snapshots: Dict[str, SnapshotState] = field(default_factory=dict)
-    
+
 @dataclass
 class CloudCredentials:
     """Cloud provider credentials and configuration"""
@@ -167,26 +167,26 @@ class HybridStorageSystem:
     tiering_policies: Dict[str, CloudTieringPolicy] = field(default_factory=dict)
     protection_policies: Dict[str, DataProtection] = field(default_factory=dict)
     replication_policies: Dict[str, ReplicationPolicy] = field(default_factory=dict)
-    
+
     def add_storage_pool(self, pool: StoragePool) -> None:
         self.storage_pools[pool.id] = pool
-        
+
     def create_volume(self, name: str, size_gb: int, pool_id: str) -> Volume:
         if pool_id not in self.storage_pools:
             raise ValueError(f"Storage pool {pool_id} not found")
-            
+
         pool = self.storage_pools[pool_id]
         if not pool.is_thin_provisioned and pool.available_capacity_gb < size_gb:
             raise ValueError(f"Insufficient capacity in pool {pool_id}")
-            
+
         volume = Volume(
             name=name,
             size_gb=size_gb,
             primary_pool_id=pool_id
         )
         self.volumes[volume.id] = volume
-        
+
         if not pool.is_thin_provisioned:
             pool.available_capacity_gb -= size_gb
-            
+
         return volume
