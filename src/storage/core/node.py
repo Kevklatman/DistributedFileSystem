@@ -15,7 +15,7 @@ from prometheus_client import (
     Gauge,
     CollectorRegistry
 )
-from data.cache_store import CacheStore
+from ..data.cache_store import CacheStore
 
 # Create a custom registry for DFS metrics
 DFS_REGISTRY = CollectorRegistry()

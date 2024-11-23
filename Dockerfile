@@ -13,7 +13,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the application code
-COPY src/api ./api
+COPY src ./src
 
 # Create data and cache directories
 RUN mkdir -p /data /data/cache && \
@@ -21,9 +21,9 @@ RUN mkdir -p /data /data/cache && \
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH=/app/src:$PYTHONPATH
 ENV STORAGE_DATA_DIR=/data
 ENV CACHE_DIR=/data/cache
-ENV PYTHONPATH=/app
 ENV NODE_ID=
 ENV PORT=8080
 ENV HOST=0.0.0.0
@@ -39,4 +39,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8080/health || exit 1
 
 # Run the storage node
-CMD ["python", "-m", "api.storage.node"]
+CMD ["python", "-m", "src.storage.core.node"]
