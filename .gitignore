@@ -53,11 +53,6 @@ pip-log.txt
 pip-delete-this-directory.txt
 
 # System files
-.DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
 ehthumbs.db
 Thumbs.db
 
@@ -66,4 +61,16 @@ Thumbs.db
 # Metrics reports
 metrics_reports/
 
+# macOS system files
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+
+# Python package metadata
+*.egg-info/
+*.egg
+
+# Pytest
+.pytest_cache/
