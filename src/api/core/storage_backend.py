@@ -137,7 +137,9 @@ class LocalStorageBackend(StorageBackend):
 
         # Create root directory for buckets if it doesn't exist
         try:
-            if not self.fs_manager.createDirectory('/buckets'):
+            # Create buckets directory in the storage root
+            buckets_dir = 'buckets'  
+            if not self.fs_manager.createDirectory(buckets_dir):
                 logger.error("Failed to create root buckets directory")
                 raise RuntimeError("Failed to create root buckets directory")
         except Exception as e:
@@ -201,7 +203,7 @@ class LocalStorageBackend(StorageBackend):
             if bucket_name not in self.buckets:
                 return None, "Bucket not found"
 
-            object_path = f'/buckets/{bucket_name}/{object_key}'
+            object_path = f'{bucket_name}/{object_key}'
             if not self.fs_manager.exists(object_path):
                 return None, "Object not found"
 
@@ -222,7 +224,7 @@ class LocalStorageBackend(StorageBackend):
         if bucket_name not in self.buckets:
             return False, "Bucket not found"
 
-        object_path = f'/buckets/{bucket_name}/{object_key}'
+        object_path = f'{bucket_name}/{object_key}'
         if not self.fs_manager.writeFile(object_path, data):
             return False, "Failed to write object"
 
@@ -231,13 +233,13 @@ class LocalStorageBackend(StorageBackend):
     def _init_buckets_from_fs(self):
         """Initialize buckets from the filesystem"""
         try:
-            # List all directories under /buckets
-            result = self.fs_manager.listDirectory('/buckets')
+            # List all directories under the storage root
+            result = self.fs_manager.listDirectory('.')
             if result and 'directories' in result:
                 for dir_path in result['directories']:
-                    bucket_name = dir_path.split('/')[-1]
+                    bucket_name = dir_path
                     if bucket_name:
-                        creation_time = self.fs_manager.getLastModified(f'/buckets/{bucket_name}')
+                        creation_time = self.fs_manager.getLastModified(bucket_name)
                         if not creation_time:
                             creation_time = datetime.datetime.now(datetime.timezone.utc)
                         elif isinstance(creation_time, str):
@@ -280,7 +282,7 @@ class LocalStorageBackend(StorageBackend):
                 return False, "Strong consistency requirement not met: some nodes are down"
 
             # Create bucket directory
-            bucket_path = f'/buckets/{bucket_name}'
+            bucket_path = bucket_name
             if not self.fs_manager.createDirectory(bucket_path):
                 logger.error(f"Failed to create bucket directory: {bucket_path}")
                 return False, "Failed to create bucket directory"
@@ -310,7 +312,7 @@ class LocalStorageBackend(StorageBackend):
             if bucket_name not in self.buckets:
                 return None, "Bucket not found"
 
-            bucket_path = f'/buckets/{bucket_name}'
+            bucket_path = bucket_name
             if not self.fs_manager.exists(bucket_path):
                 return None, "Bucket directory not found"
 
@@ -373,7 +375,7 @@ class LocalStorageBackend(StorageBackend):
             return False, "Bucket not empty"
 
         del self.buckets[bucket_name]
-        self.fs_manager.deleteDirectory(f'/buckets/{bucket_name}')
+        self.fs_manager.deleteDirectory(bucket_name)
         return True, None
 
     def delete_object(self, bucket_name, object_key):
@@ -382,7 +384,7 @@ class LocalStorageBackend(StorageBackend):
 
         # Normalize the object key and create file path
         object_key = object_key.lstrip('/')
-        file_path = f'/buckets/{bucket_name}/{object_key}'
+        file_path = f'{bucket_name}/{object_key}'
 
         # Check if object exists
         if object_key not in self.buckets[bucket_name]['objects']:
@@ -474,7 +476,7 @@ class LocalStorageBackend(StorageBackend):
             combined_data += upload['parts'][part_num]['data']
 
         # Write the complete file
-        success = self.fs_manager.writeFile(f'/buckets/{bucket_name}/{object_key}', combined_data)
+        success = self.fs_manager.writeFile(f'{bucket_name}/{object_key}', combined_data)
         if success:
             self.buckets[bucket_name]['objects'][object_key] = len(combined_data)
             del self.multipart_uploads[upload_key]
@@ -555,7 +557,7 @@ class LocalStorageBackend(StorageBackend):
                         del self.buckets[bucket_name]['objects'][object_key]
 
                     # Clean up the file if no versions remain
-                    file_path = f'/buckets/{bucket_name}/{object_key}'
+                    file_path = f'{bucket_name}/{object_key}'
                     self.fs_manager.deleteFile(file_path)
 
                 return True, None
@@ -770,13 +772,13 @@ class AWSStorageBackend(StorageBackend):
         try:
             logger.debug("Attempting to list buckets with AWS credentials: access_key=%s, region=%s",
                         current_config['access_key'][:8] + '...', self.region)
-            
+
             response = self.s3.list_buckets()
             logger.debug("Raw S3 list_buckets response: %s", response)
-            
+
             if 'Buckets' not in response:
                 return [], None
-                
+
             # Convert datetime objects to strings
             buckets = []
             for bucket in response['Buckets']:
@@ -786,10 +788,10 @@ class AWSStorageBackend(StorageBackend):
                     'CreationDate': creation_date.strftime('%Y-%m-%dT%H:%M:%S.%f%z') if creation_date else None
                 }
                 buckets.append(bucket_info)
-                
+
             logger.debug("Processed bucket list: %s", buckets)
             return buckets, None
-            
+
         except Exception as e:
             error_msg = str(e)
             logger.error("Error listing buckets: %s", error_msg, exc_info=True)

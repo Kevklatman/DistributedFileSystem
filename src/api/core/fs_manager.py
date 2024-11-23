@@ -10,10 +10,10 @@ class FileSystemManager:
     def __init__(self):
         self.directories: Dict[str, Dict] = {}
         self.files: Dict[str, Dict] = {}
-        
+
         # Get storage directory from environment variable or use default
         storage_dir = os.environ.get('LOCAL_STORAGE_DIR', os.path.abspath('./storage'))
-        self.root_dir = os.path.join(storage_dir, 'buckets')
+        self.root_dir = storage_dir
 
         # Ensure root directory exists
         os.makedirs(self.root_dir, exist_ok=True)
@@ -21,35 +21,36 @@ class FileSystemManager:
     def createDirectory(self, path: str) -> bool:
         """Create a directory at the specified path"""
         try:
-            # Normalize path
-            path = os.path.normpath(path)
+            # Normalize path and make it absolute
+            path = os.path.normpath(path).lstrip('/')
+            full_path = os.path.join(self.root_dir, path)
 
             # Check if directory already exists
-            if path in self.directories:
-                logger.warning(f"Directory already exists: {path}")
-                return False
+            if full_path in self.directories:
+                logger.warning(f"Directory already exists: {full_path}")
+                return True
 
             # Create physical directory
-            os.makedirs(path, exist_ok=True)
+            os.makedirs(full_path, exist_ok=True)
 
             # Add to in-memory tracking
-            self.directories[path] = {
-                'path': path,
+            self.directories[full_path] = {
+                'path': full_path,
                 'files': [],
                 'subdirs': []
             }
 
             # Update parent directory
-            parent_dir = os.path.dirname(path)
+            parent_dir = os.path.dirname(full_path)
             if parent_dir in self.directories:
-                if path not in self.directories[parent_dir]['subdirs']:
-                    self.directories[parent_dir]['subdirs'].append(path)
+                if full_path not in self.directories[parent_dir]['subdirs']:
+                    self.directories[parent_dir]['subdirs'].append(full_path)
 
-            logger.info(f"Created directory: {path}")
+            logger.info(f"Created directory: {full_path}")
             return True
 
         except Exception as e:
-            logger.error(f"Error creating directory {path}: {e}")
+            logger.error(f"Error creating directory {full_path}: {e}")
             return False
 
     def listDirectory(self, path: str) -> Tuple[List[str], List[str]]:

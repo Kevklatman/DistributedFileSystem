@@ -11,13 +11,14 @@ import sys
 import json
 from prometheus_client import Counter, Gauge, generate_latest, CONTENT_TYPE_LATEST
 
-# Add the current directory to Python path
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+# Set up the Python path for imports
+import os.path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from core.storage_backend import get_storage_backend
-from routes.s3 import s3_api, S3ApiHandler
-from core.fs_manager import FileSystemManager
-from core.config import API_HOST, API_PORT, DEBUG
+from api.core.storage_backend import get_storage_backend
+from api.routes.s3 import s3_api, S3ApiHandler
+from api.core.fs_manager import FileSystemManager
+from api.core.config import API_HOST, API_PORT, DEBUG
 
 # Configure Flask app
 app = Flask(__name__,
