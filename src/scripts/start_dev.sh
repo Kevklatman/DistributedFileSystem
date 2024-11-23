@@ -23,7 +23,7 @@ check_port() {
 # Check and cleanup ports
 check_and_cleanup_ports() {
     # Only check ports that are actually used in docker-compose.yml
-    local ports=(8001 8002 8003 8011 8012 9090 3001 8089 5001)
+    local ports=(8001 8002 8003 8011 8012 9091 3001 8089 5001)
     local has_conflict=false
 
     echo -e "${BLUE}Checking ports...${NC}"
@@ -39,7 +39,7 @@ check_and_cleanup_ports() {
         # First try graceful shutdown
         docker-compose down --remove-orphans
         sleep 2
-        
+
         # If ports are still in use, force remove containers
         for port in "${ports[@]}"; do
             if check_port $port; then
@@ -50,7 +50,7 @@ check_and_cleanup_ports() {
                 fi
             fi
         done
-        
+
         # Final port check
         for port in "${ports[@]}"; do
             if check_port $port; then
@@ -94,7 +94,7 @@ echo -e "${BLUE}Waiting for services to be ready...${NC}"
 check_service_health "Node 1" 8001
 check_service_health "Node 2" 8002
 check_service_health "Node 3" 8003
-check_service_health "Prometheus" 9090
+check_service_health "Prometheus" 9091
 check_service_health "Grafana" 3001
 
 # Print access information
@@ -109,7 +109,7 @@ echo -e "  - Edge 1: http://localhost:8011"
 echo -e "  - Edge 2: http://localhost:8012"
 echo -e "Monitoring:"
 echo -e "  - Monitoring UI: http://localhost:5001"
-echo -e "  - Prometheus: http://localhost:9090"
+echo -e "  - Prometheus: http://localhost:9091"
 echo -e "  - Grafana: http://localhost:3001 (default: admin/admin)"
 echo -e "  - Load Testing UI: http://localhost:8089"
 

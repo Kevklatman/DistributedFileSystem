@@ -21,6 +21,9 @@ class NodeState:
     load: float
     capacity: float
     last_heartbeat: datetime
+    address: str
+    available_storage: float
+    network_latency: float = 0.0
 
 class ConsistencyLevel(Enum):
     EVENTUAL = "eventual"
@@ -743,7 +746,9 @@ class ActiveNode:
                     status="active",
                     load=self.load_manager.get_current_load(),
                     capacity=self.load_manager.get_capacity(),
-                    last_heartbeat=datetime.now()
+                    last_heartbeat=datetime.now(),
+                    address="",
+                    available_storage=0.0
                 )
 
                 # Get states from other nodes
@@ -973,7 +978,7 @@ class ActiveNode:
                             f"http://{node.address}/write",
                             data={
                                 'data_id': write_op.data_id,
-                                'content': write_op.content,
+                                'content': write_op.content.hex(),
                                 'version': write_op.version,
                                 'checksum': write_op.checksum,
                                 'timestamp': write_op.timestamp.isoformat()

@@ -33,6 +33,7 @@ class ConsistencyManager:
         self._pending_writes: Dict[str, WriteOperation] = {}
         self._write_locks: Dict[str, asyncio.Lock] = {}
         self._active_nodes: Dict[str, Set[str]] = {}  # data_id -> set of node_ids
+        self._current_version = 0
 
     async def get_next_version(self, data_id: str) -> int:
         """Get next version number for data."""
@@ -151,3 +152,26 @@ class ConsistencyManager:
             node_versions.values(),
             key=lambda x: (x.version, x.timestamp)
         )
+
+    def generate_version(self) -> int:
+        """Generate a new version number for data updates."""
+        self._current_version += 1
+        return self._current_version
+
+    def validate_version(self, version: int, timestamp: datetime) -> bool:
+        """Validate if a version is current and consistent."""
+        return version > 0 and version <= self._current_version
+
+    def resolve_conflicts(self, versions: Dict[str, Any]) -> Dict[str, Any]:
+        """Resolve version conflicts using timestamp and version number."""
+        if not versions:
+            return None
+
+        # Sort by version number (descending) and timestamp
+        sorted_versions = sorted(
+            versions.values(),
+            key=lambda x: (x.get('version', 0), x.get('timestamp', datetime.min)),
+            reverse=True
+        )
+
+        return sorted_versions[0]

@@ -185,3 +185,11 @@ class LoadManager:
             (min(metrics.disk_io / 100.0, 1.0)) * weights['disk_io'] +
             (min(metrics.network_io / 100.0, 1.0)) * weights['network_io']
         )
+
+    def get_node_load(self, node_id: str) -> float:
+        """Get the current load of a node."""
+        return self.get_current_load()
+
+    def get_node_capacity(self, node_id: str) -> float:
+        """Get the current capacity of a node."""
+        return self.get_capacity()

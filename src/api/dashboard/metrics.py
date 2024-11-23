@@ -12,7 +12,7 @@ from pydantic import BaseModel
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-PROMETHEUS_URL = "http://prometheus:9090"
+PROMETHEUS_URL = "http://prometheus:9091"
 
 class NetworkMetrics(BaseModel):
     """Network metrics"""
@@ -104,11 +104,11 @@ def get_node_metrics(node_id: str, timeframe: str = "5m") -> NodeMetrics:
     # Storage metrics
     storage_total = query_prometheus(f'dfs_storage_capacity_bytes{{instance="{node_id}"}}')
     storage_used = query_prometheus(f'dfs_storage_usage_bytes{{instance="{node_id}"}}')
-    
+
     # Cache metrics
     cache_hits = query_prometheus(f'rate(dfs_cache_hits_total{{instance="{node_id}"}}[{timeframe}])')
     cache_misses = query_prometheus(f'rate(dfs_cache_misses_total{{instance="{node_id}"}}[{timeframe}])')
-    
+
     # Request metrics
     total_requests = query_prometheus(f'sum(rate(dfs_request_total{{instance="{node_id}"}}[{timeframe}]))')
     success_rate = query_prometheus(
@@ -117,7 +117,7 @@ def get_node_metrics(node_id: str, timeframe: str = "5m") -> NodeMetrics:
     avg_latency = query_prometheus(f'rate(dfs_request_latency_seconds_sum{{instance="{node_id}"}}[{timeframe}]) / rate(dfs_request_latency_seconds_count{{instance="{node_id}"}}[{timeframe}])')
     p95_latency = query_prometheus(f'histogram_quantile(0.95, sum(rate(dfs_request_latency_seconds_bucket{{instance="{node_id}"}}[{timeframe}])) by (le))')
     queue_length = query_prometheus(f'dfs_request_queue_length{{instance="{node_id}"}}')
-    
+
     # File operations
     reads = query_prometheus(f'rate(dfs_file_operations_total{{instance="{node_id}",operation="read"}}[{timeframe}])')
     writes = query_prometheus(f'rate(dfs_file_operations_total{{instance="{node_id}",operation="write"}}[{timeframe}])')
@@ -125,22 +125,22 @@ def get_node_metrics(node_id: str, timeframe: str = "5m") -> NodeMetrics:
     avg_op_duration = query_prometheus(
         f'rate(dfs_file_operation_seconds_sum{{instance="{node_id}"}}[{timeframe}]) / rate(dfs_file_operation_seconds_count{{instance="{node_id}"}}[{timeframe}])'
     )
-    
+
     # Replication metrics
     replication_lag = query_prometheus(f'avg(dfs_replication_lag_seconds{{instance="{node_id}"}}) by (instance)')
     replication_queue = query_prometheus(f'dfs_replication_queue_length{{instance="{node_id}"}}')
-    
+
     # Resource metrics
     cpu_usage = query_prometheus(f'dfs_cpu_usage_percent{{instance="{node_id}"}}')
     memory_usage = query_prometheus(f'dfs_memory_usage_bytes{{instance="{node_id}"}}')
-    
+
     # Network metrics
     network_in = query_prometheus(f'rate(dfs_network_bytes_total{{instance="{node_id}",direction="received"}}[{timeframe}])')
     network_out = query_prometheus(f'rate(dfs_network_bytes_total{{instance="{node_id}",direction="transmitted"}}[{timeframe}])')
-    
+
     # Node health
     health = query_prometheus(f'dfs_node_health{{instance="{node_id}"}}')
-    
+
     # Extract values and handle None results
     def extract_value(result, default=0):
         if result and result.get('data', {}).get('result'):
@@ -212,7 +212,7 @@ async def get_metrics(timeframe: str = "5m"):
             raise HTTPException(status_code=500, message="Failed to get node list")
 
         node_ids = [result['metric']['instance'] for result in nodes_result['data']['result']]
-        
+
         # Get metrics for each node
         nodes_metrics = []
         for node_id in node_ids:
