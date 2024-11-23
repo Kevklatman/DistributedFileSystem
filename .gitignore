@@ -74,3 +74,6 @@ metrics_reports/
 
 # Pytest
 .pytest_cache/
+
+# Project specific
+/backups/
