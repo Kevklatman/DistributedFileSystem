@@ -16,7 +16,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from core.storage_backend import get_storage_backend
 from routes.s3 import s3_api, S3ApiHandler
-from routes.aws_s3 import aws_s3_api, AWSS3ApiHandler
+from routes.aws_s3_api import aws_s3_api, AWSS3ApiHandler
 from core.fs_manager import FileSystemManager
 from core.config import API_HOST, API_PORT, DEBUG
 
