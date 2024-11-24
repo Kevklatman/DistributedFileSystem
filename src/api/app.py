@@ -13,8 +13,8 @@ import json
 # Add the current directory to Python path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from core.fs_manager import FileSystemManager
-from core.config import API_HOST, API_PORT, DEBUG
+from services.fs_manager import FileSystemManager
+from services.config import API_HOST, API_PORT, DEBUG
 from models.api_models import create_api_models
 from services.api_metrics import get_policy_metrics, get_dashboard_metrics, metrics
 from services.utils.serializers import JSONEncoder
@@ -29,7 +29,7 @@ app = Flask(__name__,
            static_folder='static')
 
 # Enable CORS for all routes
-CORS(app, resources={r"/*": {"origins": ["http://localhost:3000", "http://localhost:5000", "http://localhost:8000"],
+CORS(app, resources={r"/*": {"origins": ["http://localhost:3000", "http://localhost:5000", "http://localhost:8000", "localhost:8080"],
                             "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
                             "allow_headers": ["Content-Type", "Authorization"]}})
 
