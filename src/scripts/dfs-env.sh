@@ -133,8 +133,8 @@ deploy_components() {
     docker push ${DEFAULT_REGISTRY}/dfs_core:latest
     docker push ${DEFAULT_REGISTRY}/dfs_edge:latest
 
-    # Apply Kubernetes configurations
-    kubectl apply -k src/k8s/base/
+    # Apply Kubernetes configurations using development overlay
+    kubectl apply -k src/k8s/overlays/development/
 
     # Wait for deployments
     kubectl wait --for=condition=available deployment -l app=dfs-core -n "$namespace" --timeout=300s
