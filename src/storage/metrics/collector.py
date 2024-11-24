@@ -11,7 +11,7 @@ from datetime import datetime
 # Add parent directory to Python path for imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
 
-from src.storage.metrics.unified_metrics import UnifiedMetricsCollector
+from .unified_metrics import UnifiedMetricsCollector
 import logging
 
 logger = logging.getLogger(__name__)

@@ -17,8 +17,7 @@ import traceback
 import logging
 import threading
 
-from metrics import MetricsCollector
-
+from src.storage.metrics.collector import SystemMetricsCollector
 # Create a logger
 logger = logging.getLogger(__name__)
 
@@ -32,7 +31,7 @@ app = Flask(__name__,
 CORS(app)
 
 # Initialize metrics collector
-metrics = MetricsCollector(
+metrics = SystemMetricsCollector(
     instance_id=socket.gethostname()
 )
 
