@@ -8,9 +8,9 @@ RED='\033[0;31m'
 NC='\033[0m' # No Color
 
 # Default values
-DEFAULT_NAMESPACE="dfs"
+DEFAULT_NAMESPACE="dfs-dev"
 DEFAULT_STORAGE_CLASS="standard"
-DEFAULT_REGISTRY="docker.io"
+DEFAULT_REGISTRY="localhost:5000"
 
 # Function to show usage
 show_usage() {
@@ -53,6 +53,12 @@ check_prerequisites() {
         missing_deps=true
     fi
 
+    # Check Kubernetes
+    if ! kubectl cluster-info &> /dev/null; then
+        echo -e "${RED}Kubernetes is not running${NC}"
+        missing_deps=true
+    fi
+
     # Check Python
     if ! command -v python3 &> /dev/null; then
         echo -e "${RED}Python 3 is not installed${NC}"
@@ -65,75 +71,52 @@ check_prerequisites() {
     fi
 }
 
-# Function to check and cleanup ports
-check_and_cleanup_ports() {
-    local ports=(8001 8002 8003 8011 8012 9091 3001 8089 5001)
-    local has_conflict=false
-
-    echo -e "${BLUE}Checking ports...${NC}"
-    for port in "${ports[@]}"; do
-        if lsof -i :$port > /dev/null 2>&1; then
-            echo -e "${RED}Port $port is in use${NC}"
-            has_conflict=true
-        fi
-    done
-
-    if $has_conflict; then
-        echo -e "${BLUE}Attempting to clean up existing containers...${NC}"
-        docker-compose down --remove-orphans
-        sleep 2
-
-        for port in "${ports[@]}"; do
-            if lsof -i :$port > /dev/null 2>&1; then
-                container_id=$(docker ps -a | grep ":$port->" | awk '{print $1}')
-                if [ ! -z "$container_id" ]; then
-                    docker rm -f $container_id
-                fi
-            fi
-        done
-    fi
-}
-
 # Function to start development environment
 start_dev() {
     check_prerequisites
-    check_and_cleanup_ports
 
     echo -e "${BLUE}Starting DFS development environment...${NC}"
     
-    # Start infrastructure services
-    docker-compose up -d
+    # Start local registry if not running
+    if ! docker ps | grep -q "registry:2"; then
+        echo "Starting local Docker registry..."
+        docker run -d -p 5000:5000 --restart=always --name registry registry:2
+    fi
 
-    # Wait for services to be ready
-    local services=(
-        "Node-1:8001"
-        "Node-2:8002"
-        "Node-3:8003"
-        "Prometheus:9091"
-        "Grafana:3001"
-    )
+    # Build and push images
+    echo "Building and pushing images..."
+    docker build -t localhost:5000/dfs_core:dev -f Dockerfile .
+    docker build -t localhost:5000/dfs_edge:dev -f Dockerfile .
+    docker push localhost:5000/dfs_core:dev
+    docker push localhost:5000/dfs_edge:dev
 
-    for service in "${services[@]}"; do
-        IFS=':' read -r name port <<< "$service"
-        echo -n "Waiting for $name to be ready..."
-        local attempts=0
-        while ! curl -s "http://localhost:$port" > /dev/null && [ $attempts -lt 30 ]; do
-            echo -n "."
-            sleep 1
-            ((attempts++))
-        done
-        if [ $attempts -lt 30 ]; then
-            echo -e "${GREEN}ready${NC}"
-        else
-            echo -e "${RED}failed${NC}"
-        fi
-    done
+    # Apply Kubernetes configurations
+    echo "Applying Kubernetes configurations..."
+    kubectl apply -k src/k8s/dev/
+
+    # Wait for pods to be ready
+    echo "Waiting for pods to be ready..."
+    kubectl wait --for=condition=ready pod -l app=dfs-core -n dfs-dev --timeout=120s
+    kubectl wait --for=condition=ready pod -l app=dfs-edge -n dfs-dev --timeout=120s
 
     echo -e "${GREEN}Development environment is ready!${NC}"
     echo -e "Access services at:"
-    echo -e "  - Management UI: http://localhost:3001"
-    echo -e "  - Metrics: http://localhost:9091"
-    echo -e "  - API Docs: http://localhost:8001/docs"
+    echo -e "  - Grafana: http://localhost:3000 (admin/admin)"
+    echo -e "  - Prometheus: http://localhost:9090"
+    echo -e "  - API Docs: http://localhost:8000/docs"
+}
+
+# Function to stop development environment
+stop_dev() {
+    echo -e "${BLUE}Stopping DFS development environment...${NC}"
+    
+    # Delete all resources in the dev namespace
+    kubectl delete namespace dfs-dev --ignore-not-found=true
+
+    # Stop local registry
+    docker stop registry && docker rm registry || true
+
+    echo -e "${GREEN}Development environment stopped${NC}"
 }
 
 # Function to deploy DFS components
@@ -143,24 +126,18 @@ deploy_components() {
 
     echo -e "${BLUE}Deploying DFS components...${NC}"
 
-    # Deploy CSI driver
-    echo "Building and deploying CSI driver..."
-    docker build -t dfs-csi-driver:latest -f src/csi/Dockerfile .
-    docker build -t dfs-storage-node:latest -f src/storage/Dockerfile .
+    # Build and push images
+    docker build -t ${DEFAULT_REGISTRY}/dfs_core:latest -f Dockerfile .
+    docker build -t ${DEFAULT_REGISTRY}/dfs_edge:latest -f Dockerfile .
+    docker push ${DEFAULT_REGISTRY}/dfs_core:latest
+    docker push ${DEFAULT_REGISTRY}/dfs_edge:latest
 
-    # Load images into local cluster if using kind/minikube
-    if command -v kind &> /dev/null; then
-        kind load docker-image dfs-csi-driver:latest
-        kind load docker-image dfs-storage-node:latest
-    elif command -v minikube &> /dev/null; then
-        minikube image load dfs-csi-driver:latest
-        minikube image load dfs-storage-node:latest
-    fi
+    # Apply Kubernetes configurations
+    kubectl apply -k src/k8s/base/
 
-    # Deploy using node_management.py
-    python3 src/scripts/node_management.py deploy \
-        --namespace "$namespace" \
-        --config "$config"
+    # Wait for deployments
+    kubectl wait --for=condition=available deployment -l app=dfs-core -n "$namespace" --timeout=300s
+    kubectl wait --for=condition=available deployment -l app=dfs-edge -n "$namespace" --timeout=300s
 }
 
 # Function to run tests
@@ -171,7 +148,7 @@ run_tests() {
     python3 -m pytest tests/unit
 
     # Run integration tests if environment is ready
-    if curl -s "http://localhost:8001/health" > /dev/null; then
+    if kubectl get pods -n dfs-dev -l app=dfs-core | grep -q Running; then
         python3 -m pytest tests/integration
     else
         echo -e "${RED}Development environment is not running. Skipping integration tests.${NC}"
@@ -187,45 +164,65 @@ run_tests() {
 cleanup_env() {
     echo -e "${BLUE}Cleaning up environment...${NC}"
     
-    # Stop all containers
-    docker-compose down --remove-orphans
-
-    # Clean up Kubernetes resources
-    kubectl delete namespace dfs --ignore-not-found
-    kubectl delete crd dfsnodes.dfs.codeium.com --ignore-not-found
+    # Delete development namespace
+    kubectl delete namespace dfs-dev --ignore-not-found=true
+    
+    # Delete production namespace if exists
+    kubectl delete namespace dfs --ignore-not-found=true
+    
+    # Delete CRDs
+    kubectl delete crd dfsnodes.dfs.codeium.com --ignore-not-found=true
 
     # Clean up local resources
     rm -rf data/* logs/*
+
+    # Stop and remove local registry
+    docker stop registry && docker rm registry || true
+}
+
+# Function to show status
+show_status() {
+    echo -e "${BLUE}DFS Environment Status${NC}"
+    
+    echo -e "\nKubernetes Pods:"
+    kubectl get pods -n dfs-dev
+
+    echo -e "\nKubernetes Services:"
+    kubectl get services -n dfs-dev
+
+    echo -e "\nKubernetes Deployments:"
+    kubectl get deployments -n dfs-dev
 }
 
 # Main script logic
 main() {
-    if [ $# -eq 0 ] || [ "$1" == "--help" ]; then
-        show_usage
-        exit 0
-    fi
+    local COMMAND=""
+    local NAMESPACE="$DEFAULT_NAMESPACE"
+    local REGISTRY="$DEFAULT_REGISTRY"
+    local CONFIG=""
 
-    local command=$1
-    shift
-
-    # Parse options
-    local namespace=$DEFAULT_NAMESPACE
-    local registry=$DEFAULT_REGISTRY
-    local config="src/scripts/cluster_config.yaml"
-
-    while [ $# -gt 0 ]; do
-        case "$1" in
+    # Parse command line arguments
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            start|stop|deploy|setup|test|clean|status)
+                COMMAND="$1"
+                shift
+                ;;
             --namespace)
-                namespace="$2"
+                NAMESPACE="$2"
                 shift 2
                 ;;
             --registry)
-                registry="$2"
+                REGISTRY="$2"
                 shift 2
                 ;;
             --config)
-                config="$2"
+                CONFIG="$2"
                 shift 2
+                ;;
+            --help)
+                show_usage
+                exit 0
                 ;;
             *)
                 echo "Unknown option: $1"
@@ -235,18 +232,19 @@ main() {
         esac
     done
 
-    case "$command" in
+    # Execute command
+    case $COMMAND in
         start)
             start_dev
             ;;
         stop)
-            docker-compose down
+            stop_dev
             ;;
         deploy)
-            deploy_components "$namespace" "$config"
+            deploy_components "$NAMESPACE" "$CONFIG"
             ;;
         setup)
-            python3 src/scripts/setup-credentials.py
+            setup_env "$NAMESPACE" "$REGISTRY"
             ;;
         test)
             run_tests
@@ -255,10 +253,9 @@ main() {
             cleanup_env
             ;;
         status)
-            python3 src/scripts/node_management.py monitor --namespace "$namespace"
+            show_status
             ;;
         *)
-            echo "Unknown command: $command"
             show_usage
             exit 1
             ;;

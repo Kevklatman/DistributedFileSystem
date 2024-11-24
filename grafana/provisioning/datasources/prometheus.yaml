@@ -10,12 +10,15 @@ datasources:
     access: proxy
     orgId: 1
     uid: prometheus
-    url: http://prometheus:9090
+    url: http://prometheus-service:9090  # Updated to use Kubernetes service name
     basicAuth: false
     isDefault: true
     version: 1
     editable: true
     jsonData:
-      timeInterval: "5s"
+      timeInterval: "15s"  # Matched with Prometheus scrape interval
       queryTimeout: "30s"
       httpMethod: "POST"
+      exemplarTraceIdDestinations:
+        - name: trace_id
+          datasourceUid: jaeger  # Optional: If you want to add tracing later

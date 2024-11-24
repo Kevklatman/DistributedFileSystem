@@ -1,0 +1,26 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: dfs-dev
+
+resources:
+- ../base
+- dev-namespace.yaml
+
+patches:
+- path: patches/replicas.yaml  # Reduce replicas for dev
+- path: patches/resources.yaml # Reduce resource requests/limits for dev
+
+configMapGenerator:
+- name: prometheus-config
+  behavior: merge
+  files:
+  - prometheus.yml=prometheus-config.yaml
+
+images:
+- name: dfs_core
+  newName: localhost:5000/dfs_core  # Use local registry
+  newTag: dev
+- name: dfs_edge
+  newName: localhost:5000/dfs_edge
+  newTag: dev

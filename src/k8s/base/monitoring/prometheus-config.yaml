@@ -1,0 +1,36 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+
+    scrape_configs:
+      - job_name: 'dfs_nodes'
+        kubernetes_sd_configs:
+          - role: pod
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            regex: dfs-storage-node
+            action: keep
+          - source_labels: [__meta_kubernetes_pod_name]
+            target_label: instance
+          - source_labels: [__meta_kubernetes_pod_label_node_type]
+            target_label: node_type
+        metric_relabel_configs:
+          - source_labels: [__name__]
+            regex: 'dfs_.*'
+            action: keep
+
+      - job_name: 'load_testing'
+        kubernetes_sd_configs:
+          - role: pod
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            regex: locust
+            action: keep
+          - source_labels: [__meta_kubernetes_pod_name]
+            target_label: instance
