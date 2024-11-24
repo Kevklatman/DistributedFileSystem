@@ -92,7 +92,7 @@ start_dev() {
 
     # Apply Kubernetes configurations
     echo "Applying Kubernetes configurations..."
-    kubectl apply -k src/k8s/dev/
+    kubectl apply -k src/k8s/overlays/development/
 
     # Wait for pods to be ready
     echo "Waiting for pods to be ready..."
