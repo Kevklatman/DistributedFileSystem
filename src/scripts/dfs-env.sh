@@ -8,7 +8,7 @@ RED='\033[0;31m'
 NC='\033[0m' # No Color
 
 # Default values
-DEFAULT_NAMESPACE="dfs-dev"
+DEFAULT_NAMESPACE="dfs-development"
 DEFAULT_STORAGE_CLASS="standard"
 DEFAULT_REGISTRY="localhost:5000"
 
@@ -96,8 +96,8 @@ start_dev() {
 
     # Wait for pods to be ready
     echo "Waiting for pods to be ready..."
-    kubectl wait --for=condition=ready pod -l app=dfs-core -n dfs-dev --timeout=120s
-    kubectl wait --for=condition=ready pod -l app=dfs-edge -n dfs-dev --timeout=120s
+    kubectl wait --for=condition=ready pod -l app=dfs-core -n dfs-development --timeout=120s
+    kubectl wait --for=condition=ready pod -l app=dfs-edge -n dfs-development --timeout=120s
 
     echo -e "${GREEN}Development environment is ready!${NC}"
     echo -e "Access services at:"
@@ -111,7 +111,7 @@ stop_dev() {
     echo -e "${BLUE}Stopping DFS development environment...${NC}"
     
     # Delete all resources in the dev namespace
-    kubectl delete namespace dfs-dev --ignore-not-found=true
+    kubectl delete namespace dfs-development --ignore-not-found=true
 
     # Stop local registry
     docker stop registry && docker rm registry || true
@@ -148,7 +148,7 @@ run_tests() {
     python3 -m pytest tests/unit
 
     # Run integration tests if environment is ready
-    if kubectl get pods -n dfs-dev -l app=dfs-core | grep -q Running; then
+    if kubectl get pods -n dfs-development -l app=dfs-core | grep -q Running; then
         python3 -m pytest tests/integration
     else
         echo -e "${RED}Development environment is not running. Skipping integration tests.${NC}"
@@ -165,7 +165,7 @@ cleanup_env() {
     echo -e "${BLUE}Cleaning up environment...${NC}"
     
     # Delete development namespace
-    kubectl delete namespace dfs-dev --ignore-not-found=true
+    kubectl delete namespace dfs-development --ignore-not-found=true
     
     # Delete production namespace if exists
     kubectl delete namespace dfs --ignore-not-found=true
@@ -185,13 +185,13 @@ show_status() {
     echo -e "${BLUE}DFS Environment Status${NC}"
     
     echo -e "\nKubernetes Pods:"
-    kubectl get pods -n dfs-dev
+    kubectl get pods -n dfs-development
 
     echo -e "\nKubernetes Services:"
-    kubectl get services -n dfs-dev
+    kubectl get services -n dfs-development
 
     echo -e "\nKubernetes Deployments:"
-    kubectl get deployments -n dfs-dev
+    kubectl get deployments -n dfs-development
 }
 
 # Main script logic
