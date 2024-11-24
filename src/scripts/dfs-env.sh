@@ -18,6 +18,9 @@ DEFAULT_STORAGE_METRICS_PORT=9091
 DEFAULT_NODE_PORT_API=30080
 DEFAULT_NODE_PORT_METRICS=30090
 
+# Port forwarding PID file
+PORT_FORWARD_PID_FILE="/tmp/dfs-port-forward.pid"
+
 # Function to show usage
 show_usage() {
     echo "Usage: $0 <command> [options]"
@@ -27,6 +30,8 @@ show_usage() {
     echo "  stop          Stop development environment"
     echo "  status        Show environment status"
     echo "  clean         Clean up environment"
+    echo "  forward       Start port forwarding"
+    echo "  unforward     Stop port forwarding"
     echo
     echo "Options:"
     echo "  --namespace     Kubernetes namespace (default: $DEFAULT_NAMESPACE)"
@@ -66,30 +71,74 @@ check_prerequisites() {
     fi
 }
 
+# Function to start port forwarding
+start_port_forward() {
+    local namespace=$1
+    local api_port=$2
+    local api_metrics=$3
+
+    # Kill any existing port forward processes
+    if [ -f "$PORT_FORWARD_PID_FILE" ]; then
+        kill $(cat "$PORT_FORWARD_PID_FILE") 2>/dev/null || true
+        rm "$PORT_FORWARD_PID_FILE"
+    fi
+
+    echo -e "${BLUE}Starting port forwarding...${NC}"
+    
+    # Start port forwarding for API service
+    kubectl port-forward -n ${namespace} service/dfs-api-service ${api_port}:${api_port} &
+    echo $! > "$PORT_FORWARD_PID_FILE"
+    
+    # Start port forwarding for metrics
+    kubectl port-forward -n ${namespace} service/dfs-api-service ${api_metrics}:${api_metrics} &
+    echo $! >> "$PORT_FORWARD_PID_FILE"
+
+    echo -e "${GREEN}Port forwarding started!${NC}"
+    echo -e "Access services at:"
+    echo -e "  - API: http://localhost:${api_port}"
+    echo -e "  - API Metrics: http://localhost:${api_metrics}"
+}
+
+# Function to stop port forwarding
+stop_port_forward() {
+    if [ -f "$PORT_FORWARD_PID_FILE" ]; then
+        echo -e "${BLUE}Stopping port forwarding...${NC}"
+        kill $(cat "$PORT_FORWARD_PID_FILE") 2>/dev/null || true
+        rm "$PORT_FORWARD_PID_FILE"
+        echo -e "${GREEN}Port forwarding stopped${NC}"
+    else
+        echo -e "${BLUE}No port forwarding processes found${NC}"
+    fi
+}
+
 # Function to update Kubernetes configurations with new ports
 update_k8s_configs() {
     local api_port=$1
     local api_metrics=$2
     local storage_port=$3
     local storage_metrics=$4
-    local nodeport_api=$5
-    local nodeport_metrics=$6
 
-    # Update service patch for development
-    cat > src/k8s/overlays/development/service-patch.yaml << EOF
+    # Update API service configuration
+    cat > src/k8s/base/api-service.yaml << EOF
 apiVersion: v1
 kind: Service
 metadata:
-  name: dfs-api
+  name: dfs-api-service
+  labels:
+    app: dfs-api
 spec:
-  type: NodePort
+  selector:
+    app: dfs-api
   ports:
-  - port: ${api_port}
-    targetPort: ${api_port}
-    nodePort: ${nodeport_api}
-  - port: ${api_metrics}
-    targetPort: ${api_metrics}
-    nodePort: ${nodeport_metrics}
+    - name: http
+      protocol: TCP
+      port: ${api_port}
+      targetPort: ${api_port}
+    - name: metrics
+      protocol: TCP
+      port: ${api_metrics}
+      targetPort: ${api_metrics}
+  type: ClusterIP
 EOF
 
     # Update storage service configuration
@@ -124,8 +173,6 @@ start_dev() {
     local api_metrics=$4
     local storage_port=$5
     local storage_metrics=$6
-    local nodeport_api=$7
-    local nodeport_metrics=$8
 
     check_prerequisites
 
@@ -149,7 +196,7 @@ start_dev() {
 
     # Update Kubernetes configurations with new ports
     echo "Updating Kubernetes configurations..."
-    update_k8s_configs "$api_port" "$api_metrics" "$storage_port" "$storage_metrics" "$nodeport_api" "$nodeport_metrics"
+    update_k8s_configs "$api_port" "$api_metrics" "$storage_port" "$storage_metrics"
 
     # Build images directly in minikube
     echo "Building images in minikube..."
@@ -167,20 +214,21 @@ start_dev() {
     kubectl wait --for=condition=ready pod -l app=dfs-api -n ${namespace} --timeout=120s
     kubectl wait --for=condition=ready pod -l app=dfs-storage-node -n ${namespace} --timeout=120s
 
-    # Get minikube IP
-    MINIKUBE_IP=$(minikube ip)
+    # Start port forwarding
+    start_port_forward "$namespace" "$api_port" "$api_metrics"
     
     echo -e "${GREEN}Development environment is ready!${NC}"
-    echo -e "Access services at:"
-    echo -e "  - API: http://${MINIKUBE_IP}:${nodeport_api}"
-    echo -e "  - API Metrics: http://${MINIKUBE_IP}:${nodeport_metrics}"
-    echo -e "  - Storage Nodes: Accessible through API"
 }
 
 # Function to stop development environment
 stop_dev() {
     local namespace=$1
     echo -e "${BLUE}Stopping DFS development environment...${NC}"
+    
+    # Stop port forwarding
+    stop_port_forward
+    
+    # Delete namespace
     kubectl delete namespace ${namespace} --ignore-not-found
     echo -e "${GREEN}Environment stopped${NC}"
 }
@@ -202,77 +250,73 @@ show_status() {
     echo -e "\nService Status:"
     kubectl get services -n ${namespace}
     
-    # Show URLs if environment is running
-    if MINIKUBE_IP=$(minikube ip 2>/dev/null); then
-        echo -e "\nService URLs:"
-        echo "API: http://${MINIKUBE_IP}:${DEFAULT_NODE_PORT_API}"
-        echo "Metrics: http://${MINIKUBE_IP}:${DEFAULT_NODE_PORT_METRICS}"
+    # Check port forwarding
+    echo -e "\nPort Forwarding Status:"
+    if [ -f "$PORT_FORWARD_PID_FILE" ]; then
+        echo "Port forwarding is active"
+        echo "PIDs: $(cat "$PORT_FORWARD_PID_FILE")"
+    else
+        echo "Port forwarding is not active"
     fi
 }
 
 # Function to clean up environment
 clean_env() {
     local namespace=$1
-    echo -e "${BLUE}Cleaning up DFS environment...${NC}"
+    echo -e "${BLUE}Cleaning up environment...${NC}"
     
-    # Delete namespace and all resources
+    # Stop port forwarding
+    stop_port_forward
+    
+    # Delete namespace and resources
     kubectl delete namespace ${namespace} --ignore-not-found
     
-    # Clean up Docker images
-    echo "Cleaning up Docker images..."
-    docker rmi $(docker images -q 'localhost:5000/dfs_*') 2>/dev/null || true
-    
-    echo -e "${GREEN}Cleanup complete${NC}"
+    echo -e "${GREEN}Environment cleaned${NC}"
 }
 
 # Main script logic
 main() {
-    local NAMESPACE=$DEFAULT_NAMESPACE
-    local REGISTRY=$DEFAULT_REGISTRY
-    local API_PORT=$DEFAULT_API_PORT
-    local API_METRICS_PORT=$DEFAULT_API_METRICS_PORT
-    local STORAGE_PORT=$DEFAULT_STORAGE_PORT
-    local STORAGE_METRICS_PORT=$DEFAULT_STORAGE_METRICS_PORT
-    local NODE_PORT_API=$DEFAULT_NODE_PORT_API
-    local NODE_PORT_METRICS=$DEFAULT_NODE_PORT_METRICS
+    local COMMAND=""
+    local NAMESPACE="$DEFAULT_NAMESPACE"
+    local REGISTRY="$DEFAULT_REGISTRY"
+    local API_PORT="$DEFAULT_API_PORT"
+    local API_METRICS="$DEFAULT_API_METRICS_PORT"
+    local STORAGE_PORT="$DEFAULT_STORAGE_PORT"
+    local STORAGE_METRICS="$DEFAULT_STORAGE_METRICS_PORT"
 
-    # Parse command line arguments
-    while [[ $# -gt 0 ]]; do
-        case $1 in
-            start|stop|status|clean)
-                COMMAND=$1
-                shift
-                ;;
+    # Parse command
+    if [ $# -eq 0 ]; then
+        show_usage
+        exit 1
+    fi
+    COMMAND="$1"
+    shift
+
+    # Parse options
+    while [ $# -gt 0 ]; do
+        case "$1" in
             --namespace)
-                NAMESPACE=$2
+                NAMESPACE="$2"
                 shift 2
                 ;;
             --registry)
-                REGISTRY=$2
+                REGISTRY="$2"
                 shift 2
                 ;;
             --api-port)
-                API_PORT=$2
+                API_PORT="$2"
                 shift 2
                 ;;
             --api-metrics)
-                API_METRICS_PORT=$2
+                API_METRICS="$2"
                 shift 2
                 ;;
             --storage-port)
-                STORAGE_PORT=$2
+                STORAGE_PORT="$2"
                 shift 2
                 ;;
             --storage-metrics)
-                STORAGE_METRICS_PORT=$2
-                shift 2
-                ;;
-            --nodeport-api)
-                NODE_PORT_API=$2
-                shift 2
-                ;;
-            --nodeport-metrics)
-                NODE_PORT_METRICS=$2
+                STORAGE_METRICS="$2"
                 shift 2
                 ;;
             --help)
@@ -288,11 +332,9 @@ main() {
     done
 
     # Execute command
-    case $COMMAND in
+    case "$COMMAND" in
         start)
-            start_dev "$NAMESPACE" "$REGISTRY" "$API_PORT" "$API_METRICS_PORT" \
-                     "$STORAGE_PORT" "$STORAGE_METRICS_PORT" \
-                     "$NODE_PORT_API" "$NODE_PORT_METRICS"
+            start_dev "$NAMESPACE" "$REGISTRY" "$API_PORT" "$API_METRICS" "$STORAGE_PORT" "$STORAGE_METRICS"
             ;;
         stop)
             stop_dev "$NAMESPACE"
@@ -303,8 +345,14 @@ main() {
         clean)
             clean_env "$NAMESPACE"
             ;;
+        forward)
+            start_port_forward "$NAMESPACE" "$API_PORT" "$API_METRICS"
+            ;;
+        unforward)
+            stop_port_forward
+            ;;
         *)
-            echo "No command specified"
+            echo "Unknown command: $COMMAND"
             show_usage
             exit 1
             ;;
