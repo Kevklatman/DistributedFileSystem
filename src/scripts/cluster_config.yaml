@@ -1,0 +1,61 @@
+---
+# DFS Cluster Configuration
+cluster_name: dfs-cluster
+replication_factor: 3
+quorum_size: 2
+
+zones:
+  us-west:
+    initial_nodes: 3
+    storage_class: standard
+    storage_size: 100Gi
+    resources:
+      cpu_request: 100m
+      cpu_limit: 500m
+      memory_request: 256Mi
+      memory_limit: 512Mi
+    node_selector:
+      topology.kubernetes.io/zone: us-west-1a
+
+  us-east:
+    initial_nodes: 3
+    storage_class: standard
+    storage_size: 100Gi
+    resources:
+      cpu_request: 100m
+      cpu_limit: 500m
+      memory_request: 256Mi
+      memory_limit: 512Mi
+    node_selector:
+      topology.kubernetes.io/zone: us-east-1a
+
+leader:
+  resources:
+    cpu_request: 200m
+    cpu_limit: 1000m
+    memory_request: 512Mi
+    memory_limit: 1Gi
+
+metrics:
+  enable: true
+  prometheus:
+    port: 9090
+    scrape_interval: 15s
+
+scaling:
+  metrics:
+    cpu_threshold: 80
+    memory_threshold: 80
+    disk_usage_threshold: 85
+    request_rate_threshold: 1000
+  cooldown_period: 300s
+  min_nodes_per_zone: 2
+  max_nodes_per_zone: 10
+
+storage:
+  chunk_size: 64MB
+  compression: true
+  encryption: true
+  retention:
+    enabled: true
+    default_period: 30d
