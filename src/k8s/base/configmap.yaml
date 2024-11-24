@@ -6,6 +6,6 @@ metadata:
   namespace: distributed-fs
 data:
   API_HOST: "0.0.0.0"
-  API_PORT: "5000"
+  API_PORT: "61478"
   DEBUG: "False"
   FLASK_ENV: "production"

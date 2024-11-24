@@ -8,7 +8,7 @@ NC='\033[0m' # No Color
 
 # Configuration
 NAMESPACE="dfs-development"
-REGISTRY="localhost:5000"
+REGISTRY="localhost:61478"
 
 # Function to check if a command exists
 command_exists() {

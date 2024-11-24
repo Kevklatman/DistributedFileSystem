@@ -12,7 +12,9 @@ import os
 import logging
 from storage.backends import get_storage_backend
 from ..services.fs_manager import FileSystemManager
+from ..services.system_service import SystemService
 from .base import BaseS3Handler
+import asyncio
 
 logger = logging.getLogger(__name__)
 
@@ -20,119 +22,130 @@ logger = logging.getLogger(__name__)
 s3_api = Blueprint('s3_api', __name__)
 
 class S3ApiHandler(BaseS3Handler):
-    """Simple S3-compatible API handler."""
-    
-    def __init__(self, fs_manager):
-        """Initialize the handler with basic S3 functionality."""
+    """Handler for S3-compatible API operations."""
+
+    def __init__(self, fs_manager, infrastructure):
+        """Initialize the handler with basic S3 functionality.
+
+        Args:
+            fs_manager: FileSystem manager instance
+            infrastructure: Infrastructure manager instance
+        """
         super().__init__(fs_manager, aws_style=False)
+        self.infrastructure = infrastructure
+        self.system = SystemService(os.getenv('STORAGE_ROOT', '/data/dfs'))
         self.register_basic_routes(s3_api)
 
-    def register_routes(self):
-        """Register basic S3-compatible routes"""
-        # Basic bucket operations
-        s3_api.add_url_rule('/buckets', 'list_buckets', self.list_buckets, methods=['GET'])
-        s3_api.add_url_rule('/<bucket>', 'create_bucket', self.create_bucket, methods=['PUT'])
-        s3_api.add_url_rule('/<bucket>', 'delete_bucket', self.delete_bucket, methods=['DELETE'])
-        s3_api.add_url_rule('/<bucket>', 'list_objects', self.list_objects, methods=['GET'])
+    async def handle_storage_operation(self, operation: str, **kwargs):
+        """Handle storage operation using infrastructure manager."""
+        return await self.infrastructure.handle_storage_operation(operation, **kwargs)
 
-        # Basic object operations
-        s3_api.add_url_rule('/<bucket>/<key>', 'put_object', self.put_object, methods=['PUT'])
-        s3_api.add_url_rule('/<bucket>/<key>', 'get_object', self.get_object, methods=['GET'])
-        s3_api.add_url_rule('/<bucket>/<key>', 'delete_object', self.delete_object, methods=['DELETE'])
+    def register_basic_routes(self, blueprint):
+        """Register basic S3-compatible routes."""
+        
+        @blueprint.route('/buckets', methods=['GET'])
+        def list_buckets():
+            """List all buckets."""
+            try:
+                buckets = self.storage.list_buckets()
+                return self.format_list_buckets_response(buckets)
+            except Exception as e:
+                logger.error(f"Error listing buckets: {str(e)}")
+                return self.format_error_response('ListBucketError', str(e))
 
-    def list_buckets(self):
-        """List all buckets"""
-        try:
-            buckets = self.storage.list_buckets()
-            response = {
-                'Buckets': [{'Name': bucket} for bucket in buckets],
-                'Owner': {'ID': 'dfs-owner'}
-            }
-            return make_response(xmltodict.unparse({'ListAllMyBucketsResult': response}), 200)
-        except Exception as e:
-            logger.error(f"Error listing buckets: {str(e)}")
-            return make_response(xmltodict.unparse({'Error': {'Message': str(e)}}), 500)
+        @blueprint.route('/buckets/<bucket_name>', methods=['PUT'])
+        def create_bucket(bucket_name):
+            """Create a new bucket."""
+            try:
+                asyncio.run(self.handle_storage_operation('create_bucket', bucket_name=bucket_name))
+                return '', 200
+            except Exception as e:
+                logger.error(f"Error creating bucket: {str(e)}")
+                return self.format_error_response('CreateBucketError', str(e))
 
-    def create_bucket(self, bucket):
-        """Create a new bucket"""
-        try:
-            self.storage.create_bucket(bucket)
-            return make_response('', 200)
-        except Exception as e:
-            logger.error(f"Error creating bucket {bucket}: {str(e)}")
-            return make_response(xmltodict.unparse({'Error': {'Message': str(e)}}), 500)
+        @blueprint.route('/buckets/<bucket_name>', methods=['DELETE'])
+        def delete_bucket(bucket_name):
+            """Delete a bucket."""
+            try:
+                asyncio.run(self.handle_storage_operation('delete_bucket', bucket_name=bucket_name))
+                return '', 204
+            except Exception as e:
+                logger.error(f"Error deleting bucket: {str(e)}")
+                return self.format_error_response('DeleteBucketError', str(e))
 
-    def delete_bucket(self, bucket):
-        """Delete a bucket"""
-        try:
-            self.storage.delete_bucket(bucket)
-            return make_response('', 204)
-        except Exception as e:
-            logger.error(f"Error deleting bucket {bucket}: {str(e)}")
-            return make_response(xmltodict.unparse({'Error': {'Message': str(e)}}), 500)
-
-    def list_objects(self, bucket):
-        """List objects in a bucket"""
-        try:
-            prefix = request.args.get('prefix', '')
-            max_keys = int(request.args.get('max-keys', '1000'))
-            
-            objects = self.storage.list_objects(bucket, prefix=prefix, max_keys=max_keys)
-            response = {
-                'Name': bucket,
-                'Prefix': prefix,
-                'MaxKeys': max_keys,
-                'Contents': [
-                    {
-                        'Key': obj['key'],
-                        'LastModified': obj.get('last_modified', datetime.datetime.now().isoformat()),
-                        'Size': obj.get('size', 0),
-                        'ETag': obj.get('etag', '')
-                    } for obj in objects
-                ]
-            }
-            return make_response(xmltodict.unparse({'ListBucketResult': response}), 200)
-        except Exception as e:
-            logger.error(f"Error listing objects in bucket {bucket}: {str(e)}")
-            return make_response(xmltodict.unparse({'Error': {'Message': str(e)}}), 500)
-
-    def put_object(self, bucket, key):
-        """Upload an object"""
-        try:
-            content = request.get_data()
-            etag = hashlib.md5(content).hexdigest()
-            
-            self.storage.put_object(bucket, key, content)
-            return make_response('', 200, {'ETag': f'"{etag}"'})
-        except Exception as e:
-            logger.error(f"Error uploading object {key} to bucket {bucket}: {str(e)}")
-            return make_response(xmltodict.unparse({'Error': {'Message': str(e)}}), 500)
-
-    def get_object(self, bucket, key):
-        """Download an object"""
-        try:
-            obj = self.storage.get_object(bucket, key)
-            if obj is None:
-                return make_response(xmltodict.unparse({'Error': {'Message': 'Not Found'}}), 404)
+        @blueprint.route('/buckets/<bucket_name>/objects', methods=['GET'])
+        def list_objects(bucket_name):
+            """List objects in a bucket."""
+            try:
+                prefix = request.args.get('prefix', '')
+                delimiter = request.args.get('delimiter', '/')
+                max_keys = int(request.args.get('max-keys', 1000))
                 
-            return Response(
-                obj['content'],
-                mimetype='application/octet-stream',
-                headers={
-                    'ETag': f'"{obj.get("etag", "")}"',
-                    'Last-Modified': obj.get('last_modified', datetime.datetime.now().isoformat()),
-                    'Content-Length': str(len(obj['content']))
-                }
-            )
-        except Exception as e:
-            logger.error(f"Error downloading object {key} from bucket {bucket}: {str(e)}")
-            return make_response(xmltodict.unparse({'Error': {'Message': str(e)}}), 500)
+                objects = asyncio.run(self.handle_storage_operation(
+                    'list_objects',
+                    bucket_name=bucket_name,
+                    prefix=prefix,
+                    delimiter=delimiter,
+                    max_keys=max_keys
+                ))
+                return self.format_list_objects_response(objects)
+            except Exception as e:
+                logger.error(f"Error listing objects: {str(e)}")
+                return self.format_error_response('ListObjectsError', str(e))
 
-    def delete_object(self, bucket, key):
-        """Delete an object"""
-        try:
-            self.storage.delete_object(bucket, key)
-            return make_response('', 204)
-        except Exception as e:
-            logger.error(f"Error deleting object {key} from bucket {bucket}: {str(e)}")
-            return make_response(xmltodict.unparse({'Error': {'Message': str(e)}}), 500)
+        @blueprint.route('/buckets/<bucket_name>/objects/<path:object_key>', methods=['PUT'])
+        def put_object(bucket_name, object_key):
+            """Upload an object."""
+            try:
+                content = request.get_data()
+                metadata = dict(request.headers)
+                storage_class = request.headers.get('x-amz-storage-class', 'STANDARD')
+                
+                result = asyncio.run(self.handle_storage_operation(
+                    'put_object',
+                    bucket_name=bucket_name,
+                    object_key=object_key,
+                    content=content,
+                    metadata=metadata,
+                    storage_class=storage_class
+                ))
+                
+                response = make_response('', 200)
+                response.headers['ETag'] = result.get('etag', '')
+                return response
+            except Exception as e:
+                logger.error(f"Error uploading object: {str(e)}")
+                return self.format_error_response('PutObjectError', str(e))
+
+        @blueprint.route('/buckets/<bucket_name>/objects/<path:object_key>', methods=['GET'])
+        def get_object(bucket_name, object_key):
+            """Download an object."""
+            try:
+                result = asyncio.run(self.handle_storage_operation(
+                    'get_object',
+                    bucket_name=bucket_name,
+                    object_key=object_key
+                ))
+                
+                response = make_response(result['content'])
+                response.headers['Content-Type'] = result.get('content_type', 'application/octet-stream')
+                response.headers['ETag'] = result.get('etag', '')
+                response.headers['Last-Modified'] = result.get('last_modified', '')
+                return response
+            except Exception as e:
+                logger.error(f"Error downloading object: {str(e)}")
+                return self.format_error_response('GetObjectError', str(e))
+
+        @blueprint.route('/buckets/<bucket_name>/objects/<path:object_key>', methods=['DELETE'])
+        def delete_object(bucket_name, object_key):
+            """Delete an object."""
+            try:
+                asyncio.run(self.handle_storage_operation(
+                    'delete_object',
+                    bucket_name=bucket_name,
+                    object_key=object_key
+                ))
+                return '', 204
+            except Exception as e:
+                logger.error(f"Error deleting object: {str(e)}")
+                return self.format_error_response('DeleteObjectError', str(e))

@@ -426,3 +426,41 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - Kubernetes-native deployment support
 - Cloud provider integrations
 - Community contributions welcome
+# flow
+Request Flow:
+Code
+CopyInsert
+Client Request → S3 API → System Service → Infrastructure Components
+                                      ↓
+                         Storage   Cluster   Protection   Replication
+                         Backend   Manager   Manager      Manager
+Data Operations:
+Requests go through consistency checks
+Data is protected and encrypted
+Operations are replicated as needed
+Load is balanced across nodes
+System Management:
+Health monitoring
+Cluster coordination
+Resource optimization
+Graceful shutdown
+To use the system:
+
+Set environment variables:
+bash
+CopyInsert
+export STORAGE_ROOT=/data/dfs
+export AWS_ACCESS_KEY=your_key  # If using AWS backend
+export AWS_SECRET_KEY=your_secret
+The API supports:
+S3-compatible endpoints (/s3/...)
+AWS S3 endpoints (/aws-s3/...)
+System status (/s3/system/status)
+Features available:
+Bucket operations (create, delete, list)
+Object operations (put, get, delete)
+System monitoring
+Data protection
+Load balancing
+
+

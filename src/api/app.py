@@ -9,12 +9,16 @@ import os
 import logging
 import sys
 import json
+import atexit
+import asyncio
 
 # Add the current directory to Python path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from services.fs_manager import FileSystemManager
-from services.config import API_HOST, API_PORT, DEBUG
+from services.config import API_HOST, API_PORT, DEBUG, current_config
+from services.system_service import SystemService
+from services.advanced_storage_service import AdvancedStorageService
 from models.api_models import create_api_models
 from services.api_metrics import get_policy_metrics, get_dashboard_metrics, metrics
 from services.utils.serializers import JSONEncoder
@@ -22,6 +26,8 @@ from routes.resources import BucketList, BucketOperations, ObjectOperations
 from storage.backends import get_storage_backend
 from routes.s3 import s3_api, S3ApiHandler
 from routes.aws_s3_api import aws_s3_api, AWSS3ApiHandler
+from routes.advanced_storage import advanced_storage
+from infrastructure.manager import InfrastructureManager
 
 # Configure Flask app
 app = Flask(__name__,
@@ -37,17 +43,53 @@ CORS(app, resources={r"/*": {"origins": ["http://localhost:3000", "http://localh
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
-# Initialize filesystem manager and storage backend
+# Initialize infrastructure manager
+infrastructure = InfrastructureManager()
+
+# Initialize system components
+storage_root = os.getenv('STORAGE_ROOT', '/data/dfs')
+system_service = SystemService(storage_root)
+
+# Initialize storage services
 fs_manager = FileSystemManager()
 storage_backend = get_storage_backend(fs_manager)
+advanced_storage_service = AdvancedStorageService(storage_root)
 
 # Initialize S3-compatible API handler and register blueprint
-s3_handler = S3ApiHandler(fs_manager)
+s3_handler = S3ApiHandler(fs_manager, infrastructure)
 app.register_blueprint(s3_api, url_prefix='/s3')
 
 # Initialize AWS S3 API handler and register blueprint
-aws_s3_handler = AWSS3ApiHandler(fs_manager)
+aws_s3_handler = AWSS3ApiHandler(fs_manager, infrastructure)
 app.register_blueprint(aws_s3_api, url_prefix='/aws-s3')
+
+# Register advanced storage routes
+app.register_blueprint(advanced_storage, url_prefix='/storage')
+
+# Register shutdown handler
+def shutdown_handler():
+    """Gracefully shutdown the system"""
+    logger.info("Shutting down DFS system...")
+    asyncio.run(infrastructure.stop())
+    system_service.shutdown()
+
+atexit.register(shutdown_handler)
+
+@app.before_first_request
+def startup():
+    """Initialize system on first request"""
+    try:
+        asyncio.run(infrastructure.start())
+        logger.info("Infrastructure started successfully")
+    except Exception as e:
+        logger.error(f"Failed to start infrastructure: {str(e)}")
+        raise
+
+# System status endpoint
+@app.route('/system/status')
+def system_status():
+    """Get current system status"""
+    return jsonify(infrastructure.get_system_status())
 
 # Add request logging
 @app.before_request

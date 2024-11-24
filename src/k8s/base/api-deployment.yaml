@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
       - name: dfs-api
-        image: localhost:5000/dfs_core:latest
+        image: localhost:61478/dfs_core:latest
         imagePullPolicy: Always
         command: ["python", "-m", "api.app"]
         ports:

@@ -1,256 +1,206 @@
-"""AWS S3 API Implementation
+"""AWS S3-compatible API routes
 
-This module implements a full AWS S3-compatible API that closely follows
-the AWS S3 REST API specification, including advanced features like
-multipart uploads, versioning, and access controls.
+This module implements a more complete AWS S3-compatible API with additional
+features and compatibility with AWS SDKs.
 """
-from flask import request, Response, make_response, Blueprint
+from flask import request, jsonify, Response, make_response, Blueprint
+from werkzeug.exceptions import BadRequest
+import xmltodict
 import datetime
+import hashlib
+import os
 import logging
-from ..services.utils import (
-    parse_xml_request,
-    parse_multipart_complete,
-    parse_versioning_config,
-    format_error_response,
-    handle_s3_errors
-)
+import asyncio
+from storage.backends import get_storage_backend
+from ..services.fs_manager import FileSystemManager
+from ..services.system_service import SystemService
 from .base import BaseS3Handler
 
 logger = logging.getLogger(__name__)
 
-# Create Blueprint for AWS S3 API routes
+# Create Blueprint for AWS S3-compatible API routes
 aws_s3_api = Blueprint('aws_s3_api', __name__)
 
 class AWSS3ApiHandler(BaseS3Handler):
-    """AWS S3 API Handler implementing advanced S3 features."""
-    
-    def __init__(self, fs_manager):
-        """Initialize the handler with full AWS S3 functionality."""
+    """Handler for AWS S3-compatible API operations."""
+
+    def __init__(self, fs_manager, infrastructure):
+        """Initialize the handler with AWS S3 compatibility.
+
+        Args:
+            fs_manager: FileSystem manager instance
+            infrastructure: Infrastructure manager instance
+        """
         super().__init__(fs_manager, aws_style=True)
-        self.register_routes()
-    
-    def register_routes(self):
-        """Register all AWS S3 API routes"""
-        # Register basic routes from base handler
-        self.register_basic_routes(aws_s3_api)
+        self.infrastructure = infrastructure
+        self.system = SystemService(os.getenv('STORAGE_ROOT', '/data/dfs'))
+        self.register_aws_routes(aws_s3_api)
+
+    async def handle_storage_operation(self, operation: str, **kwargs):
+        """Handle storage operation using infrastructure manager."""
+        return await self.infrastructure.handle_storage_operation(operation, **kwargs)
+
+    def register_aws_routes(self, blueprint):
+        """Register AWS S3-compatible routes with additional features."""
         
-        # Multipart upload operations
-        aws_s3_api.add_url_rule(
-            '/<bucket>/<key>',
-            'create_multipart_upload',
-            self.create_multipart_upload,
-            methods=['POST'],
-            defaults={'query_params': {'uploads': None}}
-        )
-        aws_s3_api.add_url_rule(
-            '/<bucket>/<key>',
-            'upload_part',
-            self.upload_part,
-            methods=['PUT']
-        )
-        aws_s3_api.add_url_rule(
-            '/<bucket>/<key>',
-            'complete_multipart_upload',
-            self.complete_multipart_upload,
-            methods=['POST']
-        )
-        aws_s3_api.add_url_rule(
-            '/<bucket>/<key>',
-            'abort_multipart_upload',
-            self.abort_multipart_upload,
-            methods=['DELETE']
-        )
-        aws_s3_api.add_url_rule(
-            '/<bucket>',
-            'list_multipart_uploads',
-            self.list_multipart_uploads,
-            methods=['GET'],
-            defaults={'query_params': {'uploads': None}}
-        )
-        
-        # Versioning operations
-        aws_s3_api.add_url_rule(
-            '/<bucket>/versioning',
-            'get_bucket_versioning',
-            self.get_bucket_versioning,
-            methods=['GET']
-        )
-        aws_s3_api.add_url_rule(
-            '/<bucket>/versioning',
-            'put_bucket_versioning',
-            self.put_bucket_versioning,
-            methods=['PUT']
-        )
-        aws_s3_api.add_url_rule(
-            '/<bucket>',
-            'list_object_versions',
-            self.list_object_versions,
-            methods=['GET'],
-            defaults={'query_params': {'versions': None}}
-        )
-        
-        # Object operations with versions
-        aws_s3_api.add_url_rule(
-            '/<bucket>/<key>',
-            'get_object_version',
-            self.get_object_version,
-            methods=['GET']
-        )
-        aws_s3_api.add_url_rule(
-            '/<bucket>/<key>',
-            'delete_object_version',
-            self.delete_object_version,
-            methods=['DELETE']
-        )
-    
-    @handle_s3_errors(aws_style=True)
-    def create_multipart_upload(self, bucket, key):
-        """Initiate multipart upload (POST /<bucket>/<key>?uploads)"""
-        upload = self.storage.create_multipart_upload(bucket, key)
-        response = {
-            'InitiateMultipartUploadResult': {
-                'Bucket': bucket,
-                'Key': key,
-                'UploadId': upload['upload_id']
-            }
-        }
-        return make_response(xmltodict.unparse(response), 200)
-    
-    @handle_s3_errors(aws_style=True)
-    def upload_part(self, bucket, key):
-        """Upload a part (PUT /<bucket>/<key>?partNumber=<number>&uploadId=<id>)"""
-        upload_id = request.args.get('uploadId')
-        part_number = int(request.args.get('partNumber'))
-        
-        if not upload_id or not part_number:
-            return format_error_response('InvalidRequest', 'Missing uploadId or partNumber', True)
-            
-        if not (1 <= part_number <= 10000):
-            return format_error_response('InvalidRequest', 'Part number must be between 1 and 10000', True)
-            
-        etag = self.storage.upload_part(bucket, key, upload_id, part_number, request.data)
-        return make_response('', 200, {'ETag': f'"{etag}"'})
-    
-    @handle_s3_errors(aws_style=True)
-    def complete_multipart_upload(self, bucket, key):
-        """Complete multipart upload (POST /<bucket>/<key>?uploadId=<id>)"""
-        upload_id = request.args.get('uploadId')
-        if not upload_id:
-            return format_error_response('InvalidRequest', 'Missing uploadId', True)
-            
-        data = parse_xml_request()
-        parts = parse_multipart_complete(data)
-        
-        result = self.storage.complete_multipart_upload(bucket, key, upload_id, parts)
-        response = {
-            'CompleteMultipartUploadResult': {
-                'Location': f'/{bucket}/{key}',
-                'Bucket': bucket,
-                'Key': key,
-                'ETag': f'"{result["etag"]}"'
-            }
-        }
-        return make_response(xmltodict.unparse(response), 200)
-    
-    @handle_s3_errors(aws_style=True)
-    def abort_multipart_upload(self, bucket, key):
-        """Abort multipart upload (DELETE /<bucket>/<key>?uploadId=<id>)"""
-        upload_id = request.args.get('uploadId')
-        if not upload_id:
-            return format_error_response('InvalidRequest', 'Missing uploadId', True)
-            
-        self.storage.abort_multipart_upload(bucket, key, upload_id)
-        return make_response('', 204)
-    
-    @handle_s3_errors(aws_style=True)
-    def list_multipart_uploads(self, bucket):
-        """List multipart uploads (GET /<bucket>?uploads)"""
-        uploads = self.storage.list_multipart_uploads(bucket)
-        response = {
-            'ListMultipartUploadsResult': {
-                '@xmlns': 'http://s3.amazonaws.com/doc/2006-03-01/',
-                'Bucket': bucket,
-                'Upload': [
-                    {
-                        'Key': upload['key'],
-                        'UploadId': upload['upload_id'],
-                        'Initiated': upload.get('initiated', datetime.datetime.now(datetime.timezone.utc).isoformat())
-                    } for upload in uploads
-                ]
-            }
-        }
-        return make_response(xmltodict.unparse(response), 200)
-    
-    @handle_s3_errors(aws_style=True)
-    def get_bucket_versioning(self, bucket):
-        """Get bucket versioning (GET /<bucket>?versioning)"""
-        status = self.storage.get_bucket_versioning(bucket)
-        response = {
-            'VersioningConfiguration': {
-                '@xmlns': 'http://s3.amazonaws.com/doc/2006-03-01/',
-                'Status': status.upper() if status else 'Suspended'
-            }
-        }
-        return make_response(xmltodict.unparse(response), 200)
-    
-    @handle_s3_errors(aws_style=True)
-    def put_bucket_versioning(self, bucket):
-        """Set bucket versioning (PUT /<bucket>?versioning)"""
-        data = parse_xml_request()
-        status = parse_versioning_config(data)
-        self.storage.put_bucket_versioning(bucket, status == 'enabled')
-        return make_response('', 200)
-    
-    @handle_s3_errors(aws_style=True)
-    def list_object_versions(self, bucket):
-        """List object versions (GET /<bucket>?versions)"""
-        versions = self.storage.list_object_versions(bucket)
-        response = {
-            'ListVersionsResult': {
-                '@xmlns': 'http://s3.amazonaws.com/doc/2006-03-01/',
-                'Name': bucket,
-                'Versions': [
-                    {
-                        'Key': version['key'],
-                        'VersionId': version['version_id'],
-                        'IsLatest': version.get('is_latest', False),
-                        'LastModified': version.get('last_modified', datetime.datetime.now(datetime.timezone.utc).isoformat()),
-                        'Size': version.get('size', 0),
-                        'ETag': f'"{version.get("etag", "")}"'
-                    } for version in versions
-                ]
-            }
-        }
-        return make_response(xmltodict.unparse(response), 200)
-    
-    @handle_s3_errors(aws_style=True)
-    def get_object_version(self, bucket, key):
-        """Get a specific version of an object (GET /<bucket>/<key>?versionId=<id>)"""
-        version_id = request.args.get('versionId')
-        if not version_id:
-            return format_error_response('InvalidRequest', 'Missing versionId', True)
-            
-        obj = self.storage.get_object_version(bucket, key, version_id)
-        if not obj:
-            return format_error_response('NoSuchKey', 'The specified key does not exist.', True)
-            
-        return Response(
-            obj['content'],
-            mimetype='application/octet-stream',
-            headers={
-                'ETag': f'"{obj.get("etag", "")}"',
-                'VersionId': version_id,
-                'Last-Modified': obj.get('last_modified', datetime.datetime.now(datetime.timezone.utc).isoformat()),
-                'Content-Length': str(len(obj['content']))
-            }
-        )
-    
-    @handle_s3_errors(aws_style=True)
-    def delete_object_version(self, bucket, key):
-        """Delete a specific version of an object (DELETE /<bucket>/<key>?versionId=<id>)"""
-        version_id = request.args.get('versionId')
-        if not version_id:
-            return format_error_response('InvalidRequest', 'Missing versionId', True)
-            
-        self.storage.delete_object_version(bucket, key, version_id)
-        return make_response('', 204)
+        @blueprint.route('/', methods=['GET'])
+        def list_buckets():
+            """List all buckets with AWS-style response."""
+            try:
+                buckets = asyncio.run(self.handle_storage_operation('list_buckets'))
+                return self.format_aws_list_buckets_response(buckets)
+            except Exception as e:
+                logger.error(f"Error listing buckets: {str(e)}")
+                return self.format_aws_error_response('ListBucketError', str(e))
+
+        @blueprint.route('/<bucket_name>', methods=['PUT'])
+        def create_bucket(bucket_name):
+            """Create a new bucket with AWS-style configuration."""
+            try:
+                location = request.args.get('location', 'us-east-1')
+                config = {
+                    'LocationConstraint': location,
+                    'Versioning': request.headers.get('x-amz-versioning', 'Disabled'),
+                    'ACL': request.headers.get('x-amz-acl', 'private')
+                }
+                
+                asyncio.run(self.handle_storage_operation(
+                    'create_bucket',
+                    bucket_name=bucket_name,
+                    config=config
+                ))
+                return '', 200
+            except Exception as e:
+                logger.error(f"Error creating bucket: {str(e)}")
+                return self.format_aws_error_response('CreateBucketError', str(e))
+
+        @blueprint.route('/<bucket_name>', methods=['DELETE'])
+        def delete_bucket(bucket_name):
+            """Delete a bucket with AWS-style verification."""
+            try:
+                force = request.args.get('force', 'false').lower() == 'true'
+                asyncio.run(self.handle_storage_operation(
+                    'delete_bucket',
+                    bucket_name=bucket_name,
+                    force=force
+                ))
+                return '', 204
+            except Exception as e:
+                logger.error(f"Error deleting bucket: {str(e)}")
+                return self.format_aws_error_response('DeleteBucketError', str(e))
+
+        @blueprint.route('/<bucket_name>', methods=['GET'])
+        def list_objects(bucket_name):
+            """List objects with AWS-style pagination and filtering."""
+            try:
+                params = {
+                    'prefix': request.args.get('prefix', ''),
+                    'delimiter': request.args.get('delimiter', '/'),
+                    'max_keys': int(request.args.get('max-keys', 1000)),
+                    'marker': request.args.get('marker', ''),
+                    'encoding_type': request.args.get('encoding-type', 'url')
+                }
+                
+                objects = asyncio.run(self.handle_storage_operation(
+                    'list_objects_v2',
+                    bucket_name=bucket_name,
+                    **params
+                ))
+                return self.format_aws_list_objects_response(objects)
+            except Exception as e:
+                logger.error(f"Error listing objects: {str(e)}")
+                return self.format_aws_error_response('ListObjectsError', str(e))
+
+        @blueprint.route('/<bucket_name>/<path:object_key>', methods=['PUT'])
+        def put_object(bucket_name, object_key):
+            """Upload an object with AWS-style metadata and storage options."""
+            try:
+                content = request.get_data()
+                metadata = {k.lower(): v for k, v in request.headers.items() 
+                          if k.lower().startswith('x-amz-meta-')}
+                
+                params = {
+                    'storage_class': request.headers.get('x-amz-storage-class', 'STANDARD'),
+                    'acl': request.headers.get('x-amz-acl', 'private'),
+                    'content_type': request.headers.get('Content-Type', 'application/octet-stream'),
+                    'content_encoding': request.headers.get('Content-Encoding'),
+                    'content_language': request.headers.get('Content-Language'),
+                    'content_disposition': request.headers.get('Content-Disposition'),
+                    'cache_control': request.headers.get('Cache-Control'),
+                    'expires': request.headers.get('Expires'),
+                    'website_redirect_location': request.headers.get('x-amz-website-redirect-location'),
+                    'tagging': request.headers.get('x-amz-tagging'),
+                    'server_side_encryption': request.headers.get('x-amz-server-side-encryption'),
+                    'metadata': metadata
+                }
+                
+                result = asyncio.run(self.handle_storage_operation(
+                    'put_object',
+                    bucket_name=bucket_name,
+                    object_key=object_key,
+                    content=content,
+                    **params
+                ))
+                
+                response = make_response('', 200)
+                response.headers['ETag'] = result.get('etag', '')
+                response.headers['x-amz-version-id'] = result.get('version_id', '')
+                return response
+            except Exception as e:
+                logger.error(f"Error uploading object: {str(e)}")
+                return self.format_aws_error_response('PutObjectError', str(e))
+
+        @blueprint.route('/<bucket_name>/<path:object_key>', methods=['GET'])
+        def get_object(bucket_name, object_key):
+            """Download an object with AWS-style response headers."""
+            try:
+                params = {
+                    'version_id': request.args.get('versionId'),
+                    'response_content_type': request.args.get('response-content-type'),
+                    'response_content_language': request.args.get('response-content-language'),
+                    'response_expires': request.args.get('response-expires'),
+                    'response_cache_control': request.args.get('response-cache-control'),
+                    'response_content_disposition': request.args.get('response-content-disposition'),
+                    'response_content_encoding': request.args.get('response-content-encoding')
+                }
+                
+                result = asyncio.run(self.handle_storage_operation(
+                    'get_object',
+                    bucket_name=bucket_name,
+                    object_key=object_key,
+                    **params
+                ))
+                
+                response = make_response(result['content'])
+                for header, value in result.get('metadata', {}).items():
+                    response.headers[f'x-amz-meta-{header}'] = value
+                    
+                response.headers.update({
+                    'Content-Type': result.get('content_type', 'application/octet-stream'),
+                    'Content-Length': str(len(result['content'])),
+                    'ETag': result.get('etag', ''),
+                    'Last-Modified': result.get('last_modified', ''),
+                    'x-amz-version-id': result.get('version_id', ''),
+                    'x-amz-server-side-encryption': result.get('server_side_encryption'),
+                    'x-amz-storage-class': result.get('storage_class', 'STANDARD')
+                })
+                return response
+            except Exception as e:
+                logger.error(f"Error downloading object: {str(e)}")
+                return self.format_aws_error_response('GetObjectError', str(e))
+
+        @blueprint.route('/<bucket_name>/<path:object_key>', methods=['DELETE'])
+        def delete_object(bucket_name, object_key):
+            """Delete an object with AWS-style version handling."""
+            try:
+                version_id = request.args.get('versionId')
+                asyncio.run(self.handle_storage_operation(
+                    'delete_object',
+                    bucket_name=bucket_name,
+                    object_key=object_key,
+                    version_id=version_id
+                ))
+                return '', 204
+            except Exception as e:
+                logger.error(f"Error deleting object: {str(e)}")
+                return self.format_aws_error_response('DeleteObjectError', str(e))

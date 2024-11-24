@@ -8,7 +8,7 @@ NC='\033[0m' # No Color
 
 # Default values
 DEFAULT_NAMESPACE="dfs-development"
-DEFAULT_REGISTRY="localhost:5000"
+DEFAULT_REGISTRY="localhost:8000"
 
 # Default ports
 DEFAULT_API_PORT=8080
