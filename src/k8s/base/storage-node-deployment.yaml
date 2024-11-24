@@ -67,19 +67,6 @@ spec:
         requests:
           storage: 10Gi
 ---
-apiVersion: v1
-kind: Service
-metadata:
-  name: dfs-storage-service
-spec:
-  selector:
-    app: dfs-storage-node
-  ports:
-  - port: 8080
-    targetPort: 8080
-    name: http
-  clusterIP: None
----
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:

@@ -85,8 +85,9 @@ start_dev() {
 
     # Build and push images
     echo "Building and pushing images..."
-    docker build -t localhost:5000/dfs_core:dev -f Dockerfile .
-    docker build -t localhost:5000/dfs_edge:dev -f Dockerfile .
+    cd /Users/kevinklatman/Development/Code/DistributedFileSystem
+    docker build -t localhost:5000/dfs_core:dev .
+    docker build -t localhost:5000/dfs_edge:dev .
     docker push localhost:5000/dfs_core:dev
     docker push localhost:5000/dfs_edge:dev
 
