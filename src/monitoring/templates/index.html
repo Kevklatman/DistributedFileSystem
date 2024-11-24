@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>DFS Monitoring Dashboard</title>
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <style>
+        .card {
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container-fluid mt-4">
+        <h1>DFS Monitoring Dashboard</h1>
+        
+        <div class="row">
+            <!-- System Health -->
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-header">
+                        System Health
+                    </div>
+                    <div class="card-body">
+                        <h5>Status: <span id="system-status" class="badge badge-success">Healthy</span></h5>
+                        <p>Last Updated: <span id="last-updated"></span></p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Storage Stats -->
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-header">
+                        Storage Statistics
+                    </div>
+                    <div class="card-body">
+                        <div id="storage-chart"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Node Stats -->
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-header">
+                        Node Statistics
+                    </div>
+                    <div class="card-body">
+                        <div id="node-chart"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Operations -->
+        <div class="row">
+            <div class="col-md-12">
+                <div class="card">
+                    <div class="card-header">
+                        Recent Operations
+                    </div>
+                    <div class="card-body">
+                        <div id="operations-chart"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function updateDashboard() {
+            fetch('/dashboard-metrics')
+                .then(response => response.json())
+                .then(data => {
+                    // Update system status
+                    document.getElementById('last-updated').textContent = new Date().toLocaleString();
+                    
+                    // Storage chart
+                    const storageData = [{
+                        values: [data.storage.used, data.storage.available],
+                        labels: ['Used Space', 'Available Space'],
+                        type: 'pie'
+                    }];
+                    Plotly.newPlot('storage-chart', storageData);
+
+                    // Node chart
+                    const nodeData = [{
+                        x: data.nodes.map(n => n.id),
+                        y: data.nodes.map(n => n.load),
+                        type: 'bar'
+                    }];
+                    Plotly.newPlot('node-chart', nodeData);
+
+                    // Operations chart
+                    const opsData = [{
+                        x: data.operations.map(op => op.timestamp),
+                        y: data.operations.map(op => op.count),
+                        type: 'scatter'
+                    }];
+                    Plotly.newPlot('operations-chart', opsData);
+                });
+        }
+
+        // Update every 30 seconds
+        updateDashboard();
+        setInterval(updateDashboard, 30000);
+    </script>
+</body>
+</html>

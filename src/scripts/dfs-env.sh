@@ -77,34 +77,46 @@ start_dev() {
 
     echo -e "${BLUE}Starting DFS development environment...${NC}"
     
-    # Start local registry if not running
-    if ! docker ps | grep -q "registry:2"; then
-        echo "Starting local Docker registry..."
-        docker run -d -p 5000:5000 --restart=always --name registry registry:2
+    # Ensure minikube is running
+    if ! minikube status &> /dev/null; then
+        echo "Starting minikube..."
+        minikube start
     fi
 
-    # Build and push images
-    echo "Building and pushing images..."
+    # Enable registry addon if not enabled
+    if ! minikube addons list | grep -q "registry.*enabled"; then
+        echo "Enabling minikube registry addon..."
+        minikube addons enable registry
+    fi
+
+    # Point shell to minikube's Docker daemon
+    echo "Configuring Docker environment..."
+    eval $(minikube -p minikube docker-env)
+
+    # Build images directly in minikube
+    echo "Building images in minikube..."
     cd /Users/kevinklatman/Development/Code/DistributedFileSystem
-    docker build -t localhost:5000/dfs_core:dev .
-    docker build -t localhost:5000/dfs_edge:dev .
-    docker push localhost:5000/dfs_core:dev
-    docker push localhost:5000/dfs_edge:dev
+    docker build -t localhost:5000/dfs_core:latest .
+    docker build -f Dockerfile.monitoring -t localhost:5000/dfs_monitoring:latest .
 
     # Apply Kubernetes configurations
     echo "Applying Kubernetes configurations..."
+    kubectl create namespace dfs-development --dry-run=client -o yaml | kubectl apply -f -
     kubectl apply -k src/k8s/overlays/development/
 
     # Wait for pods to be ready
     echo "Waiting for pods to be ready..."
-    kubectl wait --for=condition=ready pod -l app=dfs-core -n dfs-development --timeout=120s
-    kubectl wait --for=condition=ready pod -l app=dfs-edge -n dfs-development --timeout=120s
+    kubectl wait --for=condition=ready pod -l app=dfs-api -n dfs-development --timeout=120s
+    kubectl wait --for=condition=ready pod -l app=dfs-monitoring -n dfs-development --timeout=120s
 
+    # Get minikube IP
+    MINIKUBE_IP=$(minikube ip)
+    
     echo -e "${GREEN}Development environment is ready!${NC}"
     echo -e "Access services at:"
-    echo -e "  - Grafana: http://localhost:3000 (admin/admin)"
-    echo -e "  - Prometheus: http://localhost:9090"
-    echo -e "  - API Docs: http://localhost:8000/docs"
+    echo -e "  - API: http://${MINIKUBE_IP}:30080"
+    echo -e "  - Monitoring Dashboard: http://${MINIKUBE_IP}:30050"
+    echo -e "  - Monitoring Metrics: http://${MINIKUBE_IP}:30091"
 }
 
 # Function to stop development environment

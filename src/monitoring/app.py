@@ -17,7 +17,7 @@ import traceback
 import logging
 import threading
 
-from storage.metrics import UnifiedMetricsCollector
+from metrics import MetricsCollector
 
 # Create a logger
 logger = logging.getLogger(__name__)
@@ -32,9 +32,8 @@ app = Flask(__name__,
 CORS(app)
 
 # Initialize metrics collector
-metrics = UnifiedMetricsCollector(
-    instance_id=socket.gethostname(),
-    node_id=os.getenv('NODE_ID', socket.gethostname())
+metrics = MetricsCollector(
+    instance_id=socket.gethostname()
 )
 
 class RequestQueue:
