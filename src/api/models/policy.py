@@ -2,8 +2,19 @@
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Literal
 from datetime import datetime
+from enum import Enum
 from system import SnapshotState
 from .base import StorageLocation
+
+class ReplicationType(Enum):
+    SYNCHRONOUS = "sync"
+    ASYNCHRONOUS = "async"
+    SEMI_SYNC = "semi-sync"
+
+class RetentionType(Enum):
+    TIME_BASED = "time-based"
+    VERSION_BASED = "version-based"
+    HYBRID = "hybrid"
 
 @dataclass
 class TieringPolicy:
@@ -34,14 +45,47 @@ class CloudTieringPolicy:
 
 @dataclass
 class ReplicationPolicy:
-    """Defines replication behavior"""
+    """Policy for data replication across storage nodes"""
+    policy_id: str
+    name: str
+    replication_type: ReplicationType
+    replication_factor: int
+    priority: int
+    target_nodes: List[str]
+    created_at: datetime
+    updated_at: datetime
     enabled: bool = True
-    target_locations: List[StorageLocation] = field(default_factory=list)
-    min_copies: int = 2
-    max_copies: int = 5
-    sync_mode: Literal["sync", "async"] = "async"
-    bandwidth_limit_mbps: Optional[int] = None
-    exclude_patterns: List[str] = field(default_factory=list)
+
+@dataclass
+class RetentionPolicy:
+    """Policy for data retention and lifecycle"""
+    policy_id: str
+    name: str
+    retention_type: RetentionType
+    retention_period: Optional[int] = None  # in seconds
+    max_versions: Optional[int] = None
+    auto_delete: bool = True
+    created_at: datetime
+    updated_at: datetime
+    enabled: bool = True
+
+@dataclass
+class StoragePolicy:
+    """Combined storage policies for a volume or node"""
+    policy_id: str
+    name: str
+    replication_policy: Optional[ReplicationPolicy]
+    retention_policy: Optional[RetentionPolicy]
+    encryption_enabled: bool = False
+    compression_enabled: bool = False
+    deduplication_enabled: bool = False
+    created_at: datetime
+    updated_at: datetime
+    labels: Dict[str, str] = None
+
+    def __post_init__(self):
+        if self.labels is None:
+            self.labels = {}
 
 @dataclass
 class DataProtection:
