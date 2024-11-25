@@ -2,6 +2,7 @@
 
 import logging
 import os
+import uuid
 from pathlib import Path
 from typing import Optional
 from src.storage.infrastructure.hybrid_storage import HybridStorageManager
@@ -12,7 +13,7 @@ from src.storage.infrastructure.data.consistency_manager import ConsistencyManag
 from src.storage.infrastructure.data.replication_manager import ReplicationManager
 from src.storage.infrastructure.data.data_protection import DataProtectionManager
 from src.storage.infrastructure.models import HybridStorageSystem
-from src.services.config import current_config
+from src.api.services.config import current_config
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +25,9 @@ class SystemService:
         self.storage_root = storage_root
         self.hybrid_storage = HybridStorageManager(storage_root)
         self.cluster_manager = StorageClusterManager()
-        self.active_node = ActiveNode()
+        # Generate a unique node ID for this instance
+        node_id = str(uuid.uuid4())
+        self.active_node = ActiveNode(node_id=node_id, data_dir=storage_root)
         self.load_manager = LoadManager()
         self.consistency_manager = ConsistencyManager()
         self.replication_manager = ReplicationManager()
@@ -37,8 +40,7 @@ class SystemService:
         """Initialize all system components."""
         try:
             # Register with cluster
-            node_id = self.active_node.register()
-            self.cluster_manager.register_node(node_id)
+            self.cluster_manager.register_node(self.active_node.id)
             
             # Initialize storage system
             self.hybrid_storage.initialize()

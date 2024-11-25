@@ -8,7 +8,7 @@ import dataclasses
 import asyncio
 import logging
 from enum import Enum
-from storage.infrastructure.providers import get_cloud_provider, CloudProviderBase
+from src.storage.infrastructure.providers import get_cloud_provider, CloudProviderBase
 
 from src.models.models import (
     Volume,

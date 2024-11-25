@@ -1,18 +1,48 @@
-"""Base handler for S3-compatible APIs."""
+"""Base handler for S3-compatible API operations."""
 
-from flask import request, Response, make_response
+from flask import request, jsonify, Response, make_response, Blueprint
+from werkzeug.exceptions import BadRequest
+import xmltodict
 import datetime
+import hashlib
+import os
 import logging
-from ..services.utils import (
-    format_error_response,
-    format_list_buckets_response,
-    format_list_objects_response,
-    format_object_response,
-    handle_s3_errors
-)
-from storage.backends import get_storage_backend
+from typing import Dict, Any, Optional, List
+from functools import wraps
+
+from src.storage.backends import get_storage_backend
+from src.api.services.fs_manager import FileSystemManager
 
 logger = logging.getLogger(__name__)
+
+def handle_s3_errors():
+    """Decorator to handle S3 API errors and format responses."""
+    def decorator(f):
+        @wraps(f)
+        def wrapper(*args, **kwargs):
+            try:
+                return f(*args, **kwargs)
+            except BadRequest as e:
+                return make_response(
+                    xmltodict.unparse({
+                        'Error': {
+                            'Code': 'BadRequest',
+                            'Message': str(e)
+                        }
+                    }), 400
+                )
+            except Exception as e:
+                logger.error(f"Error in S3 API: {str(e)}")
+                return make_response(
+                    xmltodict.unparse({
+                        'Error': {
+                            'Code': 'InternalError',
+                            'Message': 'Internal server error'
+                        }
+                    }), 500
+                )
+        return wrapper
+    return decorator
 
 class BaseS3Handler:
     """Base handler for S3-compatible APIs with shared functionality."""

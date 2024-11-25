@@ -10,10 +10,10 @@ import datetime
 import hashlib
 import os
 import logging
-from storage.backends import get_storage_backend
-from ..services.fs_manager import FileSystemManager
-from ..services.system_service import SystemService
-from .base import BaseS3Handler
+from src.storage.backends import get_storage_backend
+from src.api.services.fs_manager import FileSystemManager
+from src.api.services.system_service import SystemService
+from src.api.routes.base import BaseS3Handler
 import asyncio
 
 logger = logging.getLogger(__name__)
