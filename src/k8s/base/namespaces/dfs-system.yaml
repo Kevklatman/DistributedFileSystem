@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dfs-system
+  labels:
+    name: dfs-system
+    part-of: distributed-file-system
+    component: system

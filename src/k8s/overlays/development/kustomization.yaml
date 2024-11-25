@@ -5,6 +5,7 @@ namespace: dfs-development
 
 resources:
 - ../../base
+- namespace.yaml
 
 patches:
 - path: service-patch.yaml
@@ -21,3 +22,6 @@ patches:
       name: dfs-config
     data:
       ENVIRONMENT: development
+
+commonLabels:
+  environment: development
