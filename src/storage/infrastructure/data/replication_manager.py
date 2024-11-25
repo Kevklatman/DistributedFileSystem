@@ -7,6 +7,8 @@ from datetime import datetime
 import aiohttp
 from dataclasses import dataclass
 
+logger = logging.getLogger(__name__)
+
 @dataclass
 class ReplicationResult:
     """Result of a replication operation."""
@@ -19,13 +21,37 @@ class ReplicationManager:
     
     def __init__(self, min_replicas: int = 3):
         self.min_replicas = min_replicas
-        self.logger = logging.getLogger(__name__)
         self._replication_tasks: Dict[str, asyncio.Task] = {}
         self._data_locations: Dict[str, Set[str]] = {}  # data_id -> set of node_ids
+        self._initialized = False
+        
+    def initialize(self, replication_factor: int = 3) -> bool:
+        """Initialize the replication manager.
+        
+        Args:
+            replication_factor: Number of replicas to maintain for each piece of data
+            
+        Returns:
+            bool: True if initialization successful, False otherwise
+        """
+        try:
+            self.min_replicas = replication_factor
+            self._initialized = True
+            logger.info(f"Replication manager initialized with factor {replication_factor}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to initialize replication manager: {str(e)}")
+            return False
         
     async def replicate_to_node(self, node: Any, data_id: str,
                                content: bytes, checksum: str) -> ReplicationResult:
         """Replicate data to a specific node."""
+        if not self._initialized:
+            return ReplicationResult(
+                success=False,
+                error="Replication manager not initialized"
+            )
+            
         try:
             # Verify data integrity
             if hashlib.sha256(content).hexdigest() != checksum:
@@ -50,18 +76,17 @@ class ReplicationManager:
                         if data_id not in self._data_locations:
                             self._data_locations[data_id] = set()
                         self._data_locations[data_id].add(node.node_id)
-                        
+                        logger.info(f"Successfully replicated {data_id} to node {node.node_id}")
                         return ReplicationResult(success=True)
                     else:
-                        error_msg = await response.text()
-                        return ReplicationResult(
-                            success=False,
-                            error=f"Replication failed: {error_msg}"
-                        )
+                        error = f"Failed to replicate to node: HTTP {response.status}"
+                        logger.error(error)
+                        return ReplicationResult(success=False, error=error)
                         
         except Exception as e:
-            self.logger.error(f"Replication error: {str(e)}")
-            return ReplicationResult(success=False, error=str(e))
+            error = f"Replication error: {str(e)}"
+            logger.error(error)
+            return ReplicationResult(success=False, error=error)
             
     def _select_replica_nodes(self, count: int, exclude_nodes: Set[str]) -> List[Any]:
         """Select nodes for replication based on availability and load."""
@@ -76,6 +101,10 @@ class ReplicationManager:
                                      content: bytes,
                                      current_nodes: Set[str]) -> None:
         """Ensure data has minimum number of replicas."""
+        if not self._initialized:
+            logger.error("Replication manager not initialized")
+            return
+            
         if len(current_nodes) >= self.min_replicas:
             return
             
@@ -98,16 +127,20 @@ class ReplicationManager:
         # Log any failures
         for node, result in zip(target_nodes, results):
             if isinstance(result, Exception):
-                self.logger.error(
+                logger.error(
                     f"Replication to node {node.node_id} failed: {str(result)}"
                 )
             elif not result.success:
-                self.logger.error(
+                logger.error(
                     f"Replication to node {node.node_id} failed: {result.error}"
                 )
                 
     async def handle_node_failure(self, failed_node_id: str) -> None:
         """Handle node failure by re-replicating affected data."""
+        if not self._initialized:
+            logger.error("Replication manager not initialized")
+            return
+            
         # Find all data that was on the failed node
         affected_data = {
             data_id: nodes
@@ -131,6 +164,10 @@ class ReplicationManager:
     async def _get_data_from_replicas(self, data_id: str,
                                      replica_nodes: Set[str]) -> Optional[bytes]:
         """Retrieve data from any available replica."""
+        if not self._initialized:
+            logger.error("Replication manager not initialized")
+            return None
+            
         # This is a placeholder - in practice, you would:
         # 1. Try to get data from each replica node
         # 2. Verify data integrity

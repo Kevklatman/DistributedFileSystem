@@ -1,37 +1,58 @@
 """System service for managing DFS infrastructure components."""
 
 import logging
-import os
 import uuid
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Dict, Any
+
 from src.storage.infrastructure.hybrid_storage import HybridStorageManager
 from src.storage.infrastructure.cluster_manager import StorageClusterManager
-from src.storage.infrastructure.active_node import ActiveNode
-from src.storage.infrastructure.load_manager import LoadManager
-from src.storage.infrastructure.data.consistency_manager import ConsistencyManager
-from src.storage.infrastructure.data.replication_manager import ReplicationManager
 from src.storage.infrastructure.data.data_protection import DataProtectionManager
-from src.storage.infrastructure.models import HybridStorageSystem
-from src.api.services.config import current_config
+from src.storage.infrastructure.data.replication_manager import ReplicationManager
+from src.storage.infrastructure.data.consistency_manager import ConsistencyManager
+from src.storage.infrastructure.load_manager import LoadManager
+from src.storage.infrastructure.active_node import ActiveNode
 
 logger = logging.getLogger(__name__)
+
+# Default configuration
+DEFAULT_CONFIG = {
+    'replication_factor': 3,
+    'backup_retention_days': 30,
+    'snapshot_retention_days': 7,
+    'auto_backup_enabled': True
+}
 
 class SystemService:
     """Manages the DFS system components and their lifecycle."""
     
     def __init__(self, storage_root: str):
         """Initialize the system service."""
-        self.storage_root = storage_root
-        self.hybrid_storage = HybridStorageManager(storage_root)
+        self.storage_root = Path(storage_root)
+        
+        # Initialize storage components first
+        self.hybrid_storage = HybridStorageManager(str(self.storage_root))
+        
+        # Initialize cluster management
         self.cluster_manager = StorageClusterManager()
-        # Generate a unique node ID for this instance
         node_id = str(uuid.uuid4())
-        self.active_node = ActiveNode(node_id=node_id, data_dir=storage_root)
+        self.active_node = ActiveNode(
+            node_id=node_id,
+            data_dir=str(self.storage_root),
+            quorum_size=DEFAULT_CONFIG['replication_factor']
+        )
+        
+        # Initialize data management components
         self.load_manager = LoadManager()
         self.consistency_manager = ConsistencyManager()
         self.replication_manager = ReplicationManager()
-        self.data_protection = DataProtectionManager()
+        
+        # Initialize data protection with required parameters
+        data_protection_path = self.storage_root / 'protection'
+        self.data_protection = DataProtectionManager(
+            data_path=data_protection_path,
+            storage_manager=self.hybrid_storage
+        )
         
         # Initialize system components
         self._init_system()
@@ -39,22 +60,32 @@ class SystemService:
     def _init_system(self):
         """Initialize all system components."""
         try:
+            # Create necessary directories
+            self.storage_root.mkdir(parents=True, exist_ok=True)
+            data_protection_dir = self.data_protection.data_path
+            data_protection_dir.mkdir(parents=True, exist_ok=True)
+            
             # Register with cluster
-            self.cluster_manager.register_node(self.active_node.id)
+            if not self.cluster_manager.register_node(self.active_node.node_id):
+                logger.warning("Failed to register node with cluster, continuing in standalone mode")
             
             # Initialize storage system
-            self.hybrid_storage.initialize()
-            
-            # Set up data protection
-            self.data_protection.initialize(
-                encryption_enabled=current_config.get('encryption_enabled', True),
-                key_rotation_days=current_config.get('key_rotation_days', 30)
-            )
+            if not self.hybrid_storage.initialize():
+                raise RuntimeError("Failed to initialize hybrid storage")
             
             # Configure replication
-            self.replication_manager.initialize(
-                replication_factor=current_config.get('replication_factor', 3)
-            )
+            if not self.replication_manager.initialize(
+                replication_factor=DEFAULT_CONFIG['replication_factor']
+            ):
+                raise RuntimeError("Failed to initialize replication manager")
+            
+            # Initialize data protection with default settings
+            if not self.data_protection.initialize(
+                backup_retention_days=DEFAULT_CONFIG['backup_retention_days'],
+                snapshot_retention_days=DEFAULT_CONFIG['snapshot_retention_days'],
+                auto_backup_enabled=DEFAULT_CONFIG['auto_backup_enabled']
+            ):
+                raise RuntimeError("Failed to initialize data protection")
             
             logger.info("System initialization complete")
         except Exception as e:

@@ -22,6 +22,8 @@ from src.models.models import (
     SnapshotState
 )
 
+logger = logging.getLogger(__name__)
+
 class EnhancedJSONEncoder(json.JSONEncoder):
     def default(self, obj):
         if dataclasses.is_dataclass(obj):
@@ -49,19 +51,68 @@ class HybridStorageManager:
         self.metadata_path = self.root_path / "metadata"
         self.data_path = self.root_path / "data"
         self.system = self._load_or_create_system()
-        self.logger = logging.getLogger(__name__)
-
-        # Initialize cloud provider if environment is set to AWS
         self.cloud_provider = None
-        if os.getenv('STORAGE_ENV') == 'aws':
-            try:
-                self.cloud_provider = get_cloud_provider('aws_s3')
-            except Exception as e:
-                self.logger.error(f"Failed to initialize cloud provider: {e}")
+        self._initialize_cloud_provider()
 
-        # Ensure required directories exist
-        self.metadata_path.mkdir(parents=True, exist_ok=True)
-        self.data_path.mkdir(parents=True, exist_ok=True)
+    def initialize(self) -> bool:
+        """Initialize the hybrid storage system.
+        
+        Creates necessary directories and initializes the storage system state.
+        
+        Returns:
+            bool: True if initialization successful, False otherwise
+        """
+        try:
+            # Create required directories
+            self.metadata_path.mkdir(parents=True, exist_ok=True)
+            self.data_path.mkdir(parents=True, exist_ok=True)
+            
+            # Initialize storage pools
+            self._init_storage_pools()
+            
+            # Initialize cloud provider if configured
+            self._initialize_cloud_provider()
+            
+            # Save initial system state
+            self._save_system_state()
+            
+            logger.info("Hybrid storage system initialized successfully")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to initialize hybrid storage: {str(e)}")
+            return False
+
+    def _initialize_cloud_provider(self):
+        """Initialize cloud storage provider if configured."""
+        try:
+            # Get provider type from environment or use default
+            provider_type = os.getenv('CLOUD_PROVIDER_TYPE', 'aws')  # Default to AWS if not specified
+            self.cloud_provider = get_cloud_provider(provider_type)
+            if self.cloud_provider:
+                logger.info(f"Initialized cloud provider: {self.cloud_provider.__class__.__name__}")
+        except Exception as e:
+            logger.warning(f"Failed to initialize cloud provider: {str(e)}")
+            self.cloud_provider = None
+
+    def _init_storage_pools(self):
+        """Initialize default storage pools."""
+        if not self.system.storage_pools:
+            default_pool = StoragePool(
+                id="default",
+                name="Default Storage Pool",
+                location=StorageLocation(
+                    node_id="default",
+                    path=str(self.data_path),
+                    size_bytes=0,
+                    replicas=[],
+                    temperature=DataTemperature.COLD
+                ),
+                capacity_gb=0,  
+                used_gb=0,
+                created_at=datetime.now()
+            )
+            self.system.storage_pools[default_pool.id] = default_pool
 
     def _load_or_create_system(self) -> HybridStorageSystem:
         """Load existing system or create new one"""
@@ -154,7 +205,7 @@ class HybridStorageManager:
                     temperature=DataTemperature.COLD
                 )
             except Exception as e:
-                self.logger.error(f"Failed to create cloud bucket: {e}")
+                logger.error(f"Failed to create cloud bucket: {e}")
 
         self.system.volumes[volume.id] = volume
         self._save_system_state()
@@ -186,7 +237,7 @@ class HybridStorageManager:
                     volume.cloud_location.path
                 )
             except Exception as e:
-                self.logger.error(f"Failed to backup to cloud: {e}")
+                logger.error(f"Failed to backup to cloud: {e}")
 
         # Check if we need to tier this data
         if volume.cloud_tiering_enabled:
@@ -221,7 +272,7 @@ class HybridStorageManager:
                             f.write(data)
                     return data
             except Exception as e:
-                self.logger.error(f"Failed to read from cloud: {e}")
+                logger.error(f"Failed to read from cloud: {e}")
 
         raise FileNotFoundError(f"Data not found: {path}")
 
@@ -256,7 +307,7 @@ class HybridStorageManager:
                 # Remove local copy
                 full_path.unlink()
             except Exception as e:
-                self.logger.error(f"Failed to tier data to cloud: {e}")
+                logger.error(f"Failed to tier data to cloud: {e}")
 
     async def get_data_temperature(self, volume_id: str) -> DataTemperature:
         """Get the current temperature of volume data"""

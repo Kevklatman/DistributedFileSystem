@@ -1,3 +1,5 @@
+"""Storage cluster management for distributed file system."""
+
 from typing import Dict, List, Optional
 import uuid
 import time
@@ -10,6 +12,8 @@ from kubernetes import client, config
 import json
 from datetime import datetime
 import logging
+
+logger = logging.getLogger(__name__)
 
 @dataclass
 class StorageNodeInfo:
@@ -41,11 +45,45 @@ class StorageClusterManager:
         try:
             config.load_incluster_config()
         except config.ConfigException:
-            config.load_kube_config()
+            try:
+                config.load_kube_config()
+            except:
+                logger.warning("Running without Kubernetes configuration")
 
         self.k8s_api = client.CoreV1Api()
         self.custom_api = client.CustomObjectsApi()
         self.coordination_api = client.CoordinationV1Api()
+
+    def register_node(self, node_id: str) -> bool:
+        """Register a new node with the cluster.
+        
+        Args:
+            node_id: Unique identifier for the node
+            
+        Returns:
+            bool: True if registration successful, False otherwise
+        """
+        try:
+            node_info = StorageNodeInfo(
+                node_id=node_id,
+                hostname=os.environ.get('HOSTNAME', 'localhost'),
+                pod_ip=self.pod_ip,
+                capacity_bytes=0,  # Will be updated later
+                used_bytes=0,      # Will be updated later
+                status='STARTING',
+                last_heartbeat=time.time(),
+                pods=[],
+                zone=os.environ.get('ZONE', 'default')
+            )
+            
+            with self._lock:
+                self.nodes[node_id] = node_info
+                logger.info(f"Registered node {node_id} with cluster")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to register node {node_id}: {str(e)}")
+            return False
 
     async def start(self):
         """Start the cluster manager and attempt to become leader"""

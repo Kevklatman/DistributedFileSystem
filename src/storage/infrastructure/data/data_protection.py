@@ -2,7 +2,7 @@
 Enterprise data protection with snapshots, backups, and rapid recovery
 """
 import os
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple, Union
 from datetime import datetime, timedelta
 from dataclasses import dataclass
 from pathlib import Path
@@ -20,6 +20,8 @@ from src.models.models import (
     BackupState,
     RecoveryPoint
 )
+
+logger = logging.getLogger(__name__)
 
 class RetentionType(Enum):
     HOURLY = "hourly"
@@ -44,12 +46,67 @@ class BackupJob:
 class DataProtectionManager:
     """Manages data protection features including snapshots, backups, and recovery"""
 
-    def __init__(self, data_path: Path, storage_manager):
-        self.data_path = data_path
+    def __init__(self, data_path: Union[str, Path], storage_manager):
+        # Convert string path to Path object if necessary
+        self.data_path = Path(data_path) if isinstance(data_path, str) else data_path
         self.storage_manager = storage_manager
-        self.logger = logging.getLogger(__name__)
         self.active_backups: Dict[str, BackupJob] = {}
+        self._initialized = False
+        self._backup_path = self.data_path / "backups"
+        self._snapshot_path = self.data_path / "snapshots"
+        self._metadata_path = self.data_path / "metadata"
+        self.logger = logging.getLogger(__name__)
         self.recovery_points: Dict[str, List[RecoveryPoint]] = {}
+
+    def initialize(self, backup_retention_days: int = 30, 
+                  snapshot_retention_days: int = 7,
+                  auto_backup_enabled: bool = True) -> bool:
+        """Initialize the data protection system.
+        
+        Args:
+            backup_retention_days: Number of days to retain backups
+            snapshot_retention_days: Number of days to retain snapshots
+            auto_backup_enabled: Whether to enable automatic backups
+            
+        Returns:
+            bool: True if initialization successful, False otherwise
+        """
+        try:
+            # Create necessary directories
+            os.makedirs(self._backup_path, exist_ok=True)
+            os.makedirs(self._snapshot_path, exist_ok=True)
+            os.makedirs(self._metadata_path, exist_ok=True)
+            
+            # Initialize protection policies
+            self.backup_retention_days = backup_retention_days
+            self.snapshot_retention_days = snapshot_retention_days
+            self.auto_backup_enabled = auto_backup_enabled
+            
+            # Create default retention policy
+            default_policy = {
+                "backup_retention_days": backup_retention_days,
+                "snapshot_retention_days": snapshot_retention_days,
+                "auto_backup_enabled": auto_backup_enabled,
+                "retention_types": {
+                    RetentionType.HOURLY.value: 24,  # Keep 24 hourly backups
+                    RetentionType.DAILY.value: 7,    # Keep 7 daily backups
+                    RetentionType.WEEKLY.value: 4,   # Keep 4 weekly backups
+                    RetentionType.MONTHLY.value: 12  # Keep 12 monthly backups
+                }
+            }
+            
+            # Save default policy
+            policy_file = self._metadata_path / "protection_policy.json"
+            with open(policy_file, "w") as f:
+                json.dump(default_policy, f, indent=4)
+                
+            self._initialized = True
+            logger.info("Data protection manager initialized successfully")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to initialize data protection manager: {str(e)}")
+            return False
 
     async def create_snapshot(self, volume: Volume, name: str = None,
                             snapshot_type: str = "user") -> SnapshotState:

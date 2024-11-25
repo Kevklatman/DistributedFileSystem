@@ -20,6 +20,13 @@ class TierType(Enum):
     COLD = "cold"             # S3/Azure Blob
     ARCHIVE = "archive"       # Glacier/Archive
 
+class DataTemperature(Enum):
+    """Temperature classification for data tiering"""
+    HOT = "hot"        # Frequently accessed data
+    WARM = "warm"      # Moderately accessed data
+    COLD = "cold"      # Rarely accessed data
+    FROZEN = "frozen"  # Almost never accessed data
+
 # Core Storage Models
 @dataclass
 class StorageLocation:
