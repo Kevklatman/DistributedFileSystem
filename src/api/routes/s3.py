@@ -73,8 +73,11 @@ class S3ApiHandler(BaseS3Handler):
                 return self.format_error_response('ListBucketError', str(e))
 
         @blueprint.route('/buckets/<bucket_name>', methods=['PUT'])
+        @self.handle_s3_errors()
         def create_bucket(bucket_name):
             """Create a new bucket."""
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
             try:
                 asyncio.run(self.handle_storage_operation('create_bucket', bucket_name=bucket_name))
                 return '', 200
@@ -83,14 +86,16 @@ class S3ApiHandler(BaseS3Handler):
                 return self.format_error_response('CreateBucketError', str(e))
 
         @blueprint.route('/buckets/<bucket_name>', methods=['DELETE'])
+        @self.handle_s3_errors()
         def delete_bucket(bucket_name):
             """Delete a bucket."""
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
             try:
-                asyncio.run(self.handle_storage_operation('delete_bucket', bucket_name=bucket_name))
-                return '', 204
-            except Exception as e:
-                logger.error(f"Error deleting bucket: {str(e)}")
-                return self.format_error_response('DeleteBucketError', str(e))
+                loop.run_until_complete(self.handle_storage_operation('delete_bucket', bucket=bucket_name))
+                return make_response('', 204)
+            finally:
+                loop.close()
 
         @blueprint.route('/buckets/<bucket_name>/objects', methods=['GET'])
         def list_objects(bucket_name):
@@ -113,47 +118,35 @@ class S3ApiHandler(BaseS3Handler):
                 return self.format_error_response('ListObjectsError', str(e))
 
         @blueprint.route('/buckets/<bucket_name>/objects/<path:object_key>', methods=['PUT'])
+        @self.handle_s3_errors()
         def put_object(bucket_name, object_key):
             """Upload an object."""
+            content = request.get_data()
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
             try:
-                content = request.get_data()
-                metadata = dict(request.headers)
-                storage_class = request.headers.get('x-amz-storage-class', 'STANDARD')
-                
-                result = asyncio.run(self.handle_storage_operation(
-                    'put_object',
-                    bucket_name=bucket_name,
-                    object_key=object_key,
-                    content=content,
-                    metadata=metadata,
-                    storage_class=storage_class
-                ))
-                
-                response = make_response('', 200)
-                response.headers['ETag'] = result.get('etag', '')
-                return response
-            except Exception as e:
-                logger.error(f"Error uploading object: {str(e)}")
-                return self.format_error_response('PutObjectError', str(e))
+                loop.run_until_complete(self.handle_storage_operation('put_object', bucket=bucket_name, key=object_key, content=content))
+                etag = f"\"{hashlib.md5(content).hexdigest()}\""
+                return make_response('', 200, {'ETag': etag})
+            finally:
+                loop.close()
 
         @blueprint.route('/buckets/<bucket_name>/objects/<path:object_key>', methods=['GET'])
+        @self.handle_s3_errors()
         def get_object(bucket_name, object_key):
-            """Download an object."""
+            """Get an object."""
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
             try:
-                result = asyncio.run(self.handle_storage_operation(
-                    'get_object',
-                    bucket_name=bucket_name,
-                    object_key=object_key
-                ))
-                
-                response = make_response(result['content'])
-                response.headers['Content-Type'] = result.get('content_type', 'application/octet-stream')
-                response.headers['ETag'] = result.get('etag', '')
-                response.headers['Last-Modified'] = result.get('last_modified', '')
-                return response
-            except Exception as e:
-                logger.error(f"Error downloading object: {str(e)}")
-                return self.format_error_response('GetObjectError', str(e))
+                obj = loop.run_until_complete(self.handle_storage_operation('get_object', bucket=bucket_name, key=object_key))
+                return make_response(obj['content'], 200, {
+                    'Content-Type': obj.get('content_type', 'application/octet-stream'),
+                    'Content-Length': len(obj['content']),
+                    'ETag': f"\"{obj.get('etag', '')}\"",
+                    'Last-Modified': obj.get('last_modified', datetime.datetime.utcnow()).strftime('%a, %d %b %Y %H:%M:%S GMT')
+                })
+            finally:
+                loop.close()
 
         @blueprint.route('/buckets/<bucket_name>/objects/<path:object_key>', methods=['DELETE'])
         def delete_object(bucket_name, object_key):
@@ -161,7 +154,7 @@ class S3ApiHandler(BaseS3Handler):
             try:
                 asyncio.run(self.handle_storage_operation(
                     'delete_object',
-                    bucket_name=bucket_name,
+                    bucket=bucket_name,
                     object_key=object_key
                 ))
                 return '', 204

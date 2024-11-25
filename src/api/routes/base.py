@@ -7,6 +7,7 @@ import datetime
 import hashlib
 import os
 import logging
+import asyncio
 from typing import Dict, Any, Optional, List
 from functools import wraps
 
@@ -21,7 +22,15 @@ def handle_s3_errors():
         @wraps(f)
         def wrapper(*args, **kwargs):
             try:
-                return f(*args, **kwargs)
+                result = f(*args, **kwargs)
+                if asyncio.iscoroutine(result):
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    try:
+                        return loop.run_until_complete(result)
+                    finally:
+                        loop.close()
+                return result
             except BadRequest as e:
                 return make_response(
                     xmltodict.unparse({
@@ -37,7 +46,7 @@ def handle_s3_errors():
                     xmltodict.unparse({
                         'Error': {
                             'Code': 'InternalError',
-                            'Message': 'Internal server error'
+                            'Message': str(e)
                         }
                     }), 500
                 )
