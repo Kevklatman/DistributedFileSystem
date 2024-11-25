@@ -80,7 +80,9 @@ atexit.register(shutdown_handler)
 # Initialize system at startup
 with app.app_context():
     try:
-        asyncio.run(infrastructure.start())
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(infrastructure.start())
         logger.info("Infrastructure started successfully")
     except Exception as e:
         logger.error(f"Failed to start infrastructure: {str(e)}")
@@ -208,6 +210,8 @@ class CustomJSONProvider(flask.json.provider.DefaultJSONProvider):
 app.json_provider_class = CustomJSONProvider
 
 if __name__ == '__main__':
-    # Ensure the buckets directory exists
-    os.makedirs('buckets', exist_ok=True)
+    # Ensure the data directory exists
+    os.makedirs(os.getenv('STORAGE_ROOT', '/data/dfs'), exist_ok=True)
+    
+    # Run the Flask app
     app.run(host=API_HOST, port=API_PORT, debug=DEBUG)

@@ -12,6 +12,7 @@ from kubernetes import client, config
 import json
 from datetime import datetime
 import logging
+import psutil
 
 logger = logging.getLogger(__name__)
 
@@ -89,11 +90,26 @@ class StorageClusterManager:
 
     async def start(self):
         """Start the cluster manager and attempt to become leader"""
-        self.start_time = time.time()
-        logging.info(f"Starting cluster manager for node {self.node_id}")
-        self._register_node()
-        await self._start_leader_election()
-        self._heartbeat_task = asyncio.create_task(self._start_heartbeat())
+        try:
+            self.start_time = time.time()
+            self._running = True
+            logging.info(f"Starting cluster manager for node {self.node_id}")
+            self._register_node()
+            
+            # Start leader election in development mode without k8s
+            if not hasattr(self, 'k8s_api') or self.k8s_api is None:
+                logger.info("Running in development mode without Kubernetes")
+                self.leader = True
+                self.current_leader = self.node_id
+            else:
+                await self._start_leader_election()
+            
+            self._heartbeat_task = asyncio.create_task(self._start_heartbeat())
+            logger.info(f"Cluster manager started successfully for node {self.node_id}")
+        except Exception as e:
+            self._running = False
+            logger.error(f"Failed to start cluster manager: {str(e)}")
+            raise
 
     async def stop(self):
         """Stop the cluster manager and cleanup resources."""
@@ -338,8 +354,18 @@ class StorageClusterManager:
 
     def _get_capacity(self) -> int:
         """Get the storage capacity of the current node"""
-        # Implementation depends on your storage backend
-        return 1000000000000  # 1TB default
+        try:
+            if self.k8s_api:
+                # Get node capacity from Kubernetes
+                node = self.k8s_api.read_node(self._get_hostname())
+                return int(node.status.capacity['ephemeral-storage'])
+            else:
+                # Fallback to local disk space
+                disk = psutil.disk_usage('/')
+                return disk.total
+        except Exception as e:
+            logger.error(f"Failed to get node capacity: {str(e)}")
+            return 0
 
     def _get_zone(self) -> str:
         """Get the zone/region of the current node"""
@@ -399,3 +425,30 @@ class StorageClusterManager:
         """Get current nodes in the cluster"""
         with self._lock:
             return self.nodes.copy()
+
+    def is_healthy(self) -> bool:
+        """Check if the cluster manager is healthy.
+        
+        Returns:
+            bool: True if healthy, False otherwise
+        """
+        try:
+            # Check if we have any registered nodes
+            if not self.nodes:
+                return False
+                
+            # Check if we have a leader
+            if not self.current_leader:
+                return False
+                
+            # Check node health
+            healthy_nodes = 0
+            for node in self.nodes.values():
+                if node.status == 'healthy':
+                    healthy_nodes += 1
+                    
+            # Consider healthy if at least one node is healthy
+            return healthy_nodes > 0
+        except Exception as e:
+            logger.error(f"Health check failed: {str(e)}")
+            return False
