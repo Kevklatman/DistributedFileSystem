@@ -86,7 +86,7 @@ class S3ApiHandler:
     def register_basic_routes(self, blueprint):
         """Register the basic S3 API routes."""
 
-        @blueprint.route('/s3/', methods=['GET'])
+        @blueprint.route('/', methods=['GET'])
         @handle_s3_errors()
         async def list_buckets():
             """List all buckets."""
@@ -97,7 +97,7 @@ class S3ApiHandler:
                 logger.error(f"Error listing buckets: {str(e)}")
                 return await self.format_error_response('ListBucketsError', str(e))
 
-        @blueprint.route('/s3/<bucket_name>', methods=['PUT'])
+        @blueprint.route('/<bucket_name>', methods=['PUT'])
         @handle_s3_errors()
         async def create_bucket(bucket_name):
             """Create a new bucket."""
@@ -108,7 +108,7 @@ class S3ApiHandler:
                 logger.error(f"Error creating bucket: {str(e)}")
                 return await self.format_error_response('CreateBucketError', str(e))
 
-        @blueprint.route('/s3/<bucket_name>', methods=['DELETE'])
+        @blueprint.route('/<bucket_name>', methods=['DELETE'])
         @handle_s3_errors()
         async def delete_bucket(bucket_name):
             """Delete a bucket."""
@@ -119,7 +119,7 @@ class S3ApiHandler:
                 logger.error(f"Error deleting bucket: {str(e)}")
                 return await self.format_error_response('DeleteBucketError', str(e))
 
-        @blueprint.route('/s3/<bucket_name>', methods=['GET'])
+        @blueprint.route('/<bucket_name>', methods=['GET'])
         @handle_s3_errors()
         async def list_objects(bucket_name):
             """List objects in a bucket."""
@@ -140,7 +140,7 @@ class S3ApiHandler:
                 logger.error(f"Error listing objects: {str(e)}")
                 return await self.format_error_response('ListObjectsError', str(e))
 
-        @blueprint.route('/s3/<bucket_name>/<path:object_key>', methods=['PUT'])
+        @blueprint.route('/<bucket_name>/<path:object_key>', methods=['PUT'])
         @handle_s3_errors()
         async def put_object(bucket_name, object_key):
             """Upload an object."""
@@ -157,7 +157,7 @@ class S3ApiHandler:
                 logger.error(f"Error putting object: {str(e)}")
                 return await self.format_error_response('PutObjectError', str(e))
 
-        @blueprint.route('/s3/<bucket_name>/<path:object_key>', methods=['GET'])
+        @blueprint.route('/<bucket_name>/<path:object_key>', methods=['GET'])
         @handle_s3_errors()
         async def get_object(bucket_name, object_key):
             """Get an object."""
@@ -172,7 +172,7 @@ class S3ApiHandler:
                 logger.error(f"Error getting object: {str(e)}")
                 return await self.format_error_response('GetObjectError', str(e))
 
-        @blueprint.route('/s3/<bucket_name>/<path:object_key>', methods=['DELETE'])
+        @blueprint.route('/<bucket_name>/<path:object_key>', methods=['DELETE'])
         @handle_s3_errors()
         async def delete_object(bucket_name, object_key):
             """Delete an object."""

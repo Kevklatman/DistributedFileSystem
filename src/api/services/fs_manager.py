@@ -7,13 +7,21 @@ logger = logging.getLogger(__name__)
 class FileSystemManager:
     """Manages file system operations for the distributed file system"""
 
-    def __init__(self):
+    def __init__(self, storage_root: str = None):
+        """Initialize the file system manager.
+        
+        Args:
+            storage_root: Root directory for storage. If not provided, uses environment variable
+                        or default path.
+        """
         self.directories: Dict[str, Dict] = {}
         self.files: Dict[str, Dict] = {}
 
-        # Get storage directory from environment variable or use default
-        storage_dir = os.environ.get('LOCAL_STORAGE_DIR', os.path.abspath('./storage'))
-        self.root_dir = os.path.join(storage_dir, 'buckets')
+        # Get storage directory from parameter, environment variable, or use default
+        if storage_root is None:
+            storage_root = os.environ.get('LOCAL_STORAGE_DIR', os.path.abspath('./storage'))
+        
+        self.root_dir = os.path.join(storage_root, 'buckets')
 
         # Ensure root directory exists
         os.makedirs(self.root_dir, exist_ok=True)
