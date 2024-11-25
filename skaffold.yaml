@@ -5,24 +5,59 @@ metadata:
 build:
   artifacts:
     - image: dfs-storage-node
-      context: src/storage-node
+      context: .
       docker:
-        dockerfile: Dockerfile
+        dockerfile: src/storage-node/Dockerfile
+        buildArgs:
+          SERVICE_PATH: src/storage-node
+      sync:
+        manual:
+          - src: "src/storage-node/**/*.go"
+            dest: .
     - image: dfs-csi-driver
-      context: src/csi
+      context: .
       docker:
-        dockerfile: Dockerfile
+        dockerfile: src/csi/Dockerfile
+        buildArgs:
+          SERVICE_PATH: src/csi
+      sync:
+        manual:
+          - src: "src/csi/**/*.py"
+            dest: .
+          - src: "src/csi/requirements.txt"
+            dest: .
     - image: dfs-api
-      context: src/api
+      context: .
       docker:
-        dockerfile: Dockerfile
+        dockerfile: src/api/Dockerfile
+        buildArgs:
+          SERVICE_PATH: src/api
+      sync:
+        manual:
+          - src: "src/api/**/*.py"
+            dest: .
+          - src: "src/api/requirements.txt"
+            dest: .
     - image: dfs-monitoring
-      context: src/monitoring
+      context: .
       docker:
-        dockerfile: Dockerfile
+        dockerfile: src/monitoring/Dockerfile
+        buildArgs:
+          SERVICE_PATH: src/monitoring
+      sync:
+        manual:
+          - src: "src/monitoring/**/*.py"
+            dest: .
+          - src: "src/monitoring/requirements.txt"
+            dest: .
   local:
     push: false
     useBuildkit: true
+
+manifests:
+  rawYaml:
+    - src/k8s/base/*
+    - src/k8s/overlays/development/*
 
 deploy:
   kubectl: {}
@@ -35,19 +70,13 @@ profiles:
       - op: add
         path: /build/local/push
         value: false
-    deploy:
-      kubectl:
-        manifests:
-          - src/k8s/base/*
-          - src/k8s/overlays/development/*
 
   - name: prod
     patches:
       - op: add
         path: /build/local/push
         value: true
-    deploy:
-      kubectl:
-        manifests:
-          - src/k8s/base/*
-          - src/k8s/overlays/production/*
+    manifests:
+      rawYaml:
+        - src/k8s/base/*
+        - src/k8s/overlays/production/*
