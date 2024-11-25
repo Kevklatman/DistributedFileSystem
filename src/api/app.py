@@ -12,22 +12,23 @@ import json
 import atexit
 import asyncio
 
-# Add the current directory to Python path
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+# Add the src directory to Python path
+src_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.append(src_path)
 
-from services.fs_manager import FileSystemManager
-from services.config import API_HOST, API_PORT, DEBUG, current_config
-from services.system_service import SystemService
-from services.advanced_storage_service import AdvancedStorageService
-from models.api_models import create_api_models
-from services.api_metrics import get_policy_metrics, get_dashboard_metrics, metrics
-from services.utils.serializers import JSONEncoder
-from routes.resources import BucketList, BucketOperations, ObjectOperations
-from storage.backends import get_storage_backend
-from routes.s3 import s3_api, S3ApiHandler
-from routes.aws_s3_api import aws_s3_api, AWSS3ApiHandler
-from routes.advanced_storage import advanced_storage
-from infrastructure.manager import InfrastructureManager
+from src.api.services.fs_manager import FileSystemManager
+from src.api.services.config import API_HOST, API_PORT, DEBUG, current_config
+from src.api.services.system_service import SystemService
+from src.api.services.advanced_storage_service import AdvancedStorageService
+from src.api.models.api_models import create_api_models
+from src.api.services.api_metrics import get_policy_metrics, get_dashboard_metrics, metrics
+from src.api.services.utils.serializers import JSONEncoder
+from src.api.routes.resources import BucketList, BucketOperations, ObjectOperations
+from src.storage.backends import get_storage_backend
+from src.api.routes.s3 import s3_api, S3ApiHandler
+from src.api.routes.aws_s3_api import aws_s3_api, AWSS3ApiHandler
+from src.api.routes.advanced_storage import advanced_storage
+from src.infrastructure.manager import InfrastructureManager
 
 # Configure Flask app
 app = Flask(__name__,
@@ -35,7 +36,7 @@ app = Flask(__name__,
            static_folder='static')
 
 # Enable CORS for all routes
-CORS(app, resources={r"/*": {"origins": ["http://localhost:3000", "http://localhost:5000", "http://localhost:8000", "localhost:8080"],
+CORS(app, resources={r"/*": {"origins": ["http://localhost:3000", "http://localhost:5000", "http://localhost:8000", "http://localhost:8080"],
                             "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
                             "allow_headers": ["Content-Type", "Authorization"]}})
 

@@ -2,16 +2,20 @@
 AWS S3 storage backend implementation.
 """
 
+import os
 import boto3
-from botocore.client import Config
-import logging
 from typing import Optional, Dict, List, Any, BinaryIO
+import logging
+from datetime import datetime
+from src.api.services.config import current_config
+from src.api.services.fs_manager import FileSystemManager
 from .base import StorageBackend
-from core.config import current_config
 
 logger = logging.getLogger(__name__)
 
 class AWSStorageBackend(StorageBackend):
+    """AWS S3 storage backend implementation"""
+
     def __init__(self):
         super().__init__(None)
         if not all([current_config['access_key'], current_config['secret_key']]):
@@ -44,7 +48,7 @@ class AWSStorageBackend(StorageBackend):
             aws_access_key_id=current_config['access_key'],
             aws_secret_access_key=current_config['secret_key'],
             region_name=region,
-            config=Config(signature_version='s3v4')
+            config={'signature_version': 's3v4'}
         )
 
     def _get_client_for_bucket(self, bucket_name):

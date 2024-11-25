@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Literal
 from datetime import datetime
 from enum import Enum
-from system import SnapshotState
+from src.api.models.base_types import SnapshotState
 from .base import StorageLocation
 
 class ReplicationType(Enum):
@@ -62,30 +62,12 @@ class RetentionPolicy:
     policy_id: str
     name: str
     retention_type: RetentionType
-    retention_period: Optional[int] = None  # in seconds
-    max_versions: Optional[int] = None
+    retention_period: int  # in seconds
+    max_versions: int
+    created_at: datetime
+    updated_at: datetime
     auto_delete: bool = True
-    created_at: datetime
-    updated_at: datetime
     enabled: bool = True
-
-@dataclass
-class StoragePolicy:
-    """Combined storage policies for a volume or node"""
-    policy_id: str
-    name: str
-    replication_policy: Optional[ReplicationPolicy]
-    retention_policy: Optional[RetentionPolicy]
-    encryption_enabled: bool = False
-    compression_enabled: bool = False
-    deduplication_enabled: bool = False
-    created_at: datetime
-    updated_at: datetime
-    labels: Dict[str, str] = None
-
-    def __post_init__(self):
-        if self.labels is None:
-            self.labels = {}
 
 @dataclass
 class DataProtection:
@@ -100,3 +82,26 @@ class DataProtection:
     disaster_recovery_enabled: bool = False
     dr_location: Optional[StorageLocation] = None
     snapshots: Dict[str, 'SnapshotState'] = field(default_factory=dict)
+
+@dataclass
+class StoragePolicy:
+    """Combined storage policies for a volume or node"""
+    policy_id: str
+    name: str
+    description: str
+    created_at: datetime = field(default_factory=datetime.now)
+    updated_at: datetime = field(default_factory=datetime.now)
+    retention_policy: Optional[RetentionPolicy] = None
+    replication_policy: Optional[ReplicationPolicy] = None
+    tiering_policy: Optional[CloudTieringPolicy] = None
+    data_protection: Optional[DataProtection] = None
+    enabled: bool = True
+    metadata: Dict[str, str] = field(default_factory=dict)
+    encryption_enabled: bool = False
+    compression_enabled: bool = False
+    deduplication_enabled: bool = False
+    labels: Dict[str, str] = None
+
+    def __post_init__(self):
+        if self.labels is None:
+            self.labels = {}

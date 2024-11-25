@@ -1,3 +1,7 @@
+"""
+Storage node implementation for managing local storage resources.
+"""
+
 import os
 import asyncio
 import logging
@@ -15,7 +19,7 @@ from prometheus_client import (
     Gauge,
     CollectorRegistry
 )
-from ..data.cache_store import CacheStore
+from src.storage.infrastructure.data.cache_store import CacheStore
 
 # Create a custom registry for DFS metrics
 DFS_REGISTRY = CollectorRegistry()

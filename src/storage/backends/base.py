@@ -5,7 +5,7 @@ Base class for storage backend implementations.
 from abc import ABC, abstractmethod
 from typing import Optional, Dict, List, Any, BinaryIO
 import logging
-from core.fs_manager import FileSystemManager
+from src.api.services.fs_manager import FileSystemManager
 import os
 
 logger = logging.getLogger(__name__)

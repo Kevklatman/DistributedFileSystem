@@ -1,10 +1,11 @@
-"""System-wide models for the distributed file system."""
+"""System-related models for the distributed file system."""
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Literal, Set, Any
 from datetime import datetime
 import uuid
 from enum import Enum
 
+from src.api.models.base_types import SnapshotState
 from .base import StorageLocation, Volume
 from .storage import StoragePool
 from .policy import CloudTieringPolicy, DataProtection, ReplicationPolicy
@@ -66,17 +67,6 @@ class CloudCredentials:
     credentials: Dict[str, str]
     default_region: str
     endpoints: Dict[str, str] = field(default_factory=dict)
-
-@dataclass
-class SnapshotState:
-    """Tracks snapshot state and chain"""
-    id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    parent_id: Optional[str] = None
-    creation_time: datetime = field(default_factory=datetime.now)
-    expiration_time: Optional[datetime] = None
-    size_gb: float = 0.0
-    changed_blocks: Set[int] = field(default_factory=set)
-    metadata: Dict[str, str] = field(default_factory=dict)
 
 @dataclass
 class HybridStorageSystem:

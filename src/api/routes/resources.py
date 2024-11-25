@@ -1,6 +1,25 @@
-from flask_restx import Resource
-from flask import request, make_response
-import datetime
+from flask import request, jsonify
+from flask_restx import Resource, Api, Namespace, fields
+
+# Create API namespace
+api = Namespace('storage', description='Storage operations')
+
+# Define models
+bucket_model = api.model('Bucket', {
+    'name': fields.String(required=True, description='Bucket name'),
+    'creation_date': fields.DateTime(description='Bucket creation date'),
+    'size_bytes': fields.Integer(description='Total size in bytes'),
+    'object_count': fields.Integer(description='Number of objects'),
+})
+
+object_model = api.model('Object', {
+    'key': fields.String(required=True, description='Object key/path'),
+    'size': fields.Integer(description='Object size in bytes'),
+    'last_modified': fields.DateTime(description='Last modification time'),
+    'etag': fields.String(description='Object ETag'),
+    'content_type': fields.String(description='Content type'),
+    'metadata': fields.Raw(description='Object metadata')
+})
 
 class BucketList(Resource):
     def __init__(self, api, *args, **kwargs):
@@ -8,7 +27,7 @@ class BucketList(Resource):
         self.api = api
 
     @api.doc('list_buckets')
-    @api.marshal_list_with(api.models['bucket_model'])
+    @api.marshal_list_with(bucket_model)
     def get(self):
         """List all buckets"""
         try:
@@ -43,9 +62,9 @@ class BucketOperations(Resource):
             api.abort(500, str(e))
 
     @api.doc('list_objects')
-    @api.marshal_list_with(api.models['object_model'])
+    @api.marshal_list_with(object_model)
     def get(self, bucket_name):
-        """List objects in bucket"""
+        """List objects in a bucket"""
         try:
             objects = fs_manager.list_objects(bucket_name)
             return objects

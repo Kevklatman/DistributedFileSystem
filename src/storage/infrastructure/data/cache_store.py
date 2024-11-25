@@ -2,8 +2,9 @@
 from typing import Any, Dict, Optional, Set, Tuple
 from datetime import datetime
 import threading
+from enum import Enum
 from dataclasses import dataclass
-from ..services.interfaces import CacheInterface
+from ..interfaces import CacheInterface
 
 @dataclass
 class CacheEntry:
@@ -12,6 +13,12 @@ class CacheEntry:
     version: int
     timestamp: datetime
     session_id: Optional[str] = None
+
+class ConsistencyLevel(Enum):
+    """Cache consistency levels."""
+    STRONG = "strong"
+    EVENTUAL = "eventual"
+    WEAK = "weak"
 
 class CacheStore(CacheInterface):
     """Thread-safe cache store with consistency levels."""
@@ -48,7 +55,7 @@ class CacheStore(CacheInterface):
         Returns:
             Value if found, None if not found
         """
-        with self._write_lock if consistency_level == 'strong' else self._lock:
+        with self._write_lock if consistency_level == ConsistencyLevel.STRONG.value else self._lock:
             entry = self._cache.get(key)
             if entry is None:
                 return None

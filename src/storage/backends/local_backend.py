@@ -3,16 +3,18 @@ Local storage backend implementation.
 """
 
 import os
-import uuid
-import datetime
-import logging
+import shutil
 from typing import Optional, Dict, List, Any, BinaryIO
-from core.fs_manager import FileSystemManager
+import logging
+from datetime import datetime
+from src.api.services.fs_manager import FileSystemManager
 from .base import StorageBackend
 
 logger = logging.getLogger(__name__)
 
 class LocalStorageBackend(StorageBackend):
+    """Local filesystem storage backend implementation"""
+
     def __init__(self, fs_manager: FileSystemManager):
         super().__init__(fs_manager)
         self.buckets = {}  # In-memory bucket storage
@@ -52,11 +54,11 @@ class LocalStorageBackend(StorageBackend):
     def _update_node_status(self, node_id, status):
         """Update node status"""
         self.node_status[node_id] = status
-        self.node_last_seen[node_id] = datetime.datetime.now()
+        self.node_last_seen[node_id] = datetime.now()
 
     def _check_node_health(self):
         """Check health of all nodes"""
-        now = datetime.datetime.now()
+        now = datetime.now()
         for node_id in self.node_status:
             if (now - self.node_last_seen[node_id]).seconds > 30:
                 self.node_status[node_id] = 'unhealthy'
@@ -93,7 +95,7 @@ class LocalStorageBackend(StorageBackend):
             for bucket in buckets:
                 self.buckets[bucket] = {
                     'name': bucket,
-                    'creation_date': datetime.datetime.now(),
+                    'creation_date': datetime.now(),
                     'versioning': False
                 }
         except Exception as e:
@@ -109,7 +111,7 @@ class LocalStorageBackend(StorageBackend):
             if super().create_bucket(bucket_name):
                 self.buckets[bucket_name] = {
                     'name': bucket_name,
-                    'creation_date': datetime.datetime.now(),
+                    'creation_date': datetime.now(),
                     'versioning': False
                 }
                 return True

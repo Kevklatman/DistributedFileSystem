@@ -71,11 +71,13 @@ class HybridStorageManager:
                 data = json.load(f, object_hook=decode_datetime)
                 return HybridStorageSystem(**data)
         return HybridStorageSystem(
-            pools={},
+            name="Default Hybrid Storage System",
+            storage_pools={},
             volumes={},
-            total_capacity_bytes=0,
-            used_capacity_bytes=0,
-            node_count=0
+            cloud_credentials={},
+            tiering_policies={},
+            protection_policies={},
+            replication_policies={}
         )
 
     def _save_system_state(self) -> None:
@@ -92,7 +94,7 @@ class HybridStorageManager:
     ) -> StoragePool:
         """Create a new storage pool"""
         # Generate a unique ID for the pool
-        pool_id = f"pool-{len(self.system.pools)}"
+        pool_id = f"pool-{len(self.system.storage_pools)}"
         
         pool = StoragePool(
             id=pool_id,
@@ -106,7 +108,7 @@ class HybridStorageManager:
         pool_path = self.data_path / pool.id
         pool_path.mkdir(parents=True, exist_ok=True)
 
-        self.system.pools[pool.id] = pool
+        self.system.storage_pools[pool.id] = pool
         self._save_system_state()
         return pool
 
@@ -119,7 +121,7 @@ class HybridStorageManager:
         cloud_tiering: bool = False
     ) -> Volume:
         """Create a new volume in a storage pool"""
-        if pool_id not in self.system.pools:
+        if pool_id not in self.system.storage_pools:
             raise ValueError(f"Pool {pool_id} not found")
 
         # Generate a unique ID for the volume
