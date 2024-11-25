@@ -20,27 +20,34 @@ from src.config.base_config import (
 )
 
 from src.config.infrastructure_config import infrastructure_config
-from src.api.routes.s3 import s3_api, S3ApiHandler
-from src.api.routes.aws_s3_api import aws_s3_api, AWSS3ApiHandler
+from src.api.routes.s3 import s3_api
+from src.api.routes.aws_s3_api import aws_s3_api
 from src.api.routes.advanced_storage import advanced_storage
 from src.infrastructure.manager import InfrastructureManager
 
-# Configure logging
-logging.basicConfig(level=logging.DEBUG if DEBUG else logging.INFO)
-logger = logging.getLogger(__name__)
-
-# Configure Quart app
+# Initialize Quart app
 app = Quart(__name__)
 app = cors(app, allow_origin="*")
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 # Initialize infrastructure manager
 try:
     infrastructure = InfrastructureManager()
-    fs_manager = FileSystemManager(STORAGE_ROOT)
-    
-    # Initialize API handlers
-    s3_handler = S3ApiHandler(fs_manager, infrastructure)
-    aws_s3_handler = AWSS3ApiHandler(fs_manager, infrastructure)
+    fs_manager = FileSystemManager(
+        storage_root=STORAGE_ROOT,
+        node_id=NODE_ID,
+        cloud_provider=CLOUD_PROVIDER_TYPE,
+        max_workers=MAX_WORKERS,
+        chunk_size=CHUNK_SIZE,
+        cache_enabled=CACHE_ENABLED,
+        replication_factor=REPLICATION_FACTOR
+    )
 except Exception as e:
     logger.error(f"Error initializing infrastructure: {str(e)}")
     raise
@@ -54,13 +61,13 @@ app.register_blueprint(advanced_storage, url_prefix='/storage')
 @app.route('/health')
 async def health_check():
     """Health check endpoint."""
-    return {'status': 'healthy'}
+    return {'status': 'healthy'}, 200
 
 if __name__ == '__main__':
     # Ensure the data directory exists
     os.makedirs(STORAGE_ROOT, exist_ok=True)
     
-    # Run the application
+    # Start the server
     app.run(
         host=API_HOST,
         port=API_PORT,
