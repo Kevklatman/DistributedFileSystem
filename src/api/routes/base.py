@@ -3,12 +3,14 @@
 import functools
 import logging
 import traceback
-from quart import request, make_response, Blueprint
+from quart import request, Response
 from werkzeug.exceptions import BadRequest
 import xmltodict
 import datetime
 import hashlib
 import os
+from typing import Dict, Any, Optional, Union
+
 from src.storage.backends import get_storage_backend
 from src.api.services.fs_manager import FileSystemManager
 
@@ -20,7 +22,10 @@ def handle_s3_errors():
         @functools.wraps(f)
         async def decorated_function(*args, **kwargs):
             try:
-                return await f(*args, **kwargs)
+                result = await f(*args, **kwargs)
+                if isinstance(result, bool):
+                    return Response('', status=200 if result else 404)
+                return result
             except BadRequest as e:
                 error_response = {
                     'Error': {
@@ -28,7 +33,11 @@ def handle_s3_errors():
                         'Message': str(e)
                     }
                 }
-                return await make_response(xmltodict.unparse(error_response), 400)
+                return Response(
+                    xmltodict.unparse(error_response),
+                    status=400,
+                    content_type='application/xml'
+                )
             except Exception as e:
                 logger.error(f"Error in S3 API: {str(e)}\n{traceback.format_exc()}")
                 error_response = {
@@ -37,11 +46,29 @@ def handle_s3_errors():
                         'Message': str(e)
                     }
                 }
-                return await make_response(xmltodict.unparse(error_response), 500)
+                return Response(
+                    xmltodict.unparse(error_response),
+                    status=500,
+                    content_type='application/xml'
+                )
         return decorated_function
     return decorator
 
-async def format_list_buckets_response(buckets, aws_style=True):
+async def format_error_response(code: str, message: str, status_code: int = 500) -> Response:
+    """Format error response with proper XML content type."""
+    error_response = {
+        'Error': {
+            'Code': code,
+            'Message': message
+        }
+    }
+    return Response(
+        xmltodict.unparse(error_response),
+        status=status_code,
+        content_type='application/xml'
+    )
+
+def format_list_buckets_response(buckets: list, aws_style: bool = True) -> Dict[str, Any]:
     """Format list buckets response."""
     response = {
         'ListAllMyBucketsResult': {
@@ -52,43 +79,44 @@ async def format_list_buckets_response(buckets, aws_style=True):
                 ]
             },
             'Owner': {
-                'ID': 'default',
-                'DisplayName': 'default'
+                'ID': 'owner',
+                'DisplayName': 'owner'
             }
         }
     }
-    return await make_response(xmltodict.unparse(response), 200)
+    return response
 
-async def format_list_objects_response(bucket, objects, prefix, max_keys, aws_style=True):
+def format_list_objects_response(bucket: str, objects: list, prefix: str = '',
+                               max_keys: int = 1000, aws_style: bool = True) -> Dict[str, Any]:
     """Format list objects response."""
     response = {
         'ListBucketResult': {
             'Name': bucket,
             'Prefix': prefix,
-            'MaxKeys': max_keys,
-            'IsTruncated': False,
+            'MaxKeys': str(max_keys),
+            'IsTruncated': len(objects) == max_keys,
             'Contents': [
                 {
                     'Key': obj['key'],
                     'LastModified': obj['last_modified'],
                     'ETag': obj['etag'],
-                    'Size': obj['size'],
-                    'StorageClass': 'STANDARD'
+                    'Size': str(obj['size']),
+                    'StorageClass': obj.get('storage_class', 'STANDARD')
                 }
                 for obj in objects
             ]
         }
     }
-    return await make_response(xmltodict.unparse(response), 200)
+    return response
 
-async def format_object_response(obj):
+def format_object_response(obj: Dict[str, Any]) -> Dict[str, Any]:
     """Format object response."""
     headers = {
-        'Content-Type': obj.get('content_type', 'application/octet-stream'),
         'Content-Length': str(len(obj['content'])),
-        'ETag': f"\"{obj.get('etag', '')}\""
+        'Last-Modified': obj['last_modified'],
+        'ETag': obj['etag']
     }
-    return await make_response(obj['content'], 200, headers)
+    return Response(obj['content'], status=200, headers=headers)
 
 class BaseS3Handler:
     """Base handler for S3-compatible APIs with shared functionality."""
@@ -106,49 +134,92 @@ class BaseS3Handler:
     @handle_s3_errors()
     async def list_buckets(self):
         """List all buckets."""
-        buckets = self.storage.list_buckets()
-        return await format_list_buckets_response(buckets, self.aws_style)
+        try:
+            buckets = await self.storage.list_buckets()
+            response = format_list_buckets_response(buckets, self.aws_style)
+            return Response(xmltodict.unparse(response), status=200, content_type='application/xml')
+        except Exception as e:
+            logger.error(f"Error listing buckets: {str(e)}")
+            raise
     
     @handle_s3_errors()
     async def create_bucket(self, bucket):
         """Create a new bucket."""
-        self.storage.create_bucket(bucket)
-        return await make_response('', 200)
+        try:
+            await self.storage.create_bucket(bucket)
+            return Response('', status=200)
+        except Exception as e:
+            logger.error(f"Error creating bucket: {str(e)}")
+            raise
     
     @handle_s3_errors()
     async def delete_bucket(self, bucket):
         """Delete a bucket."""
-        self.storage.delete_bucket(bucket)
-        return await make_response('', 204)
+        try:
+            await self.storage.delete_bucket(bucket)
+            return Response('', status=204)
+        except Exception as e:
+            logger.error(f"Error deleting bucket: {str(e)}")
+            raise
     
     @handle_s3_errors()
     async def list_objects(self, bucket):
         """List objects in a bucket."""
-        prefix = request.args.get('prefix', '')
-        max_keys = int(request.args.get('max-keys', '1000'))
-        
-        objects = self.storage.list_objects(bucket, prefix=prefix, max_keys=max_keys)
-        return await format_list_objects_response(bucket, objects, prefix, max_keys, self.aws_style)
+        try:
+            prefix = request.args.get('prefix', '')
+            max_keys = int(request.args.get('max-keys', '1000'))
+            
+            objects = await self.storage.list_objects(bucket, prefix=prefix, max_keys=max_keys)
+            response = format_list_objects_response(bucket, objects, prefix, max_keys, self.aws_style)
+            return Response(xmltodict.unparse(response), status=200, content_type='application/xml')
+        except Exception as e:
+            logger.error(f"Error listing objects: {str(e)}")
+            raise
     
     @handle_s3_errors()
     async def get_object(self, bucket, key):
         """Get an object."""
-        obj = self.storage.get_object(bucket, key)
-        return await format_object_response(obj)
+        try:
+            obj = await self.storage.get_object(bucket, key)
+            return format_object_response(obj)
+        except Exception as e:
+            logger.error(f"Error getting object: {str(e)}")
+            raise
     
     @handle_s3_errors()
     async def put_object(self, bucket, key):
         """Upload an object."""
-        content = await request.get_data()
-        self.storage.put_object(bucket, key, content)
-        etag = f"\"{self.storage.calculate_etag(content)}\""
-        return await make_response('', 200, {'ETag': etag})
+        try:
+            data = await request.get_data()
+            metadata = {
+                k[11:]: v for k, v in request.headers.items()
+                if k.lower().startswith('x-amz-meta-')
+            }
+            
+            storage_class = request.headers.get('x-amz-storage-class', 'STANDARD')
+            
+            result = await self.storage.put_object(
+                bucket, key, data,
+                metadata=metadata,
+                storage_class=storage_class
+            )
+            
+            response = Response('', status=200)
+            response.headers['ETag'] = result.get('etag', '')
+            return response
+        except Exception as e:
+            logger.error(f"Error putting object: {str(e)}")
+            raise
     
     @handle_s3_errors()
     async def delete_object(self, bucket, key):
         """Delete an object."""
-        self.storage.delete_object(bucket, key)
-        return await make_response('', 204)
+        try:
+            await self.storage.delete_object(bucket, key)
+            return Response('', status=204)
+        except Exception as e:
+            logger.error(f"Error deleting object: {str(e)}")
+            raise
     
     def register_basic_routes(self, blueprint):
         """Register basic S3-compatible routes.

@@ -4,6 +4,7 @@ Local storage backend implementation.
 
 import os
 import shutil
+import asyncio
 from typing import Optional, Dict, List, Any, BinaryIO
 import logging
 from datetime import datetime
@@ -76,7 +77,7 @@ class LocalStorageBackend(StorageBackend):
             if (now - self.node_last_seen[node_id]).seconds > 30:
                 self.node_status[node_id] = 'unhealthy'
 
-    def create_bucket(self, bucket_name: str) -> bool:
+    async def create_bucket(self, bucket_name: str) -> bool:
         """Create a new bucket.
         
         Args:
@@ -87,13 +88,14 @@ class LocalStorageBackend(StorageBackend):
         """
         try:
             bucket_path = os.path.join(self.data_root, bucket_name)
-            os.makedirs(bucket_path, exist_ok=True)
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, os.makedirs, bucket_path, exist_ok=True)
             return True
         except Exception as e:
             logger.error(f"Error creating bucket {bucket_name}: {str(e)}")
             return False
 
-    def delete_bucket(self, bucket_name: str) -> bool:
+    async def delete_bucket(self, bucket_name: str) -> bool:
         """Delete a bucket.
         
         Args:
@@ -104,27 +106,28 @@ class LocalStorageBackend(StorageBackend):
         """
         try:
             bucket_path = os.path.join(self.data_root, bucket_name)
-            if os.path.exists(bucket_path):
-                os.rmdir(bucket_path)
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, shutil.rmtree, bucket_path)
             return True
         except Exception as e:
             logger.error(f"Error deleting bucket {bucket_name}: {str(e)}")
             return False
 
-    def list_buckets(self) -> List[str]:
+    async def list_buckets(self) -> List[str]:
         """List all buckets.
         
         Returns:
             List[str]: List of bucket names
         """
         try:
-            return [d for d in os.listdir(self.data_root) 
-                   if os.path.isdir(os.path.join(self.data_root, d))]
+            loop = asyncio.get_event_loop()
+            buckets = await loop.run_in_executor(None, os.listdir, self.data_root)
+            return [d for d in buckets if os.path.isdir(os.path.join(self.data_root, d))]
         except Exception as e:
             logger.error(f"Error listing buckets: {str(e)}")
             return []
 
-    def put_object(self, bucket_name: str, object_key: str, data: bytes) -> bool:
+    async def put_object(self, bucket_name: str, object_key: str, data: bytes) -> bool:
         """Put an object into a bucket.
         
         Args:
@@ -137,19 +140,16 @@ class LocalStorageBackend(StorageBackend):
         """
         try:
             bucket_path = os.path.join(self.data_root, bucket_name)
-            if not os.path.exists(bucket_path):
-                return False
-                
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, os.makedirs, bucket_path, exist_ok=True)
             object_path = os.path.join(bucket_path, object_key)
-            os.makedirs(os.path.dirname(object_path), exist_ok=True)
-            with open(object_path, 'wb') as f:
-                f.write(data)
+            await loop.run_in_executor(None, self.fs_manager.write_file, object_path, data)
             return True
         except Exception as e:
             logger.error(f"Error putting object {object_key}: {str(e)}")
             return False
 
-    def get_object(self, bucket_name: str, object_key: str) -> Optional[bytes]:
+    async def get_object(self, bucket_name: str, object_key: str) -> Optional[bytes]:
         """Get an object from a bucket.
         
         Args:
@@ -161,16 +161,14 @@ class LocalStorageBackend(StorageBackend):
         """
         try:
             object_path = os.path.join(self.data_root, bucket_name, object_key)
-            if not os.path.exists(object_path):
-                return None
-                
-            with open(object_path, 'rb') as f:
-                return f.read()
+            loop = asyncio.get_event_loop()
+            data = await loop.run_in_executor(None, self.fs_manager.read_file, object_path)
+            return data
         except Exception as e:
             logger.error(f"Error getting object {object_key}: {str(e)}")
             return None
 
-    def delete_object(self, bucket_name: str, object_key: str) -> bool:
+    async def delete_object(self, bucket_name: str, object_key: str) -> bool:
         """Delete an object from a bucket.
         
         Args:
@@ -182,14 +180,14 @@ class LocalStorageBackend(StorageBackend):
         """
         try:
             object_path = os.path.join(self.data_root, bucket_name, object_key)
-            if os.path.exists(object_path):
-                os.remove(object_path)
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, os.remove, object_path)
             return True
         except Exception as e:
             logger.error(f"Error deleting object {object_key}: {str(e)}")
             return False
 
-    def list_objects(self, bucket_name: str) -> List[str]:
+    async def list_objects(self, bucket_name: str) -> List[str]:
         """List objects in a bucket.
         
         Args:
@@ -200,16 +198,14 @@ class LocalStorageBackend(StorageBackend):
         """
         try:
             bucket_path = os.path.join(self.data_root, bucket_name)
-            if not os.path.exists(bucket_path):
-                return []
-                
-            return [f for f in os.listdir(bucket_path) 
-                   if os.path.isfile(os.path.join(bucket_path, f))]
+            loop = asyncio.get_event_loop()
+            objects = await loop.run_in_executor(None, os.listdir, bucket_path)
+            return [f for f in objects if os.path.isfile(os.path.join(bucket_path, f))]
         except Exception as e:
             logger.error(f"Error listing objects in bucket {bucket_name}: {str(e)}")
             return []
 
-    def create_multipart_upload(self, bucket_name: str, object_key: str):
+    async def create_multipart_upload(self, bucket_name: str, object_key: str):
         """Initialize multipart upload"""
         upload_id = str(uuid.uuid4())
         self.multipart_uploads[upload_id] = {
@@ -219,7 +215,7 @@ class LocalStorageBackend(StorageBackend):
         }
         return upload_id
 
-    def upload_part(self, bucket_name: str, object_key: str, upload_id: str, part_number: int, data: BinaryIO):
+    async def upload_part(self, bucket_name: str, object_key: str, upload_id: str, part_number: int, data: BinaryIO):
         """Upload a part"""
         if upload_id not in self.multipart_uploads:
             return None
@@ -232,7 +228,7 @@ class LocalStorageBackend(StorageBackend):
         }
         return etag
 
-    def complete_multipart_upload(self, bucket_name: str, object_key: str, upload_id: str, parts: List[Dict[str, Any]]):
+    async def complete_multipart_upload(self, bucket_name: str, object_key: str, upload_id: str, parts: List[Dict[str, Any]]):
         """Complete multipart upload"""
         if upload_id not in self.multipart_uploads:
             return False
@@ -246,23 +242,24 @@ class LocalStorageBackend(StorageBackend):
 
             # Write combined data
             full_path = os.path.join(bucket_name, object_key)
-            success = self.fs_manager.write_file(full_path, all_data)
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, self.fs_manager.write_file, full_path, all_data)
 
             # Cleanup
             del self.multipart_uploads[upload_id]
-            return success
+            return True
         except Exception as e:
             logger.error(f"Failed to complete multipart upload: {str(e)}")
             return False
 
-    def abort_multipart_upload(self, bucket_name: str, object_key: str, upload_id: str):
+    async def abort_multipart_upload(self, bucket_name: str, object_key: str, upload_id: str):
         """Abort multipart upload"""
         if upload_id in self.multipart_uploads:
             del self.multipart_uploads[upload_id]
             return True
         return False
 
-    def list_multipart_uploads(self, bucket_name: str):
+    async def list_multipart_uploads(self, bucket_name: str):
         """List multipart uploads"""
         return [
             {
@@ -273,25 +270,25 @@ class LocalStorageBackend(StorageBackend):
             if info['bucket'] == bucket_name
         ]
 
-    def enable_versioning(self, bucket_name: str):
+    async def enable_versioning(self, bucket_name: str):
         """Enable versioning for a bucket"""
         if bucket_name in self.buckets:
             self.versioning[bucket_name] = True
             return True
         return False
 
-    def disable_versioning(self, bucket_name: str):
+    async def disable_versioning(self, bucket_name: str):
         """Disable versioning for a bucket"""
         if bucket_name in self.buckets:
             self.versioning[bucket_name] = False
             return True
         return False
 
-    def get_versioning_status(self, bucket_name: str):
+    async def get_versioning_status(self, bucket_name: str):
         """Get versioning status"""
         return self.versioning.get(bucket_name, False)
 
-    def list_object_versions(self, bucket_name: str, prefix: Optional[str] = None):
+    async def list_object_versions(self, bucket_name: str, prefix: Optional[str] = None):
         """List object versions"""
         if bucket_name not in self.versions:
             return []
@@ -309,7 +306,7 @@ class LocalStorageBackend(StorageBackend):
                 })
         return versions
 
-    def get_object_version(self, bucket_name: str, object_key: str, version_id: str):
+    async def get_object_version(self, bucket_name: str, object_key: str, version_id: str):
         """Get specific version"""
         try:
             if (bucket_name in self.versions and
@@ -320,7 +317,7 @@ class LocalStorageBackend(StorageBackend):
             logger.error(f"Failed to get version {version_id} of object {object_key}: {str(e)}")
         return None
 
-    def delete_object_version(self, bucket_name: str, object_key: str, version_id: str):
+    async def delete_object_version(self, bucket_name: str, object_key: str, version_id: str):
         """Delete specific version"""
         try:
             if (bucket_name in self.versions and
