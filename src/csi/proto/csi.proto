@@ -14,6 +14,7 @@ service Controller {
     rpc ControllerPublishVolume(ControllerPublishVolumeRequest) returns (ControllerPublishVolumeResponse) {}
     rpc ControllerUnpublishVolume(ControllerUnpublishVolumeRequest) returns (ControllerUnpublishVolumeResponse) {}
     rpc ValidateVolumeCapabilities(ValidateVolumeCapabilitiesRequest) returns (ValidateVolumeCapabilitiesResponse) {}
+    rpc GetCapacity(GetCapacityRequest) returns (GetCapacityResponse) {}
 }
 
 service Node {
@@ -78,6 +79,7 @@ message ControllerPublishVolumeRequest {
     string node_id = 2;
     VolumeCapability volume_capability = 3;
     bool readonly = 4;
+    map<string, string> volume_context = 5;
 }
 
 message ControllerPublishVolumeResponse {
@@ -105,11 +107,21 @@ message ValidateVolumeCapabilitiesResponse {
     Confirmed confirmed = 1;
 }
 
+message GetCapacityRequest {
+    repeated VolumeCapability volume_capabilities = 1;
+    map<string, string> parameters = 2;
+}
+
+message GetCapacityResponse {
+    int64 available_capacity = 1;
+}
+
 message NodeStageVolumeRequest {
     string volume_id = 1;
     string staging_target_path = 2;
     VolumeCapability volume_capability = 3;
     map<string, string> publish_context = 4;
+    map<string, string> volume_context = 5;
 }
 
 message NodeStageVolumeResponse {}
@@ -127,6 +139,8 @@ message NodePublishVolumeRequest {
     VolumeCapability volume_capability = 3;
     bool readonly = 4;
     map<string, string> publish_context = 5;
+    map<string, string> volume_context = 6;
+    string staging_target_path = 7;
 }
 
 message NodePublishVolumeResponse {}
@@ -165,7 +179,7 @@ message Volume {
 
 message VolumeCapability {
     message BlockVolume {}
-
+    
     message MountVolume {
         string fs_type = 1;
         repeated string mount_flags = 2;

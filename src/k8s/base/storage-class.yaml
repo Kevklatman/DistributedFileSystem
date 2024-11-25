@@ -4,7 +4,8 @@ metadata:
   name: dfs-hybrid-storage
 provisioner: dfs.csi.k8s.io
 reclaimPolicy: Delete
-volumeBindingMode: Immediate
+volumeBindingMode: WaitForFirstConsumer
 allowVolumeExpansion: true
 parameters:
-  type: "hybrid"  # Can be configured based on your storage requirements
+  type: "hybrid"
+  minikube.storage.path: "/data/dfs"

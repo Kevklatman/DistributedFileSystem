@@ -51,6 +51,42 @@ roleRef:
   name: dfs-csi-controller-role
   apiGroup: rbac.authorization.k8s.io
 ---
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: dfs-csi-controller
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: dfs-csi-controller
+  template:
+    metadata:
+      labels:
+        app: dfs-csi-controller
+    spec:
+      serviceAccount: dfs-csi-controller
+      containers:
+        - name: csi-controller
+          image: dfs-csi-driver:latest
+          imagePullPolicy: Never
+          env:
+            - name: MODE
+              value: "controller"
+            - name: ENDPOINT
+              value: "unix:///csi/csi.sock"
+            - name: NODE_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /csi
+      volumes:
+        - name: socket-dir
+          emptyDir: {}
+---
 kind: DaemonSet
 apiVersion: apps/v1
 metadata:
@@ -68,16 +104,20 @@ spec:
       serviceAccount: dfs-csi-controller
       hostNetwork: true
       containers:
-        - name: csi-driver
+        - name: csi-node-driver
           image: dfs-csi-driver:latest
           imagePullPolicy: Never
-          securityContext:
-            privileged: true
           env:
+            - name: MODE
+              value: "node"
+            - name: ENDPOINT
+              value: "unix:///csi/csi.sock"
             - name: NODE_ID
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
+          securityContext:
+            privileged: true
           volumeMounts:
             - name: plugin-dir
               mountPath: /csi
