@@ -13,14 +13,13 @@ import argparse
 
 from kubernetes import client, config
 from csi.proto import csi_pb2, csi_pb2_grpc
-from csi.proto.csi_pb2_grpc import IdentityServicer, ControllerServicer, NodeServicer
 
 from models.models import Volume, StoragePool
 from storage.infrastructure.hybrid_storage import HybridStorageManager
 
-class CSIDriver(IdentityServicer,
-               ControllerServicer,
-               NodeServicer):
+class CSIDriver(csi_pb2_grpc.IdentityServicer,
+               csi_pb2_grpc.ControllerServicer,
+               csi_pb2_grpc.NodeServicer):
     """CSI driver implementation for hybrid cloud storage"""
 
     def __init__(self, storage_manager: HybridStorageManager):
