@@ -36,6 +36,26 @@ class CSIDriver(csi_pb2_grpc.IdentityServicer,
 
         self.k8s_api = client.CustomObjectsApi()
 
+    def GetPluginInfo(self, request, context):
+        """Return plugin info"""
+        return csi_pb2.GetPluginInfoResponse(
+            name="dfs.csi.k8s.io",
+            vendor_version="v1.0.0"
+        )
+
+    def GetPluginCapabilities(self, request, context):
+        """Return plugin capabilities"""
+        cap = csi_pb2.PluginCapability(
+            service=csi_pb2.PluginCapability.Service(
+                type=csi_pb2.PluginCapability.Service.CONTROLLER_SERVICE
+            )
+        )
+        return csi_pb2.GetPluginCapabilitiesResponse(capabilities=[cap])
+
+    def Probe(self, request, context):
+        """Health check"""
+        return csi_pb2.ProbeResponse(ready=True)
+
     def CreateVolume(self, request, context):
         """Create a new volume"""
         try:
@@ -44,172 +64,123 @@ class CSIDriver(csi_pb2_grpc.IdentityServicer,
             capacity = request.capacity_range.required_bytes
             parameters = request.parameters
 
-            # Determine storage class and tier
-            storage_class = parameters.get("storageClass", "standard")
-            tier = parameters.get("tier", "performance")
-
             # Create volume
             volume = self.storage_manager.create_volume(
                 name=name,
                 size=capacity,
-                storage_class=storage_class,
-                tier=tier
+                parameters=parameters
             )
-
-            self.volumes[volume.id] = volume
-
-            # Create volume metadata
-            topology = {
-                "segments": {
-                    "kubernetes.io/hostname": self.node_id
-                }
-            }
 
             return csi_pb2.CreateVolumeResponse(
-                volume={
-                    "volume_id": volume.id,
-                    "capacity_bytes": capacity,
-                    "volume_context": parameters,
-                    "accessible_topology": [topology]
-                }
+                volume=csi_pb2.Volume(
+                    volume_id=volume.id,
+                    capacity_bytes=volume.size,
+                    volume_context=volume.parameters
+                )
             )
-
         except Exception as e:
-            self.logger.error(f"CreateVolume failed: {str(e)}")
+            self.logger.error(f"Failed to create volume: {str(e)}")
             context.set_code(grpc.StatusCode.INTERNAL)
-            context.set_details(str(e))
+            context.set_details(f"Failed to create volume: {str(e)}")
             return csi_pb2.CreateVolumeResponse()
 
     def DeleteVolume(self, request, context):
         """Delete a volume"""
         try:
             volume_id = request.volume_id
-            if volume_id in self.volumes:
-                self.storage_manager.delete_volume(volume_id)
-                del self.volumes[volume_id]
+            self.storage_manager.delete_volume(volume_id)
             return csi_pb2.DeleteVolumeResponse()
-
         except Exception as e:
-            self.logger.error(f"DeleteVolume failed: {str(e)}")
+            self.logger.error(f"Failed to delete volume: {str(e)}")
             context.set_code(grpc.StatusCode.INTERNAL)
-            context.set_details(str(e))
+            context.set_details(f"Failed to delete volume: {str(e)}")
             return csi_pb2.DeleteVolumeResponse()
-
-    def ControllerPublishVolume(self, request, context):
-        """Publish volume to a node"""
-        try:
-            volume_id = request.volume_id
-            node_id = request.node_id
-
-            if volume_id not in self.volumes:
-                context.set_code(grpc.StatusCode.NOT_FOUND)
-                return csi_pb2.ControllerPublishVolumeResponse()
-
-            # Attach volume to node
-            volume = self.volumes[volume_id]
-            publish_context = {
-                "device_path": str(self.storage_manager.get_volume_path(volume))
-            }
-
-            return csi_pb2.ControllerPublishVolumeResponse(
-                publish_context=publish_context
-            )
-
-        except Exception as e:
-            self.logger.error(f"ControllerPublishVolume failed: {str(e)}")
-            context.set_code(grpc.StatusCode.INTERNAL)
-            context.set_details(str(e))
-            return csi_pb2.ControllerPublishVolumeResponse()
 
     def NodeStageVolume(self, request, context):
-        """Stage volume on a node"""
+        """Stage a volume on a node"""
         try:
             volume_id = request.volume_id
             staging_path = request.staging_target_path
+            volume_context = request.volume_context
 
-            if volume_id not in self.volumes:
-                context.set_code(grpc.StatusCode.NOT_FOUND)
-                return csi_pb2.NodeStageVolumeResponse()
-
-            # Stage volume
-            volume = self.volumes[volume_id]
-            os.makedirs(staging_path, exist_ok=True)
-
-            # Mount volume
-            device_path = request.publish_context["device_path"]
-            self._mount_volume(device_path, staging_path)
+            # Stage the volume
+            self.storage_manager.stage_volume(
+                volume_id=volume_id,
+                staging_path=staging_path,
+                volume_context=volume_context
+            )
 
             return csi_pb2.NodeStageVolumeResponse()
-
         except Exception as e:
-            self.logger.error(f"NodeStageVolume failed: {str(e)}")
+            self.logger.error(f"Failed to stage volume: {str(e)}")
             context.set_code(grpc.StatusCode.INTERNAL)
-            context.set_details(str(e))
+            context.set_details(f"Failed to stage volume: {str(e)}")
             return csi_pb2.NodeStageVolumeResponse()
 
     def NodePublishVolume(self, request, context):
-        """Publish volume on a node"""
+        """Publish a volume on a node"""
         try:
             volume_id = request.volume_id
             target_path = request.target_path
-
-            if volume_id not in self.volumes:
-                context.set_code(grpc.StatusCode.NOT_FOUND)
-                return csi_pb2.NodePublishVolumeResponse()
-
-            # Create mount point
-            os.makedirs(target_path, exist_ok=True)
-
-            # Bind mount from staging to target
             staging_path = request.staging_target_path
-            self._bind_mount(staging_path, target_path)
+            volume_context = request.volume_context
 
-            return csi_pb2.NodePublishVolumeResponse()
-
-        except Exception as e:
-            self.logger.error(f"NodePublishVolume failed: {str(e)}")
-            context.set_code(grpc.StatusCode.INTERNAL)
-            context.set_details(str(e))
-            return csi_pb2.NodePublishVolumeResponse()
-
-    def GetCapacity(self, request, context):
-        """Get storage capacity"""
-        try:
-            # Get total and available capacity
-            total, available = self.storage_manager.get_capacity()
-
-            return csi_pb2.GetCapacityResponse(
-                available_capacity=available
+            # Mount the volume
+            self.storage_manager.publish_volume(
+                volume_id=volume_id,
+                staging_path=staging_path,
+                target_path=target_path,
+                volume_context=volume_context
             )
 
+            return csi_pb2.NodePublishVolumeResponse()
         except Exception as e:
-            self.logger.error(f"GetCapacity failed: {str(e)}")
+            self.logger.error(f"Failed to publish volume: {str(e)}")
             context.set_code(grpc.StatusCode.INTERNAL)
-            context.set_details(str(e))
-            return csi_pb2.GetCapacityResponse()
+            context.set_details(f"Failed to publish volume: {str(e)}")
+            return csi_pb2.NodePublishVolumeResponse()
 
-    def _mount_volume(self, source: str, target: str) -> None:
-        """Mount a volume"""
-        os.system(f"mount {source} {target}")
+    def NodeGetCapabilities(self, request, context):
+        """Return node capabilities"""
+        cap = csi_pb2.NodeServiceCapability(
+            rpc=csi_pb2.NodeServiceCapability.RPC(
+                type=csi_pb2.NodeServiceCapability.RPC.STAGE_UNSTAGE_VOLUME
+            )
+        )
+        return csi_pb2.NodeGetCapabilitiesResponse(capabilities=[cap])
 
-    def _bind_mount(self, source: str, target: str) -> None:
-        """Create a bind mount"""
-        os.system(f"mount --bind {source} {target}")
+def serve(mode: str = "node", endpoint: str = "unix:///csi/csi.sock"):
+    """Start the CSI driver server"""
+    # Create storage manager
+    storage_manager = HybridStorageManager()
 
-def serve(storage_manager: HybridStorageManager,
-         endpoint: str = "unix:///csi/csi.sock",
-         max_workers: int = 10):
-    """Start the CSI driver server."""
-    server = grpc.server(futures.ThreadPoolExecutor(max_workers=max_workers))
+    # Create gRPC server
+    server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
     driver = CSIDriver(storage_manager)
-    
-    # Register services
+
+    # Add servicers to server
     csi_pb2_grpc.add_IdentityServicer_to_server(driver, server)
-    csi_pb2_grpc.add_ControllerServicer_to_server(driver, server)
-    csi_pb2_grpc.add_NodeServicer_to_server(driver, server)
-    
+    if mode == "controller":
+        csi_pb2_grpc.add_ControllerServicer_to_server(driver, server)
+    else:
+        csi_pb2_grpc.add_NodeServicer_to_server(driver, server)
+
     # Start server
     server.add_insecure_port(endpoint)
     server.start()
-    
-    return server
+
+    try:
+        while True:
+            time.sleep(3600)
+    except KeyboardInterrupt:
+        server.stop(0)
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="CSI Driver")
+    parser.add_argument("--mode", choices=["controller", "node"], default="node",
+                      help="Driver mode (controller or node)")
+    parser.add_argument("--endpoint", default="unix:///csi/csi.sock",
+                      help="CSI endpoint")
+    args = parser.parse_args()
+
+    serve(mode=args.mode, endpoint=args.endpoint)

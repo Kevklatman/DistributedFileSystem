@@ -2,6 +2,7 @@ apiVersion: storage.k8s.io/v1
 kind: StorageClass
 metadata:
   name: dfs-hybrid-storage
+  namespace: dfs-development
 provisioner: dfs.csi.k8s.io
 reclaimPolicy: Delete
 volumeBindingMode: WaitForFirstConsumer
@@ -9,3 +10,6 @@ allowVolumeExpansion: true
 parameters:
   type: "hybrid"
   minikube.storage.path: "/data/dfs"
+  storageClass: "standard"
+  tier: "performance"
+  minikubePath: "/data/dfs"
