@@ -4,6 +4,8 @@ metadata:
   name: dfs-storage-node
   labels:
     app: dfs-storage-node
+    app.kubernetes.io/name: dfs-storage-node
+    app.kubernetes.io/part-of: distributed-file-system
 spec:
   serviceName: dfs-storage-service
   replicas: 3
@@ -14,12 +16,14 @@ spec:
     metadata:
       labels:
         app: dfs-storage-node
+        app.kubernetes.io/name: dfs-storage-node
+        app.kubernetes.io/part-of: distributed-file-system
     spec:
       serviceAccountName: storage-node-sa
       containers:
       - name: storage-node
         image: dfs-storage-node:latest
-        imagePullPolicy: Never
+        imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 8080
           name: http

@@ -70,7 +70,7 @@ spec:
       containers:
         - name: csi-controller
           image: dfs-csi-driver:latest
-          imagePullPolicy: Never
+          imagePullPolicy: IfNotPresent
           env:
             - name: MODE
               value: "controller"
@@ -106,7 +106,7 @@ spec:
       containers:
         - name: csi-node-driver
           image: dfs-csi-driver:latest
-          imagePullPolicy: Never
+          imagePullPolicy: IfNotPresent
           env:
             - name: MODE
               value: "node"

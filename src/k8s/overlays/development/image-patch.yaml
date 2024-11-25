@@ -1,0 +1,32 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: dfs-storage-node
+spec:
+  template:
+    spec:
+      containers:
+      - name: storage-node
+        imagePullPolicy: IfNotPresent
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dfs-csi-controller
+spec:
+  template:
+    spec:
+      containers:
+      - name: csi-controller
+        imagePullPolicy: IfNotPresent
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: dfs-csi-node
+spec:
+  template:
+    spec:
+      containers:
+      - name: csi-node-driver
+        imagePullPolicy: IfNotPresent

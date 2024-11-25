@@ -1,0 +1,53 @@
+apiVersion: skaffold/v4beta5
+kind: Config
+metadata:
+  name: distributed-file-system
+build:
+  artifacts:
+    - image: dfs-storage-node
+      context: src/storage-node
+      docker:
+        dockerfile: Dockerfile
+    - image: dfs-csi-driver
+      context: src/csi
+      docker:
+        dockerfile: Dockerfile
+    - image: dfs-api
+      context: src/api
+      docker:
+        dockerfile: Dockerfile
+    - image: dfs-monitoring
+      context: src/monitoring
+      docker:
+        dockerfile: Dockerfile
+  local:
+    push: false
+    useBuildkit: true
+
+deploy:
+  kubectl: {}
+
+profiles:
+  - name: dev
+    activation:
+      - kubeContext: docker-desktop
+    patches:
+      - op: add
+        path: /build/local/push
+        value: false
+    deploy:
+      kubectl:
+        manifests:
+          - src/k8s/base/*
+          - src/k8s/overlays/development/*
+
+  - name: prod
+    patches:
+      - op: add
+        path: /build/local/push
+        value: true
+    deploy:
+      kubectl:
+        manifests:
+          - src/k8s/base/*
+          - src/k8s/overlays/production/*
