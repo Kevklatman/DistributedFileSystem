@@ -63,6 +63,193 @@ A scalable and resilient distributed file system implementation in Python, featu
   - Quick recovery options
   - Data encryption at rest and in transit
 
+## Recent Updates
+
+### S3-Compatible API Improvements
+- Enhanced async operation handling in S3 routes
+- Improved error handling and response formatting
+- Added proper event loop management
+- Implemented S3-compatible response headers
+- Added support for basic S3 operations (PUT, GET, DELETE)
+
+### System Infrastructure
+- Improved cluster manager initialization
+- Enhanced async/sync compatibility across components
+- Added development mode support
+- Implemented proper leader election in non-Kubernetes environments
+- Added robust error handling and logging
+
+### Development Tools
+- Added `start_dfs.sh` script for easy system startup
+  - Manages both Flask app and Kubernetes cluster
+  - Handles environment variables
+  - Provides proper cleanup on exit
+  - Includes color-coded status messages
+  - Automatic dependency checking
+
+### Environment Configuration
+- Standardized environment variables:
+  - `STORAGE_ROOT`: Data storage location
+  - `NODE_ID`: Node identification
+  - `CLOUD_PROVIDER_TYPE`: Cloud provider selection
+  - `FLASK_APP`: Flask application path
+  - `FLASK_ENV`: Flask environment setting
+
+### Testing and Debugging
+- Enhanced test script compatibility
+- Added comprehensive error logging
+- Improved async operation testing
+- Added S3 operation test cases
+
+## System Architecture and Data Flow
+
+### Overview
+The distributed file system implements a layered architecture with clear separation of concerns:
+
+```
+Client Request → API Layer → Service Layer → Storage Backend → Infrastructure
+```
+
+### Component Layers
+
+1. **API Layer**:
+   - Entry point through Flask app (`app.py`)
+   - Three API interfaces:
+     - S3-compatible API (`/s3`)
+     - AWS S3-compatible API (`/aws-s3`)
+     - Advanced storage API (`/storage`)
+
+2. **Service Layer**:
+   - `FileSystemManager`: Coordinates storage operations
+   - `SystemService`: Handles system-level operations
+   - `AdvancedStorageService`: Manages advanced storage features
+
+3. **Storage Backend**:
+   - Abstract `StorageBackend` base class
+   - Implementations:
+     - `LocalStorageBackend`: Local file system storage
+     - `AWSStorageBackend`: AWS S3 storage
+   - Factory pattern for backend selection
+
+4. **Infrastructure Layer**:
+   ```
+   ActiveNode → LoadManager → StorageNode
+       ↓            ↓            ↓
+   Consistency   Replication   Cache
+   Manager      Manager       Store
+   ```
+
+### Data Flow and Operations
+
+1. **Data Consistency**:
+   - Three consistency levels:
+     - Strong: All nodes must be in sync
+     - Quorum: Majority of nodes must agree
+     - Eventual: Updates propagate over time
+   - Version tracking for conflict resolution
+
+2. **Caching System**:
+   ```
+   Edge Cache → Node Cache → Storage Cache
+   ```
+   - Cache coherency maintained by ConsistencyManager
+   - TTL-based invalidation
+
+3. **Load Management**:
+   - Metrics tracked:
+     - CPU usage
+     - Memory usage
+     - Disk I/O
+     - Network I/O
+     - Request rate
+   - Dynamic load balancing
+   - Resource optimization
+
+4. **Replication Flow**:
+   ```
+   Write Request → Primary Node → Replication Manager → Secondary Nodes (async) → Consistency Check
+   ```
+
+### Monitoring & Error Handling
+- Prometheus metrics collection
+- Health checks and performance monitoring
+- Cascading error propagation
+- Automatic retry mechanisms
+- Fallback strategies
+- Comprehensive error logging
+
+## API Endpoints
+
+### S3-Compatible API (`/s3`)
+
+#### Bucket Operations
+```
+GET    /s3/                     # List all buckets
+PUT    /s3/{bucket}            # Create bucket
+DELETE /s3/{bucket}            # Delete bucket
+GET    /s3/{bucket}            # List bucket contents
+```
+
+#### Object Operations
+```
+PUT    /s3/{bucket}/{key}      # Upload object
+GET    /s3/{bucket}/{key}      # Download object
+DELETE /s3/{bucket}/{key}      # Delete object
+HEAD   /s3/{bucket}/{key}      # Get object metadata
+```
+
+#### Advanced Operations
+```
+POST   /s3/{bucket}/{key}?uploads            # Initiate multipart upload
+PUT    /s3/{bucket}/{key}?partNumber={num}   # Upload part
+POST   /s3/{bucket}/{key}?complete           # Complete multipart upload
+```
+
+### AWS S3-Compatible API (`/aws-s3`)
+
+#### Standard Operations
+```
+GET    /aws-s3/                          # List all buckets
+PUT    /aws-s3/{bucket}                 # Create bucket
+DELETE /aws-s3/{bucket}                 # Delete bucket
+GET    /aws-s3/{bucket}                 # List bucket contents
+PUT    /aws-s3/{bucket}/{key}           # Upload object
+GET    /aws-s3/{bucket}/{key}           # Download object
+DELETE /aws-s3/{bucket}/{key}           # Delete object
+HEAD   /aws-s3/{bucket}/{key}           # Get object metadata
+```
+
+### Advanced Storage API (`/storage`)
+
+#### Volume Management
+```
+GET    /storage/volumes                  # List volumes
+POST   /storage/volumes                  # Create volume
+DELETE /storage/volumes/{id}             # Delete volume
+GET    /storage/volumes/{id}             # Get volume info
+PUT    /storage/volumes/{id}             # Update volume
+```
+
+#### Node Management
+```
+GET    /storage/nodes                    # List nodes
+POST   /storage/nodes                    # Register node
+DELETE /storage/nodes/{id}               # Remove node
+GET    /storage/nodes/{id}               # Get node info
+PUT    /storage/nodes/{id}               # Update node
+```
+
+#### System Operations
+```
+GET    /storage/health                   # System health check
+GET    /storage/metrics                  # System metrics
+POST   /storage/snapshot                 # Create system snapshot
+GET    /storage/config                   # Get system configuration
+PUT    /storage/config                   # Update system configuration
+```
+
+All endpoints support proper error handling and return appropriate HTTP status codes. Authentication is required for all operations.
+
 ## Architecture
 
 ### Core Components
@@ -202,265 +389,62 @@ src/
     └── run_tests.py  # Test runner
 ```
 
-## Development
-
-### Requirements
-
-#### System Requirements
-- Python 3.8.13 or higher
-- Docker 20.10.0 or higher
-- Kubernetes 1.20.0 or higher
-- 8GB RAM minimum (16GB recommended)
-- 4 CPU cores minimum
-
-#### Software Dependencies
-- kubectl CLI tool
-- aiohttp for async operations
-- pytest and pytest-asyncio for testing
-- kubernetes-client for K8s operations
-- Cloud provider SDKs:
-  - azure-storage-blob
-  - google-cloud-storage
-
-### Installation
+## Quick Start
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/distributed-file-system.git
-cd distributed-file-system
+git clone https://github.com/yourusername/DistributedFileSystem.git
+cd DistributedFileSystem
 ```
 
-2. Create and activate virtual environment:
+2. Set up the environment:
 ```bash
-python -m venv venv
-source venv/bin/activate  # Linux/Mac
-.\venv\Scripts\activate  # Windows
-```
-
-3. Install dependencies:
-```bash
+python -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
-pip install -r test-requirements.txt  # for development
 ```
 
-4. Configure environment:
+3. Start the system:
 ```bash
-source ./src/scripts/dfs-env.sh
-dfs-setup-env
+./src/scripts/start_dfs.sh
 ```
 
-### Management Scripts
+The system will:
+- Start Minikube if not running
+- Apply Kubernetes configurations
+- Start the Flask application
+- Set up necessary environment variables
 
-#### Node Management
+Access the services:
+- Flask API: http://localhost:8001
+- Kubernetes dashboard: Use `minikube dashboard`
+
+## Development Setup
+
+### Prerequisites
+- Python 3.8.13 or higher
+- Minikube
+- kubectl
+- Virtual environment
+
+### Environment Variables
 ```bash
-# Create new storage node
-./src/scripts/node_management.py create --name node1 --size 100GB
-
-# Monitor specific nodes
-./src/scripts/node_management.py monitor --nodes node1,node2 --metrics cpu,memory,iops
-
-# Deploy cluster
-./src/scripts/node_management.py deploy --config cluster_config.yaml --replicas 3
-
-# Scale cluster
-./src/scripts/node_management.py scale --nodes 5 --storage-class ssd
-```
-
-#### Environment Management
-```bash
-# Initialize development environment
-source ./src/scripts/dfs-env.sh
-
-# Available commands
-dfs-setup-env           # Initialize environment
-dfs-deploy-cluster     # Deploy local cluster
-dfs-run-tests         # Execute test suite
-dfs-cleanup           # Clean environment
-dfs-monitor          # Monitor cluster health
-dfs-logs            # View system logs
-```
-
-#### Cloud Provider Testing
-```bash
-# Test all providers
-./src/scripts/cloud_provider_tests.py --provider all
-
-# Test specific provider
-./src/scripts/cloud_provider_tests.py --provider azure --container test-container
-./src/scripts/cloud_provider_tests.py --provider gcp --bucket test-bucket
-
-# Run performance tests
-./src/scripts/cloud_provider_tests.py --provider all --performance-test
+export STORAGE_ROOT="/path/to/data/dfs"
+export NODE_ID="test-node-1"
+export CLOUD_PROVIDER_TYPE="aws"
+export FLASK_APP="src/api/app.py"
+export FLASK_ENV="development"
 ```
 
 ### Running Tests
-
-#### Unit Tests
 ```bash
-# Run all unit tests
-pytest src/tests/unit
-
-# Run specific test module
-pytest src/tests/unit/test_replication.py
-
-# Run with coverage
-pytest --cov=src src/tests/unit
-```
-
-#### Integration Tests
-```bash
-# Run all integration tests
-pytest src/tests/integration
-
-# Run specific integration test
-pytest src/tests/integration/test_cluster_deployment.py
-
-# Run with detailed logging
-pytest -v --log-cli-level=INFO src/tests/integration
-```
-
-### Kubernetes Deployment
-
-#### Local Development (Minikube)
-```bash
-# Start local cluster
-minikube start --cpus 4 --memory 8192
-
-# Deploy DFS
-kubectl apply -k k8s/overlays/development
-
-# Access dashboard
-minikube dashboard
-```
-
-#### Production Deployment
-```bash
-# Deploy to production
-kubectl apply -k k8s/overlays/production
-
-# Scale deployment
-kubectl scale deployment dfs-nodes --replicas=5
-
-# Monitor deployment
-kubectl get pods -w
-```
-
-### Configuration
-
-#### Cluster Configuration
-Edit `src/scripts/cluster_config.yaml`:
-```yaml
-cluster:
-  name: dfs-cluster
-  replicas: 3
-  storage_class: ssd
-  consistency_level: strong
-
-nodes:
-  resources:
-    cpu: 2
-    memory: 4Gi
-    storage: 100Gi
-  
-monitoring:
-  enabled: true
-  metrics:
-    - cpu
-    - memory
-    - iops
-    - latency
-```
-
-#### Cloud Provider Configuration
-Set up cloud provider credentials:
-```bash
-# Azure
-export AZURE_STORAGE_ACCOUNT="your_account"
-export AZURE_STORAGE_KEY="your_key"
-
-# GCP
-export GOOGLE_APPLICATION_CREDENTIALS="path/to/credentials.json"
-export GOOGLE_CLOUD_PROJECT="your_project"
+pytest tests/
 ```
 
 ## Contributing
 
-1. Fork the repository
-2. Create your feature branch:
-```bash
-git checkout -b feature/amazing-feature
-```
-
-3. Make your changes:
-- Follow Python style guide (PEP 8)
-- Add unit tests for new features
-- Update documentation as needed
-
-4. Commit your changes:
-```bash
-git commit -m 'Add amazing feature'
-```
-
-5. Push to the branch:
-```bash
-git push origin feature/amazing-feature
-```
-
-6. Open a Pull Request
-
-### Development Guidelines
-- Write clean, documented code
-- Follow async/await patterns
-- Include comprehensive tests
-- Update README for significant changes
-- Add type hints to all functions
+Please read our [Contributing Guidelines](CONTRIBUTING.md) for details on our code of conduct and the process for submitting pull requests.
 
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## Acknowledgments
-
-- Built with modern Python async/await patterns
-- Implements industry-standard consistency models
-- Kubernetes-native deployment support
-- Cloud provider integrations
-- Community contributions welcome
-# flow
-Request Flow:
-Code
-CopyInsert
-Client Request → S3 API → System Service → Infrastructure Components
-                                      ↓
-                         Storage   Cluster   Protection   Replication
-                         Backend   Manager   Manager      Manager
-Data Operations:
-Requests go through consistency checks
-Data is protected and encrypted
-Operations are replicated as needed
-Load is balanced across nodes
-System Management:
-Health monitoring
-Cluster coordination
-Resource optimization
-Graceful shutdown
-To use the system:
-
-Set environment variables:
-bash
-CopyInsert
-export STORAGE_ROOT=/data/dfs
-export AWS_ACCESS_KEY=your_key  # If using AWS backend
-export AWS_SECRET_KEY=your_secret
-The API supports:
-S3-compatible endpoints (/s3/...)
-AWS S3 endpoints (/aws-s3/...)
-System status (/s3/system/status)
-Features available:
-Bucket operations (create, delete, list)
-Object operations (put, get, delete)
-System monitoring
-Data protection
-Load balancing
-
-

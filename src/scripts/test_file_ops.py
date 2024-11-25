@@ -11,8 +11,8 @@ os.environ['NODE_ID'] = 'test-node-1'
 os.environ['CLOUD_PROVIDER_TYPE'] = 'aws'
 
 # API endpoints
-API_BASE = "http://localhost:8001"  # Flask API
-NODE_BASE = "http://localhost:8001"  # Storage Node
+API_BASE = "http://localhost:8080"  # Flask API
+NODE_BASE = "http://localhost:8080"  # Storage Node
 
 def test_file_operations():
     """Test basic file operations through the API."""
