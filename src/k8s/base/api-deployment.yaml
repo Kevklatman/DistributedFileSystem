@@ -1,3 +1,26 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dfs-api-files
+data:
+  requirements.txt: |
+    flask==2.0.1
+    flask-cors==4.0.0
+    flask-restx==1.1.0
+    gunicorn==21.2.0
+    python-dotenv==1.0.0
+    xmltodict==0.13.0
+    werkzeug==2.0.3
+    kubernetes==29.0.0
+    aiohttp==3.9.1
+    asyncio==3.4.3
+    prometheus-client==0.17.1
+    psutil==5.9.6
+    pytest>=7.4.0
+    pytest-mock>=3.11.1
+    matplotlib>=3.7.0
+    numpy>=1.24.0
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -16,29 +39,36 @@ spec:
     spec:
       containers:
       - name: dfs-api
-        image: localhost:61478/dfs_core:latest
-        imagePullPolicy: Always
-        command: ["python", "-m", "api.app"]
+        image: python:3.9-slim
+        imagePullPolicy: IfNotPresent
+        command: 
+        - /bin/sh
+        - -c
+        - |
+          pip install -r /app/requirements.txt
+          python -m api.app
         ports:
         - containerPort: 8080
         env:
         - name: PYTHONPATH
-          value: "/app/src"
-        - name: LOCAL_STORAGE_DIR
-          value: "/app/storage"
-        - name: API_HOST
-          value: "0.0.0.0"
-        - name: API_PORT
-          value: "8080"
-        - name: FLASK_ENV
-          value: "production"
+          value: /app/src
         volumeMounts:
         - name: storage-volume
           mountPath: /app/storage
+        - name: api-files
+          mountPath: /app/requirements.txt
+          subPath: requirements.txt
+        - name: src-files
+          mountPath: /app/src
       volumes:
       - name: storage-volume
-        persistentVolumeClaim:
-          claimName: dfs-storage-claim
+        emptyDir: {}
+      - name: api-files
+        configMap:
+          name: dfs-api-files
+      - name: src-files
+        hostPath:
+          path: /Users/kevinklatman/Development/Code/DistributedFileSystem/src
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
