@@ -7,8 +7,10 @@ import shutil
 from typing import Optional, Dict, List, Any, BinaryIO
 import logging
 from datetime import datetime
-from src.api.services.fs_manager import FileSystemManager
+from ...api.services.fs_manager import FileSystemManager
 from .base import StorageBackend
+import uuid
+import hashlib
 
 logger = logging.getLogger(__name__)
 
@@ -16,22 +18,33 @@ class LocalStorageBackend(StorageBackend):
     """Local filesystem storage backend implementation"""
 
     def __init__(self, fs_manager: FileSystemManager):
+        """Initialize local storage backend.
+        
+        Args:
+            fs_manager: Filesystem manager for handling local storage
+        """
         super().__init__(fs_manager)
+        self.fs_manager = fs_manager
+        
+        # Use storage root from environment or default to data directory
+        storage_root = os.environ.get('STORAGE_ROOT', os.path.join(os.getcwd(), 'data', 'dfs'))
+        self.data_root = os.path.join(storage_root, 'data')
+        
+        try:
+            # Create storage directories if they don't exist
+            os.makedirs(storage_root, exist_ok=True)
+            os.makedirs(self.data_root, exist_ok=True)
+            logger.info(f"Initialized local storage backend at {storage_root}")
+        except Exception as e:
+            logger.error(f"Failed to create data directory: {str(e)}")
+            raise RuntimeError("Failed to create data directory")
+
         self.buckets = {}  # In-memory bucket storage
         self.node_status = {}  # Track node status
         self.node_last_seen = {}  # Track last seen time for each node
         self.multipart_uploads = {}  # Track multipart uploads
         self.versions = {}  # Track object versions
         self.versioning = {}  # Track versioning status
-
-        # Create root directory for buckets if it doesn't exist
-        try:
-            if not self.fs_manager.createDirectory('/buckets'):
-                logger.error("Failed to create root buckets directory")
-                raise RuntimeError("Failed to create root buckets directory")
-        except Exception as e:
-            logger.error(f"Error initializing storage backend: {e}")
-            raise
 
         # Initialize buckets from filesystem
         self._init_buckets_from_fs()
@@ -63,84 +76,138 @@ class LocalStorageBackend(StorageBackend):
             if (now - self.node_last_seen[node_id]).seconds > 30:
                 self.node_status[node_id] = 'unhealthy'
 
-    def get_object(self, bucket_name: str, object_key: str, consistency_level: str = 'eventual'):
-        """Get an object with specified consistency level"""
+    def create_bucket(self, bucket_name: str) -> bool:
+        """Create a new bucket.
+        
+        Args:
+            bucket_name: Name of bucket to create
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
         try:
-            self._check_node_health()
-            if not self._check_consistency(consistency_level):
-                raise Exception(f"Cannot satisfy {consistency_level} consistency")
-
-            full_path = os.path.join(bucket_name, object_key)
-            return self.fs_manager.read_file(full_path)
+            bucket_path = os.path.join(self.data_root, bucket_name)
+            os.makedirs(bucket_path, exist_ok=True)
+            return True
         except Exception as e:
-            logger.error(f"Failed to get object {object_key} from bucket {bucket_name}: {str(e)}")
-            return None
-
-    def put_object(self, bucket_name: str, object_key: str, data: BinaryIO, consistency_level: str = 'eventual'):
-        """Put an object with specified consistency level"""
-        try:
-            self._check_node_health()
-            if not self._check_consistency(consistency_level):
-                raise Exception(f"Cannot satisfy {consistency_level} consistency")
-
-            return super().put_object(bucket_name, object_key, data)
-        except Exception as e:
-            logger.error(f"Failed to put object {object_key} in bucket {bucket_name}: {str(e)}")
+            logger.error(f"Error creating bucket {bucket_name}: {str(e)}")
             return False
 
-    def _init_buckets_from_fs(self):
-        """Initialize buckets from the filesystem"""
+    def delete_bucket(self, bucket_name: str) -> bool:
+        """Delete a bucket.
+        
+        Args:
+            bucket_name: Name of bucket to delete
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
         try:
-            buckets = self.fs_manager.list_directories()
-            for bucket in buckets:
-                self.buckets[bucket] = {
-                    'name': bucket,
-                    'creation_date': datetime.now(),
-                    'versioning': False
-                }
+            bucket_path = os.path.join(self.data_root, bucket_name)
+            if os.path.exists(bucket_path):
+                os.rmdir(bucket_path)
+            return True
         except Exception as e:
-            logger.error(f"Failed to initialize buckets from filesystem: {str(e)}")
-
-    def create_bucket(self, bucket_name: str, consistency_level: str = 'eventual'):
-        """Create a new bucket"""
-        try:
-            self._check_node_health()
-            if not self._check_consistency(consistency_level):
-                raise Exception(f"Cannot satisfy {consistency_level} consistency")
-
-            if super().create_bucket(bucket_name):
-                self.buckets[bucket_name] = {
-                    'name': bucket_name,
-                    'creation_date': datetime.now(),
-                    'versioning': False
-                }
-                return True
-            return False
-        except Exception as e:
-            logger.error(f"Failed to create bucket {bucket_name}: {str(e)}")
+            logger.error(f"Error deleting bucket {bucket_name}: {str(e)}")
             return False
 
-    def list_objects(self, bucket_name: str, consistency_level: str = 'eventual'):
-        """List objects in a bucket"""
+    def list_buckets(self) -> List[str]:
+        """List all buckets.
+        
+        Returns:
+            List[str]: List of bucket names
+        """
         try:
-            self._check_node_health()
-            if not self._check_consistency(consistency_level):
-                raise Exception(f"Cannot satisfy {consistency_level} consistency")
-
-            objects = self.fs_manager.list_files(bucket_name)
-            return [{"Key": obj} for obj in objects]
+            return [d for d in os.listdir(self.data_root) 
+                   if os.path.isdir(os.path.join(self.data_root, d))]
         except Exception as e:
-            logger.error(f"Failed to list objects in bucket {bucket_name}: {str(e)}")
+            logger.error(f"Error listing buckets: {str(e)}")
             return []
 
-    def delete_object(self, bucket_name: str, object_key: str):
-        """Delete an object"""
+    def put_object(self, bucket_name: str, object_key: str, data: bytes) -> bool:
+        """Put an object into a bucket.
+        
+        Args:
+            bucket_name: Name of bucket
+            object_key: Key of object
+            data: Object data
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
         try:
-            full_path = os.path.join(bucket_name, object_key)
-            return self.fs_manager.delete_file(full_path)
+            bucket_path = os.path.join(self.data_root, bucket_name)
+            if not os.path.exists(bucket_path):
+                return False
+                
+            object_path = os.path.join(bucket_path, object_key)
+            os.makedirs(os.path.dirname(object_path), exist_ok=True)
+            with open(object_path, 'wb') as f:
+                f.write(data)
+            return True
         except Exception as e:
-            logger.error(f"Failed to delete object {object_key} from bucket {bucket_name}: {str(e)}")
+            logger.error(f"Error putting object {object_key}: {str(e)}")
             return False
+
+    def get_object(self, bucket_name: str, object_key: str) -> Optional[bytes]:
+        """Get an object from a bucket.
+        
+        Args:
+            bucket_name: Name of bucket
+            object_key: Key of object
+            
+        Returns:
+            Optional[bytes]: Object data if found, None otherwise
+        """
+        try:
+            object_path = os.path.join(self.data_root, bucket_name, object_key)
+            if not os.path.exists(object_path):
+                return None
+                
+            with open(object_path, 'rb') as f:
+                return f.read()
+        except Exception as e:
+            logger.error(f"Error getting object {object_key}: {str(e)}")
+            return None
+
+    def delete_object(self, bucket_name: str, object_key: str) -> bool:
+        """Delete an object from a bucket.
+        
+        Args:
+            bucket_name: Name of bucket
+            object_key: Key of object
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            object_path = os.path.join(self.data_root, bucket_name, object_key)
+            if os.path.exists(object_path):
+                os.remove(object_path)
+            return True
+        except Exception as e:
+            logger.error(f"Error deleting object {object_key}: {str(e)}")
+            return False
+
+    def list_objects(self, bucket_name: str) -> List[str]:
+        """List objects in a bucket.
+        
+        Args:
+            bucket_name: Name of bucket
+            
+        Returns:
+            List[str]: List of object keys
+        """
+        try:
+            bucket_path = os.path.join(self.data_root, bucket_name)
+            if not os.path.exists(bucket_path):
+                return []
+                
+            return [f for f in os.listdir(bucket_path) 
+                   if os.path.isfile(os.path.join(bucket_path, f))]
+        except Exception as e:
+            logger.error(f"Error listing objects in bucket {bucket_name}: {str(e)}")
+            return []
 
     def create_multipart_upload(self, bucket_name: str, object_key: str):
         """Initialize multipart upload"""
@@ -277,3 +344,16 @@ class LocalStorageBackend(StorageBackend):
                     del self.versions[bucket_name][object_key]
         except Exception as e:
             logger.error(f"Failed to cleanup orphaned data: {str(e)}")
+
+    def _init_buckets_from_fs(self):
+        """Initialize buckets from the filesystem"""
+        try:
+            buckets = self.fs_manager.list_directories()
+            for bucket in buckets:
+                self.buckets[bucket] = {
+                    'name': bucket,
+                    'creation_date': datetime.now(),
+                    'versioning': False
+                }
+        except Exception as e:
+            logger.error(f"Failed to initialize buckets from filesystem: {str(e)}")

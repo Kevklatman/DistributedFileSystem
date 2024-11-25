@@ -100,6 +100,14 @@ class FileSystemManager:
             logger.error(f"Error deleting directory {path}: {e}")
             return False
 
+    def list_directories(self) -> List[str]:
+        """List all directories in the filesystem"""
+        try:
+            return list(self.directories.keys())
+        except Exception as e:
+            logger.error(f"Error listing directories: {e}")
+            return []
+
     def createFile(self, path: str, content: bytes = b'') -> bool:
         """Create a file at the specified path"""
         try:

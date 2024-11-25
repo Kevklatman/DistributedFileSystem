@@ -194,3 +194,10 @@ class LoadManager:
     def get_node_capacity(self, node_id: str) -> float:
         """Get the current capacity of a node."""
         return self.get_capacity()
+
+    def stop_monitoring(self):
+        """Stop the load monitoring process"""
+        self.logger.info("Stopping load monitoring")
+        # Clear metrics history and request timestamps
+        self.metrics_history.clear()
+        self.request_timestamps.clear()

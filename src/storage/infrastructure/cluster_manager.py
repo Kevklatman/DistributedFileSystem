@@ -315,8 +315,13 @@ class StorageClusterManager:
 
     def _get_hostname(self) -> str:
         """Get the hostname of the current node"""
-        pod = self.k8s_api.read_namespaced_pod(self.node_id, self.namespace)
-        return pod.spec.node_name
+        try:
+            pod = self.k8s_api.read_namespaced_pod(self.node_id, self.namespace)
+            return pod.spec.node_name
+        except:
+            # Return local hostname in development mode
+            import socket
+            return socket.gethostname()
 
     def _get_capacity(self) -> int:
         """Get the storage capacity of the current node"""
@@ -325,9 +330,13 @@ class StorageClusterManager:
 
     def _get_zone(self) -> str:
         """Get the zone/region of the current node"""
-        pod = self.k8s_api.read_namespaced_pod(self.node_id, self.namespace)
-        node = self.k8s_api.read_node(pod.spec.node_name)
-        return node.metadata.labels.get("topology.kubernetes.io/zone", "unknown")
+        try:
+            pod = self.k8s_api.read_namespaced_pod(self.node_id, self.namespace)
+            node = self.k8s_api.read_node(pod.spec.node_name)
+            return node.metadata.labels.get("topology.kubernetes.io/zone", "unknown")
+        except:
+            # Return default zone in development mode
+            return "local-dev"
 
     def _update_node_status(self, node_info: StorageNodeInfo):
         """Update node status in the cluster"""
