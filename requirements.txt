@@ -20,3 +20,6 @@ python-snappy==0.7.1
 quart==0.19.4
 quart-cors==0.7.0
 hypercorn==0.15.0
+grpcio==1.68.0
+grpcio-tools==1.68.0
+protobuf==5.28.3
