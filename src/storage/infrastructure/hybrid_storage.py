@@ -1,3 +1,5 @@
+"""Manages hybrid storage operations across on-prem and cloud"""
+
 import os
 import json
 from datetime import datetime, timedelta
@@ -19,7 +21,8 @@ from src.models.models import (
     DataTemperature,
     TieringPolicy,
     HybridStorageSystem,
-    SnapshotState
+    SnapshotState,
+    TierType
 )
 
 logger = logging.getLogger(__name__)
@@ -98,19 +101,19 @@ class HybridStorageManager:
     def _init_storage_pools(self):
         """Initialize default storage pools."""
         if not self.system.storage_pools:
+            # Create default storage location
+            default_location = StorageLocation(
+                type="on_prem",
+                path=str(self.data_path),
+                performance_tier="standard_ssd"
+            )
+
+            # Create default storage pool
             default_pool = StoragePool(
-                id="default",
                 name="Default Storage Pool",
-                location=StorageLocation(
-                    node_id="default",
-                    path=str(self.data_path),
-                    size_bytes=0,
-                    replicas=[],
-                    temperature=DataTemperature.COLD
-                ),
-                capacity_gb=0,  
-                used_gb=0,
-                created_at=datetime.now()
+                location=default_location,
+                total_capacity_gb=1000,  # 1TB default
+                available_capacity_gb=1000
             )
             self.system.storage_pools[default_pool.id] = default_pool
 
@@ -151,8 +154,8 @@ class HybridStorageManager:
             id=pool_id,
             name=name,
             location=location,
-            capacity_gb=capacity_gb,
-            used_gb=0
+            total_capacity_gb=capacity_gb,
+            available_capacity_gb=capacity_gb
         )
 
         # Create pool directory
@@ -198,11 +201,9 @@ class HybridStorageManager:
             try:
                 await self.cloud_provider.create_bucket(bucket_name)
                 volume.cloud_location = StorageLocation(
-                    node_id="cloud",
+                    type="cloud",
                     path=bucket_name,
-                    size_bytes=0,
-                    replicas=[],
-                    temperature=DataTemperature.COLD
+                    performance_tier="standard"
                 )
             except Exception as e:
                 logger.error(f"Failed to create cloud bucket: {e}")

@@ -4,6 +4,7 @@ AWS S3 storage backend implementation.
 
 import os
 import boto3
+from botocore.config import Config
 from typing import Optional, Dict, List, Any, BinaryIO
 import logging
 from datetime import datetime
@@ -43,12 +44,15 @@ class AWSStorageBackend(StorageBackend):
 
     def _create_client(self, region):
         """Create an S3 client for a specific region"""
+        boto_config = Config(
+            signature_version='s3v4',
+            region_name=region
+        )
         return boto3.client(
             's3',
             aws_access_key_id=current_config['access_key'],
             aws_secret_access_key=current_config['secret_key'],
-            region_name=region,
-            config={'signature_version': 's3v4'}
+            config=boto_config
         )
 
     def _get_client_for_bucket(self, bucket_name):

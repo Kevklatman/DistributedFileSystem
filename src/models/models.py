@@ -51,7 +51,7 @@ class StoragePool:
     oversubscription_ratio: float = 1.0  # For thin provisioning
     dedup_state: 'DeduplicationState' = field(default_factory=lambda: DeduplicationState())
     compression_state: 'CompressionState' = field(default_factory=lambda: CompressionState())
-    thin_provisioning_state: 'ThinProvisioningState' = field(default_factory=lambda: ThinProvisioningState())
+    thin_provisioning_state: 'ThinProvisioningState' = field(default_factory=lambda: ThinProvisioningState(allocated_size=0, used_size=0))
     created_at: datetime = field(default_factory=datetime.now)
 
 @dataclass(frozen=True)

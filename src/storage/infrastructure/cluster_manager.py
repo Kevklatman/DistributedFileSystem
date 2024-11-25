@@ -40,6 +40,8 @@ class StorageClusterManager:
         self.current_leader = None
         self._lock = Lock()
         self.start_time = None
+        self._running = False
+        self._heartbeat_task = None
 
         # Initialize kubernetes client
         try:
@@ -91,7 +93,25 @@ class StorageClusterManager:
         logging.info(f"Starting cluster manager for node {self.node_id}")
         self._register_node()
         await self._start_leader_election()
-        asyncio.create_task(self._start_heartbeat())
+        self._heartbeat_task = asyncio.create_task(self._start_heartbeat())
+
+    async def stop(self):
+        """Stop the cluster manager and cleanup resources."""
+        logger.info(f"Stopping cluster manager for node {self.node_id}")
+        self._running = False
+        
+        if self._heartbeat_task:
+            self._heartbeat_task.cancel()
+            try:
+                await self._heartbeat_task
+            except asyncio.CancelledError:
+                pass
+
+        # Remove node from cluster
+        with self._lock:
+            if self.node_id in self.nodes:
+                del self.nodes[self.node_id]
+                logger.info(f"Removed node {self.node_id} from cluster")
 
     def _register_node(self):
         """Register this node with the cluster"""
