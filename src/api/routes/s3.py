@@ -40,6 +40,25 @@ class S3ApiHandler(BaseS3Handler):
         """Handle storage operation using infrastructure manager."""
         return await self.infrastructure.handle_storage_operation(operation, **kwargs)
 
+    def format_error_response(self, error_message: str, status_code: int = 500) -> Response:
+        """Format error response in S3-compatible XML format.
+
+        Args:
+            error_message: Error message to include
+            status_code: HTTP status code
+
+        Returns:
+            Flask Response with XML error message
+        """
+        error_response = {
+            'Error': {
+                'Code': str(status_code),
+                'Message': error_message,
+                'RequestId': hashlib.md5(str(datetime.datetime.now()).encode()).hexdigest()
+            }
+        }
+        return make_response(xmltodict.unparse(error_response), status_code)
+
     def register_basic_routes(self, blueprint):
         """Register basic S3-compatible routes."""
         
