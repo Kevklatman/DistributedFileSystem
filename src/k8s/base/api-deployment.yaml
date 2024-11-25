@@ -45,30 +45,28 @@ spec:
         - /bin/sh
         - -c
         - |
-          pip install -r /app/requirements.txt
-          python -m api.app
-        ports:
-        - containerPort: 8080
+          pip install -r /dfs/requirements.txt
+          cd /dfs && PYTHONPATH=/dfs python -m src.api.app
         env:
         - name: PYTHONPATH
-          value: /app/src
+          value: /dfs
+        - name: FLASK_APP
+          value: src/api/app.py
+        - name: FLASK_ENV
+          value: production
+        ports:
+        - containerPort: 8080
         volumeMounts:
         - name: storage-volume
-          mountPath: /app/storage
-        - name: api-files
-          mountPath: /app/requirements.txt
-          subPath: requirements.txt
-        - name: src-files
-          mountPath: /app/src
+          mountPath: /dfs/storage
+        - name: project-files
+          mountPath: /dfs
       volumes:
       - name: storage-volume
         emptyDir: {}
-      - name: api-files
-        configMap:
-          name: dfs-api-files
-      - name: src-files
+      - name: project-files
         hostPath:
-          path: /Users/kevinklatman/Development/Code/DistributedFileSystem/src
+          path: /dfs
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim

@@ -18,4 +18,3 @@ VOLUME ["/data"]
 EXPOSE 8080
 
 ENTRYPOINT ["/bin/storage-node"]
-ENTRYPOINT ["/bin/storage-node"]
