@@ -3,7 +3,7 @@
 This module implements a simplified S3-compatible API that provides basic object storage
 functionality without the full complexity of AWS S3.
 """
-from flask import request, jsonify, Response, make_response, Blueprint
+from quart import request, Response, Blueprint, make_response
 from werkzeug.exceptions import BadRequest
 import xmltodict
 import datetime
@@ -35,16 +35,8 @@ class S3ApiHandler:
         """Handle storage operation using infrastructure manager."""
         return await self.infrastructure.handle_storage_operation(operation, **kwargs)
 
-    def format_error_response(self, error_message: str, status_code: int = 500) -> Response:
-        """Format error response in S3-compatible XML format.
-
-        Args:
-            error_message: Error message to include
-            status_code: HTTP status code
-
-        Returns:
-            Flask Response with XML error message
-        """
+    async def format_error_response(self, error_message: str, status_code: int = 500) -> Response:
+        """Format error response in S3-compatible XML format."""
         error_response = {
             'Error': {
                 'Code': str(status_code),
@@ -52,9 +44,9 @@ class S3ApiHandler:
                 'RequestId': hashlib.md5(str(datetime.datetime.now()).encode()).hexdigest()
             }
         }
-        return make_response(xmltodict.unparse(error_response), status_code)
+        return await make_response(xmltodict.unparse(error_response), status_code)
 
-    def format_list_buckets_response(self, buckets):
+    async def format_list_buckets_response(self, buckets):
         response = {
             'ListAllMyBucketsResult': {
                 'Buckets': {
@@ -69,9 +61,9 @@ class S3ApiHandler:
                 }
             }
         }
-        return make_response(xmltodict.unparse(response), 200)
+        return await make_response(xmltodict.unparse(response), 200)
 
-    def format_list_objects_response(self, objects):
+    async def format_list_objects_response(self, objects):
         response = {
             'ListBucketResult': {
                 'Name': objects['bucket_name'],
@@ -89,23 +81,23 @@ class S3ApiHandler:
                 ]
             }
         }
-        return make_response(xmltodict.unparse(response), 200)
+        return await make_response(xmltodict.unparse(response), 200)
 
     def register_basic_routes(self, blueprint):
         """Register the basic S3 API routes."""
 
-        @blueprint.route('/', methods=['GET'], endpoint='list_buckets')
+        @blueprint.route('/s3/', methods=['GET'])
         @handle_s3_errors()
         async def list_buckets():
             """List all buckets."""
             try:
                 buckets = await self.handle_storage_operation('list_buckets')
-                return self.format_list_buckets_response(buckets)
+                return await self.format_list_buckets_response(buckets)
             except Exception as e:
                 logger.error(f"Error listing buckets: {str(e)}")
-                return self.format_error_response('ListBucketsError', str(e))
+                return await self.format_error_response('ListBucketsError', str(e))
 
-        @blueprint.route('/<bucket_name>', methods=['PUT'], endpoint='create_bucket')
+        @blueprint.route('/s3/<bucket_name>', methods=['PUT'])
         @handle_s3_errors()
         async def create_bucket(bucket_name):
             """Create a new bucket."""
@@ -114,9 +106,9 @@ class S3ApiHandler:
                 return '', 200
             except Exception as e:
                 logger.error(f"Error creating bucket: {str(e)}")
-                return self.format_error_response('CreateBucketError', str(e))
+                return await self.format_error_response('CreateBucketError', str(e))
 
-        @blueprint.route('/<bucket_name>', methods=['DELETE'], endpoint='delete_bucket')
+        @blueprint.route('/s3/<bucket_name>', methods=['DELETE'])
         @handle_s3_errors()
         async def delete_bucket(bucket_name):
             """Delete a bucket."""
@@ -125,9 +117,9 @@ class S3ApiHandler:
                 return '', 204
             except Exception as e:
                 logger.error(f"Error deleting bucket: {str(e)}")
-                return self.format_error_response('DeleteBucketError', str(e))
+                return await self.format_error_response('DeleteBucketError', str(e))
 
-        @blueprint.route('/<bucket_name>', methods=['GET'], endpoint='list_objects')
+        @blueprint.route('/s3/<bucket_name>', methods=['GET'])
         @handle_s3_errors()
         async def list_objects(bucket_name):
             """List objects in a bucket."""
@@ -143,46 +135,54 @@ class S3ApiHandler:
                     delimiter=delimiter,
                     max_keys=max_keys
                 )
-                return self.format_list_objects_response(objects)
+                return await self.format_list_objects_response(objects)
             except Exception as e:
                 logger.error(f"Error listing objects: {str(e)}")
-                return self.format_error_response('ListObjectsError', str(e))
+                return await self.format_error_response('ListObjectsError', str(e))
 
-        @blueprint.route('/<bucket_name>/<path:object_key>', methods=['PUT'], endpoint='put_object')
+        @blueprint.route('/s3/<bucket_name>/<path:object_key>', methods=['PUT'])
         @handle_s3_errors()
         async def put_object(bucket_name, object_key):
             """Upload an object."""
-            content = request.get_data()
             try:
-                await self.handle_storage_operation('put_object', bucket=bucket_name, key=object_key, content=content)
-                etag = f"\"{hashlib.md5(content).hexdigest()}\""
-                return make_response('', 200, {'ETag': etag})
+                data = await request.get_data()
+                await self.handle_storage_operation(
+                    'put_object',
+                    bucket_name=bucket_name,
+                    object_key=object_key,
+                    data=data
+                )
+                return '', 200
             except Exception as e:
-                logger.error(f"Error uploading object: {str(e)}")
-                return self.format_error_response('PutObjectError', str(e))
+                logger.error(f"Error putting object: {str(e)}")
+                return await self.format_error_response('PutObjectError', str(e))
 
-        @blueprint.route('/<bucket_name>/<path:object_key>', methods=['GET'], endpoint='get_object')
+        @blueprint.route('/s3/<bucket_name>/<path:object_key>', methods=['GET'])
         @handle_s3_errors()
         async def get_object(bucket_name, object_key):
             """Get an object."""
             try:
-                obj = await self.handle_storage_operation('get_object', bucket=bucket_name, key=object_key)
-                return make_response(obj['content'], 200, {
-                    'Content-Type': obj.get('content_type', 'application/octet-stream'),
-                    'Content-Length': len(obj['content']),
-                    'ETag': f"\"{obj.get('etag', '')}\""
-                })
+                data = await self.handle_storage_operation(
+                    'get_object',
+                    bucket_name=bucket_name,
+                    object_key=object_key
+                )
+                return await make_response(data, 200)
             except Exception as e:
                 logger.error(f"Error getting object: {str(e)}")
-                return self.format_error_response('GetObjectError', str(e))
+                return await self.format_error_response('GetObjectError', str(e))
 
-        @blueprint.route('/<bucket_name>/<path:object_key>', methods=['DELETE'], endpoint='delete_object')
+        @blueprint.route('/s3/<bucket_name>/<path:object_key>', methods=['DELETE'])
         @handle_s3_errors()
         async def delete_object(bucket_name, object_key):
             """Delete an object."""
             try:
-                await self.handle_storage_operation('delete_object', bucket=bucket_name, key=object_key)
+                await self.handle_storage_operation(
+                    'delete_object',
+                    bucket_name=bucket_name,
+                    object_key=object_key
+                )
                 return '', 204
             except Exception as e:
                 logger.error(f"Error deleting object: {str(e)}")
-                return self.format_error_response('DeleteObjectError', str(e))
+                return await self.format_error_response('DeleteObjectError', str(e))
