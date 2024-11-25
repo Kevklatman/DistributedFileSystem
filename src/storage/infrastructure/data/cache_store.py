@@ -137,3 +137,16 @@ class CacheStore(CacheInterface):
         """Mark a key as clean (synced)."""
         with self._lock:
             self._dirty_keys.discard(key)
+
+    def get_dirty_entries(self) -> Dict[str, CacheEntry]:
+        """Get all dirty cache entries that need to be synced.
+
+        Returns:
+            Dict mapping keys to cache entries that are marked as dirty
+        """
+        with self._lock:
+            return {
+                key: self._cache[key]
+                for key in self._dirty_keys
+                if key in self._cache
+            }

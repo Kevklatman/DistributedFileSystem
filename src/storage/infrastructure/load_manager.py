@@ -195,6 +195,15 @@ class LoadManager:
         """Get the current capacity of a node."""
         return self.get_capacity()
 
+    def start_monitoring(self) -> None:
+        """Start monitoring system load metrics."""
+        self.logger.info("Starting load monitoring")
+        self._last_check_time = time.time()
+        self._last_disk_io = psutil.disk_io_counters()
+        self._last_net_io = psutil.net_io_counters()
+        self.metrics_history.clear()
+        self.request_timestamps.clear()
+
     def stop_monitoring(self):
         """Stop the load monitoring process"""
         self.logger.info("Stopping load monitoring")

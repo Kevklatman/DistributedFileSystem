@@ -131,12 +131,12 @@ class SystemService:
             logger.error(f"Failed to handle request {operation}: {str(e)}")
             raise
 
-    def shutdown(self):
+    async def shutdown(self):
         """Gracefully shutdown the system."""
         try:
-            self.active_node.deregister()
-            self.cluster_manager.deregister_node(self.active_node.id)
-            self.hybrid_storage.shutdown()
+            await self.active_node.deregister()
+            self.cluster_manager.deregister_node(self.active_node.node_id)
+            await self.hybrid_storage.shutdown()
             logger.info("System shutdown complete")
         except Exception as e:
             logger.error(f"Error during shutdown: {str(e)}")

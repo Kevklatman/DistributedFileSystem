@@ -11,6 +11,7 @@ import sys
 import json
 import atexit
 import asyncio
+import flask.json.provider
 
 # Add the src directory to Python path
 src_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -72,13 +73,12 @@ def shutdown_handler():
     """Gracefully shutdown the system"""
     logger.info("Shutting down DFS system...")
     asyncio.run(infrastructure.stop())
-    system_service.shutdown()
+    asyncio.run(system_service.shutdown())
 
 atexit.register(shutdown_handler)
 
-@app.before_first_request
-def startup():
-    """Initialize system on first request"""
+# Initialize system at startup
+with app.app_context():
     try:
         asyncio.run(infrastructure.start())
         logger.info("Infrastructure started successfully")
@@ -190,7 +190,22 @@ def swagger_ui(path):
     return send_from_directory('static/swaggerui', path)
 
 # Set custom JSON encoder
-app.json_encoder = JSONEncoder
+class CustomJSONProvider(flask.json.provider.DefaultJSONProvider):
+    def default(self, obj):
+        if isinstance(obj, datetime.datetime):
+            return obj.isoformat()
+        if isinstance(obj, datetime.date):
+            return obj.isoformat()
+        if isinstance(obj, datetime.time):
+            return obj.isoformat()
+        try:
+            iterable = iter(obj)
+            return list(iterable)
+        except TypeError:
+            pass
+        return super().default(obj)
+
+app.json_provider_class = CustomJSONProvider
 
 if __name__ == '__main__':
     # Ensure the buckets directory exists

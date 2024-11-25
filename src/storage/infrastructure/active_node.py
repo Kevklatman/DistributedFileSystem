@@ -1112,6 +1112,20 @@ class ActiveNode:
             self.logger.error(f"Error checking node health: {e}")
             return False
 
+    async def deregister(self) -> None:
+        """Deregister this node from the cluster."""
+        try:
+            self.logger.info(f"Deregistering node {self.node_id} from cluster")
+            # Remove node from cluster nodes
+            if self.node_id in self.cluster_nodes:
+                del self.cluster_nodes[self.node_id]
+            # Clean up any resources
+            await self.replication_manager.stop()
+            await self.consistency_manager.stop()
+            self.load_manager.stop_monitoring()
+        except Exception as e:
+            self.logger.error(f"Error deregistering node: {str(e)}")
+
 class WriteTimeoutError(Exception):
     """Raised when a write operation times out"""
     pass

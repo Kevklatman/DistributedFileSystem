@@ -1,7 +1,7 @@
 import datetime
-from flask.json import JSONEncoder as BaseJSONEncoder
+import json
 
-class JSONEncoder(BaseJSONEncoder):
+class JSONEncoder(json.JSONEncoder):
     """Custom JSON encoder for handling datetime objects"""
     def default(self, obj):
         try:

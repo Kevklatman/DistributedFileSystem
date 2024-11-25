@@ -113,6 +113,19 @@ class StorageClusterManager:
                 del self.nodes[self.node_id]
                 logger.info(f"Removed node {self.node_id} from cluster")
 
+    def deregister_node(self, node_id: str) -> None:
+        """Deregister a node from the cluster."""
+        with self._lock:
+            if node_id in self.nodes:
+                logger.info(f"Removing node {node_id} from cluster")
+                del self.nodes[node_id]
+                # If this was the leader, trigger re-election
+                if self.current_leader == node_id:
+                    self.current_leader = None
+                    self.leader = False
+            else:
+                logger.warning(f"Attempted to deregister unknown node {node_id}")
+
     def _register_node(self):
         """Register this node with the cluster"""
         node_info = StorageNodeInfo(
