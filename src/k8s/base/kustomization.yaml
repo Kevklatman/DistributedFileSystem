@@ -2,22 +2,17 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
-namespace: dfs-system
-
 resources:
-  - namespaces/dfs-system.yaml
   - api-deployment.yaml
   - api-service.yaml
-  - configmap.yaml
-  - secret.yaml
-  - storage-node-crd.yaml
-  - storage-node-rbac.yaml
   - storage-node-deployment.yaml
-  - csi-driver.yaml
-  - test-pvc.yaml
-  - test-pod.yaml
   - service.yaml
+  - csi-driver.yaml
 
-commonLabels:
-  app: dfs-node
-  part-of: distributed-file-system
+configMapGenerator:
+  - name: dfs-config
+    literals:
+      - API_HOST=0.0.0.0
+      - API_PORT=61478
+      - DEBUG=False
+      - FLASK_ENV=production

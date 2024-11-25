@@ -1,0 +1,476 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  labels:
+    environment: development
+    name: dfs-development
+    part-of: distributed-file-system
+  name: dfs-development
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  labels:
+    environment: development
+  name: dfs-hybrid-storage
+parameters:
+  tieringEnabled: "true"
+  type: hybrid
+provisioner: dfs.csi.k8s.io
+reclaimPolicy: Delete
+volumeBindingMode: Immediate
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    environment: development
+  name: dfs-csi-controller
+  namespace: dfs-development
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    environment: development
+  name: dfs-csi-controller-role
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - persistentvolumes
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - delete
+  - update
+  - patch
+- apiGroups:
+  - ""
+  resources:
+  - persistentvolumeclaims
+  verbs:
+  - get
+  - list
+  - watch
+  - update
+- apiGroups:
+  - storage.k8s.io
+  resources:
+  - storageclasses
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - nodes
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - storage.k8s.io
+  resources:
+  - csinodes
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - list
+  - watch
+  - create
+  - update
+  - patch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    environment: development
+  name: dfs-csi-controller-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: dfs-csi-controller-role
+subjects:
+- kind: ServiceAccount
+  name: dfs-csi-controller
+  namespace: dfs-development
+---
+apiVersion: v1
+data:
+  requirements.txt: |
+    flask==2.0.1
+    flask-cors==4.0.0
+    flask-restx==1.1.0
+    gunicorn==21.2.0
+    python-dotenv==1.0.0
+    xmltodict==0.13.0
+    werkzeug==2.0.3
+    kubernetes==29.0.0
+    aiohttp==3.9.1
+    asyncio==3.4.3
+    prometheus-client==0.17.1
+    psutil==5.9.6
+    pytest>=7.4.0
+    pytest-mock>=3.11.1
+    matplotlib>=3.7.0
+    numpy>=1.24.0
+kind: ConfigMap
+metadata:
+  labels:
+    environment: development
+  name: dfs-api-files
+  namespace: dfs-development
+---
+apiVersion: v1
+data:
+  API_HOST: 0.0.0.0
+  API_PORT: "61478"
+  DEBUG: "False"
+  ENVIRONMENT: development
+  FLASK_ENV: production
+kind: ConfigMap
+metadata:
+  labels:
+    environment: development
+  name: dfs-config-k427569fbd
+  namespace: dfs-development
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: dfs-api
+    environment: development
+  name: dfs-api-service
+  namespace: dfs-development
+spec:
+  ports:
+  - name: http
+    nodePort: 30080
+    port: 8080
+    protocol: TCP
+    targetPort: 8080
+  - name: metrics
+    nodePort: 30090
+    port: 9090
+    protocol: TCP
+    targetPort: 9090
+  selector:
+    app: dfs-api
+    environment: development
+  type: NodePort
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: dfs-core
+    environment: development
+  name: dfs-core-service
+  namespace: dfs-development
+spec:
+  ports:
+  - name: http
+    port: 8000
+    protocol: TCP
+    targetPort: 8000
+  selector:
+    app: dfs-core
+    environment: development
+  type: NodePort
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: dfs-storage-node
+    environment: development
+  name: dfs-storage-service
+  namespace: dfs-development
+spec:
+  ports:
+  - name: http
+    port: 8081
+    protocol: TCP
+    targetPort: 8081
+  - name: metrics
+    port: 9091
+    protocol: TCP
+    targetPort: 9091
+  selector:
+    app: dfs-storage-node
+    environment: development
+  type: ClusterIP
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  labels:
+    environment: development
+  name: dfs-storage-claim
+  namespace: dfs-development
+spec:
+  accessModes:
+  - ReadWriteMany
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: dfs-api
+    environment: development
+  name: dfs-api
+  namespace: dfs-development
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: dfs-api
+      environment: development
+  template:
+    metadata:
+      labels:
+        app: dfs-api
+        environment: development
+    spec:
+      containers:
+      - args:
+        - -m
+        - src.api.app
+        command:
+        - python
+        env:
+        - name: PYTHONPATH
+          value: /app
+        - name: FLASK_APP
+          value: src/api/app.py
+        - name: FLASK_ENV
+          value: production
+        image: dfs-api:0b4c4a8ebcd7072a218dd635561d230aedd44d745ddb2de036bdafbf824d148b
+        imagePullPolicy: Never
+        name: dfs-api
+        ports:
+        - containerPort: 8080
+        volumeMounts:
+        - mountPath: /app/storage
+          name: storage-volume
+      volumes:
+      - emptyDir: {}
+        name: storage-volume
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    environment: development
+  name: dfs-csi-controller
+  namespace: dfs-development
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: dfs-csi-controller
+      environment: development
+  template:
+    metadata:
+      labels:
+        app: dfs-csi-controller
+        environment: development
+    spec:
+      containers:
+      - env:
+        - name: MODE
+          value: controller
+        - name: ENDPOINT
+          value: unix:///csi/csi.sock
+        - name: NODE_ID
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        image: dfs-csi-driver:latest
+        imagePullPolicy: IfNotPresent
+        name: csi-controller
+        volumeMounts:
+        - mountPath: /csi
+          name: socket-dir
+      serviceAccount: dfs-csi-controller
+      volumes:
+      - emptyDir: {}
+        name: socket-dir
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  labels:
+    app: dfs-storage-node
+    app.kubernetes.io/name: dfs-storage-node
+    app.kubernetes.io/part-of: distributed-file-system
+    environment: development
+  name: dfs-storage-node
+  namespace: dfs-development
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: dfs-storage-node
+      environment: development
+  serviceName: dfs-storage-service
+  template:
+    metadata:
+      labels:
+        app: dfs-storage-node
+        app.kubernetes.io/name: dfs-storage-node
+        app.kubernetes.io/part-of: distributed-file-system
+        environment: development
+    spec:
+      containers:
+      - env:
+        - name: NODE_ID
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        image: dfs-storage-node:latest
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        name: storage-node
+        ports:
+        - containerPort: 8080
+          name: http
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        resources:
+          limits:
+            cpu: 1000m
+            memory: 2Gi
+          requests:
+            cpu: 500m
+            memory: 1Gi
+        volumeMounts:
+        - mountPath: /data
+          name: data
+      serviceAccountName: storage-node-sa
+  volumeClaimTemplates:
+  - metadata:
+      labels:
+        environment: development
+      name: data
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 10Gi
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  labels:
+    environment: development
+  name: dfs-storage-pdb
+  namespace: dfs-development
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: dfs-storage-node
+      environment: development
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  labels:
+    environment: development
+  name: dfs-csi-node
+  namespace: dfs-development
+spec:
+  selector:
+    matchLabels:
+      app: dfs-csi-node
+      environment: development
+  template:
+    metadata:
+      labels:
+        app: dfs-csi-node
+        environment: development
+    spec:
+      containers:
+      - env:
+        - name: MODE
+          value: node
+        - name: ENDPOINT
+          value: unix:///csi/csi.sock
+        - name: NODE_ID
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        image: dfs-csi-driver:latest
+        imagePullPolicy: IfNotPresent
+        name: csi-node-driver
+        securityContext:
+          privileged: true
+        volumeMounts:
+        - mountPath: /csi
+          name: plugin-dir
+        - mountPath: /var/lib/kubelet/pods
+          mountPropagation: Bidirectional
+          name: pods-mount-dir
+        - mountPath: /dev
+          name: device-dir
+      hostNetwork: true
+      serviceAccount: dfs-csi-controller
+      volumes:
+      - hostPath:
+          path: /var/lib/kubelet/plugins/dfs.csi.k8s.io
+          type: DirectoryOrCreate
+        name: plugin-dir
+      - hostPath:
+          path: /var/lib/kubelet/pods
+          type: Directory
+        name: pods-mount-dir
+      - hostPath:
+          path: /dev
+          type: Directory
+        name: device-dir
+---
+apiVersion: storage.k8s.io/v1
+kind: CSIDriver
+metadata:
+  labels:
+    environment: development
+  name: dfs.csi.k8s.io
+spec:
+  attachRequired: true
+  podInfoOnMount: true
+  volumeLifecycleModes:
+  - Persistent

@@ -39,34 +39,25 @@ spec:
     spec:
       containers:
       - name: dfs-api
-        image: python:3.9-slim
-        imagePullPolicy: IfNotPresent
-        command: 
-        - /bin/sh
-        - -c
-        - |
-          pip install -r /dfs/requirements.txt
-          cd /dfs && PYTHONPATH=/dfs python -m src.api.app
+        image: dfs-api:0b4c4a8ebcd7072a218dd635561d230aedd44d745ddb2de036bdafbf824d148b
+        imagePullPolicy: Never
+        ports:
+        - containerPort: 8080
+        command: ["python"]
+        args: ["-m", "src.api.app"]
         env:
         - name: PYTHONPATH
-          value: /dfs
+          value: /app
         - name: FLASK_APP
           value: src/api/app.py
         - name: FLASK_ENV
           value: production
-        ports:
-        - containerPort: 8080
         volumeMounts:
         - name: storage-volume
-          mountPath: /dfs/storage
-        - name: project-files
-          mountPath: /dfs
+          mountPath: /app/storage
       volumes:
       - name: storage-volume
         emptyDir: {}
-      - name: project-files
-        hostPath:
-          path: /dfs
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim

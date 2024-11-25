@@ -9,20 +9,15 @@ resources:
 
 patches:
 - path: service-patch.yaml
-- path: storage-class-patch.yaml
-- path: image-patch.yaml
+  target:
+    kind: Service
+    name: dfs-api
 
-patches:
-- target:
-    kind: ConfigMap
-    name: dfs-config
-  patch: |-
-    apiVersion: v1
-    kind: ConfigMap
-    metadata:
-      name: dfs-config
-    data:
-      ENVIRONMENT: development
+configMapGenerator:
+- name: dfs-config
+  behavior: merge
+  literals:
+  - ENVIRONMENT=development
 
 commonLabels:
   environment: development
