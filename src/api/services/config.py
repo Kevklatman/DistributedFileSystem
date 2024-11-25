@@ -18,6 +18,11 @@ API_HOST = os.getenv('API_HOST', '0.0.0.0')  # Change to 0.0.0.0 to allow extern
 API_PORT = int(os.getenv('API_PORT', 8001))  # Change default port to 8001
 DEBUG = os.getenv('DEBUG', 'True').lower() == 'true'
 
+# Storage Configuration
+STORAGE_ROOT = os.getenv('STORAGE_ROOT', os.path.join(os.getcwd(), 'data'))
+if not os.path.exists(STORAGE_ROOT):
+    os.makedirs(STORAGE_ROOT, exist_ok=True)
+
 # AWS Configuration
 AWS_CONFIG = {
     'access_key': os.environ.get('AWS_ACCESS_KEY'),
@@ -35,8 +40,16 @@ STORAGE_CONFIG = {
     'aws': AWS_CONFIG
 }
 
-# Get current storage configuration
-current_config = STORAGE_CONFIG.get(STORAGE_ENV, STORAGE_CONFIG['local'])
+# Get current storage configuration and merge with base config
+storage_specific_config = STORAGE_CONFIG.get(STORAGE_ENV, STORAGE_CONFIG['local'])
+current_config = {
+    'api_host': API_HOST,
+    'api_port': API_PORT,
+    'debug': DEBUG,
+    'storage_root': STORAGE_ROOT,
+    'storage_env': STORAGE_ENV,
+    **storage_specific_config
+}
 
 class ConfigurationService:
     """Service for managing system configuration and health monitoring"""

@@ -290,6 +290,7 @@ def get_cloud_provider(provider_type: str) -> BaseCloudProvider:
     """Factory function to get the appropriate cloud provider"""
     providers = {
         'aws': AWSS3Provider,
+        'aws_s3': AWSS3Provider,  # Add aws_s3 as an alias for aws
         'azure': AzureBlobProvider,
         'gcp': GCPStorageProvider
     }

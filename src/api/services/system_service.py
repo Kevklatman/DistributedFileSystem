@@ -3,7 +3,7 @@
 import logging
 from typing import Optional
 from storage.infrastructure.hybrid_storage import HybridStorageManager
-from storage.infrastructure.cluster_manager import ClusterManager
+from storage.infrastructure.cluster_manager import StorageClusterManager
 from storage.infrastructure.active_node import ActiveNode
 from storage.infrastructure.load_manager import LoadManager
 from storage.infrastructure.data.consistency_manager import ConsistencyManager
@@ -21,7 +21,7 @@ class SystemService:
         """Initialize the system service."""
         self.storage_root = storage_root
         self.hybrid_storage = HybridStorageManager(storage_root)
-        self.cluster_manager = ClusterManager()
+        self.cluster_manager = StorageClusterManager()
         self.active_node = ActiveNode()
         self.load_manager = LoadManager()
         self.consistency_manager = ConsistencyManager()

@@ -26,11 +26,10 @@ class StorageNodeInfo:
 class StorageClusterManager:
     def __init__(self, namespace: str = "default"):
         self.namespace = namespace
-        self.node_id = os.environ.get('NODE_ID')
-        self.pod_ip = os.environ.get('POD_IP')
-
-        if not self.node_id or not self.pod_ip:
-            raise ValueError("NODE_ID and POD_IP environment variables must be set")
+        
+        # Use defaults for development environment
+        self.node_id = os.environ.get('NODE_ID', f'dev-node-{uuid.uuid4()}')
+        self.pod_ip = os.environ.get('POD_IP', '127.0.0.1')
 
         self.nodes: Dict[str, StorageNodeInfo] = {}
         self.leader = False
