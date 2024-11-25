@@ -32,8 +32,17 @@ class InfrastructureManager:
         self.cluster_manager = StorageClusterManager()
         self.load_manager = LoadManager()
         
+        # Initialize cache store
+        if self.config.cache.enabled:
+            self.cache_store = CacheStore(
+                max_size=self.config.cache.max_size_mb * 1024 * 1024,  # Convert to bytes
+                ttl_seconds=self.config.cache.ttl_seconds
+            )
+        else:
+            self.cache_store = None
+        
         # Initialize data management
-        self.sync_manager = SyncManager()
+        self.sync_manager = SyncManager(cache=self.cache_store)
         self.consistency_manager = ConsistencyManager()
         self.replication_manager = ReplicationManager(
             min_replicas=self.config.storage.replication_factor
@@ -42,15 +51,6 @@ class InfrastructureManager:
             Path(self.config.storage.storage_root),
             self
         )
-
-        # Initialize caching if enabled
-        if self.config.cache.enabled:
-            self.cache_store = CacheStore(
-                max_size=self.config.cache.max_size_mb * 1024 * 1024,  # Convert to bytes
-                ttl_seconds=self.config.cache.ttl_seconds
-            )
-        else:
-            self.cache_store = None
 
         # Initialize cloud providers
         self.cloud_providers = {}

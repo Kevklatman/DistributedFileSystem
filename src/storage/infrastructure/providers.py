@@ -75,58 +75,83 @@ class AWSS3Provider(CloudProviderBase):
 
     def upload_file(self, file_data: Union[bytes, BinaryIO], object_key: str, bucket: str, **kwargs) -> bool:
         """Upload a file to S3 bucket."""
-        start_time = time.time()
         try:
+            start_time = time.time()
             if isinstance(file_data, bytes):
                 self.s3_client.put_object(Bucket=bucket, Key=object_key, Body=file_data)
             else:
                 self.s3_client.upload_fileobj(file_data, bucket, object_key)
+            self._record_operation('upload', start_time)
             return True
-        except Exception as e:
-            logger.error(f"Error uploading to S3: {e}")
+        except ClientError as e:
+            logger.error(f"Failed to upload file to S3: {e}")
             return False
-        finally:
-            self._record_operation('s3_upload', start_time)
 
     def download_file(self, object_key: str, bucket: str) -> Optional[bytes]:
         """Download a file from S3 bucket."""
-        start_time = time.time()
         try:
+            start_time = time.time()
             response = self.s3_client.get_object(Bucket=bucket, Key=object_key)
-            return response['Body'].read()
-        except Exception as e:
-            logger.error(f"Error downloading from S3: {e}")
+            data = response['Body'].read()
+            self._record_operation('download', start_time)
+            return data
+        except ClientError as e:
+            logger.error(f"Failed to download file from S3: {e}")
             return None
-        finally:
-            self._record_operation('s3_download', start_time)
 
-    def delete_object(self, object_key: str, bucket: str) -> bool:
+    def delete_file(self, object_key: str, bucket: str) -> bool:
         """Delete an object from S3 bucket."""
-        start_time = time.time()
         try:
+            start_time = time.time()
             self.s3_client.delete_object(Bucket=bucket, Key=object_key)
+            self._record_operation('delete', start_time)
             return True
-        except Exception as e:
-            logger.error(f"Error deleting from S3: {e}")
+        except ClientError as e:
+            logger.error(f"Failed to delete file from S3: {e}")
             return False
-        finally:
-            self._record_operation('s3_delete', start_time)
 
-    def list_objects(self, bucket: str, prefix: Optional[str] = None) -> List[Dict[str, Any]]:
+    def list_files(self, bucket: str, prefix: Optional[str] = None) -> List[Dict[str, Any]]:
         """List objects in S3 bucket."""
-        start_time = time.time()
         try:
+            start_time = time.time()
             if prefix:
                 response = self.s3_client.list_objects_v2(Bucket=bucket, Prefix=prefix)
             else:
                 response = self.s3_client.list_objects_v2(Bucket=bucket)
-
-            return response.get('Contents', [])
-        except Exception as e:
-            logger.error(f"Error listing S3 objects: {e}")
+            
+            files = []
+            if 'Contents' in response:
+                for obj in response['Contents']:
+                    files.append({
+                        'key': obj['Key'],
+                        'size': obj['Size'],
+                        'last_modified': obj['LastModified'].isoformat(),
+                        'etag': obj['ETag']
+                    })
+            
+            self._record_operation('list', start_time)
+            return files
+        except ClientError as e:
+            logger.error(f"Failed to list files in S3: {e}")
             return []
-        finally:
-            self._record_operation('s3_list', start_time)
+
+    def get_file_metadata(self, object_key: str, bucket: str) -> Optional[Dict[str, Any]]:
+        """Get metadata for a specific file in S3."""
+        try:
+            start_time = time.time()
+            response = self.s3_client.head_object(Bucket=bucket, Key=object_key)
+            metadata = {
+                'size': response['ContentLength'],
+                'last_modified': response['LastModified'].isoformat(),
+                'etag': response['ETag'],
+                'content_type': response.get('ContentType', 'application/octet-stream'),
+                'metadata': response.get('Metadata', {})
+            }
+            self._record_operation('get_metadata', start_time)
+            return metadata
+        except ClientError as e:
+            logger.error(f"Failed to get file metadata from S3: {e}")
+            return None
 
 class GCPStorageProvider(CloudProviderBase):
     """Google Cloud Storage provider implementation."""
