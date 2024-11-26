@@ -1,0 +1,85 @@
+version: '3.8'
+
+services:
+  # Primary storage nodes
+  storage-node-1:
+    build: .
+    environment:
+      - NODE_ID=node1
+      - NODE_ROLE=primary
+      - CONSISTENCY_LEVEL=strong
+    volumes:
+      - storage-data-1:/data
+    ports:
+      - "8001:8000"
+
+  storage-node-2:
+    build: .
+    environment:
+      - NODE_ID=node2
+      - NODE_ROLE=secondary
+      - CONSISTENCY_LEVEL=strong
+    volumes:
+      - storage-data-2:/data
+    ports:
+      - "8002:8000"
+
+  storage-node-3:
+    build: .
+    environment:
+      - NODE_ID=node3
+      - NODE_ROLE=secondary
+      - CONSISTENCY_LEVEL=strong
+    volumes:
+      - storage-data-3:/data
+    ports:
+      - "8003:8000"
+
+  # LocalStack for S3 hybrid storage testing
+  localstack:
+    image: localstack/localstack
+    ports:
+      - "4567:4566"  # Changed from 4566:4566 to avoid port conflict
+    environment:
+      - SERVICES=s3
+      - DEFAULT_REGION=us-east-2
+      - EDGE_PORT=4566
+
+  # HAProxy for load balancing
+  haproxy:
+    image: haproxy:2.4
+    ports:
+      - "8000:8000"
+      - "8404:8404"  # Stats page
+    volumes:
+      - ./haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    depends_on:
+      - storage-node-1
+      - storage-node-2
+      - storage-node-3
+
+  # Redis for distributed caching
+  redis:
+    image: redis:6
+    ports:
+      - "6379:6379"
+
+  # Prometheus for metrics
+  prometheus:
+    image: prom/prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+
+  # Jaeger for distributed tracing
+  jaeger:
+    image: jaegertracing/all-in-one
+    ports:
+      - "16686:16686"
+      - "14250:14250"
+
+volumes:
+  storage-data-1:
+  storage-data-2:
+  storage-data-3:
