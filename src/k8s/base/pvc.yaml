@@ -6,7 +6,7 @@ metadata:
 spec:
   accessModes:
     - ReadWriteOnce
-  storageClassName: dfs-storage
+  storageClassName: standard
   resources:
     requests:
-      storage: 100Gi
+      storage: 10Gi
