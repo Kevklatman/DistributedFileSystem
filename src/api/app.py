@@ -6,12 +6,7 @@ import logging
 from flask import Flask
 from flask_cors import CORS
 from src.api.services.fs_manager import FileSystemManager
-from src.config.base_config import (
-    API_HOST,
-    API_PORT,
-    DEBUG,
-    STORAGE_ROOT
-)
+from src.config.base_config import API_HOST, API_PORT, DEBUG, STORAGE_ROOT
 
 from src.config.infrastructure_config import infrastructure_config
 from src.api.routes.s3 import s3_api
@@ -25,8 +20,7 @@ CORS(app)
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
@@ -43,14 +37,16 @@ app.register_blueprint(s3_api)
 app.register_blueprint(aws_s3_api)
 app.register_blueprint(advanced_storage)
 
-@app.route('/health')
+
+@app.route("/health")
 def health_check():
     """Health check endpoint."""
-    return {'status': 'healthy'}
+    return {"status": "healthy"}
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     # Ensure the data directory exists
     os.makedirs(STORAGE_ROOT, exist_ok=True)
-    
+
     # Run the Flask application
     app.run(host=API_HOST, port=API_PORT, debug=DEBUG)

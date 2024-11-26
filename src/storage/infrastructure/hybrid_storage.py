@@ -22,10 +22,11 @@ from src.models.models import (
     TieringPolicy,
     HybridStorageSystem,
     SnapshotState,
-    TierType
+    TierType,
 )
 
 logger = logging.getLogger(__name__)
+
 
 class EnhancedJSONEncoder(json.JSONEncoder):
     def default(self, obj):
@@ -37,14 +38,16 @@ class EnhancedJSONEncoder(json.JSONEncoder):
             return obj.value
         return super().default(obj)
 
+
 def decode_datetime(obj):
     for key, value in obj.items():
-        if key.endswith('_at') and isinstance(value, str):
+        if key.endswith("_at") and isinstance(value, str):
             try:
                 obj[key] = datetime.fromisoformat(value)
             except ValueError:
                 pass
     return obj
+
 
 class HybridStorageManager:
     """Manages hybrid storage operations across on-prem and cloud"""
@@ -59,9 +62,9 @@ class HybridStorageManager:
 
     def initialize(self) -> bool:
         """Initialize the hybrid storage system.
-        
+
         Creates necessary directories and initializes the storage system state.
-        
+
         Returns:
             bool: True if initialization successful, False otherwise
         """
@@ -69,19 +72,19 @@ class HybridStorageManager:
             # Create required directories
             self.metadata_path.mkdir(parents=True, exist_ok=True)
             self.data_path.mkdir(parents=True, exist_ok=True)
-            
+
             # Initialize storage pools
             self._init_storage_pools()
-            
+
             # Initialize cloud provider if configured
             self._initialize_cloud_provider()
-            
+
             # Save initial system state
             self._save_system_state()
-            
+
             logger.info("Hybrid storage system initialized successfully")
             return True
-            
+
         except Exception as e:
             logger.error(f"Failed to initialize hybrid storage: {str(e)}")
             return False
@@ -90,10 +93,14 @@ class HybridStorageManager:
         """Initialize cloud storage provider if configured."""
         try:
             # Get provider type from environment or use default
-            provider_type = os.getenv('CLOUD_PROVIDER_TYPE', 'aws')  # Default to AWS if not specified
+            provider_type = os.getenv(
+                "CLOUD_PROVIDER_TYPE", "aws"
+            )  # Default to AWS if not specified
             self.cloud_provider = get_cloud_provider(provider_type)
             if self.cloud_provider:
-                logger.info(f"Initialized cloud provider: {self.cloud_provider.__class__.__name__}")
+                logger.info(
+                    f"Initialized cloud provider: {self.cloud_provider.__class__.__name__}"
+                )
         except Exception as e:
             logger.warning(f"Failed to initialize cloud provider: {str(e)}")
             self.cloud_provider = None
@@ -105,7 +112,7 @@ class HybridStorageManager:
             default_location = StorageLocation(
                 type="on_prem",
                 path=str(self.data_path),
-                performance_tier="standard_ssd"
+                performance_tier="standard_ssd",
             )
 
             # Create default storage pool
@@ -113,7 +120,7 @@ class HybridStorageManager:
                 name="Default Storage Pool",
                 location=default_location,
                 total_capacity_gb=1000,  # 1TB default
-                available_capacity_gb=1000
+                available_capacity_gb=1000,
             )
             self.system.storage_pools[default_pool.id] = default_pool
 
@@ -121,7 +128,7 @@ class HybridStorageManager:
         """Load existing system or create new one"""
         system_file = self.metadata_path / "system.json"
         if system_file.exists():
-            with open(system_file, 'r') as f:
+            with open(system_file, "r") as f:
                 data = json.load(f, object_hook=decode_datetime)
                 return HybridStorageSystem(**data)
         return HybridStorageSystem(
@@ -131,31 +138,30 @@ class HybridStorageManager:
             cloud_credentials={},
             tiering_policies={},
             protection_policies={},
-            replication_policies={}
+            replication_policies={},
         )
 
     def _save_system_state(self) -> None:
         """Save system state to disk"""
         system_file = self.metadata_path / "system.json"
-        with open(system_file, 'w') as f:
-            json.dump(dataclasses.asdict(self.system), f, cls=EnhancedJSONEncoder, indent=2)
+        with open(system_file, "w") as f:
+            json.dump(
+                dataclasses.asdict(self.system), f, cls=EnhancedJSONEncoder, indent=2
+            )
 
     async def create_storage_pool(
-        self,
-        name: str,
-        location: StorageLocation,
-        capacity_gb: int
+        self, name: str, location: StorageLocation, capacity_gb: int
     ) -> StoragePool:
         """Create a new storage pool"""
         # Generate a unique ID for the pool
         pool_id = f"pool-{len(self.system.storage_pools)}"
-        
+
         pool = StoragePool(
             id=pool_id,
             name=name,
             location=location,
             total_capacity_gb=capacity_gb,
-            available_capacity_gb=capacity_gb
+            available_capacity_gb=capacity_gb,
         )
 
         # Create pool directory
@@ -172,7 +178,7 @@ class HybridStorageManager:
         size_gb: int,
         pool_id: str,
         cloud_backup: bool = False,
-        cloud_tiering: bool = False
+        cloud_tiering: bool = False,
     ) -> Volume:
         """Create a new volume in a storage pool"""
         if pool_id not in self.system.storage_pools:
@@ -187,7 +193,7 @@ class HybridStorageManager:
             size_gb=size_gb,
             primary_pool_id=pool_id,
             cloud_tiering=cloud_tiering,
-            created_at=datetime.now()
+            created_at=datetime.now(),
         )
 
         # Create volume directory
@@ -201,9 +207,7 @@ class HybridStorageManager:
             try:
                 await self.cloud_provider.create_bucket(bucket_name)
                 volume.cloud_location = StorageLocation(
-                    type="cloud",
-                    path=bucket_name,
-                    performance_tier="standard"
+                    type="cloud", path=bucket_name, performance_tier="standard"
                 )
             except Exception as e:
                 logger.error(f"Failed to create cloud bucket: {e}")
@@ -226,16 +230,18 @@ class HybridStorageManager:
 
         # Write locally
         async with asyncio.Lock():
-            with open(full_path, 'wb') as f:
+            with open(full_path, "wb") as f:
                 f.write(data)
 
         # If cloud backup is enabled, write to cloud
-        if volume.cloud_backup_enabled and self.cloud_provider and volume.cloud_location:
+        if (
+            volume.cloud_backup_enabled
+            and self.cloud_provider
+            and volume.cloud_location
+        ):
             try:
                 await self.cloud_provider.upload_file(
-                    data,
-                    path,
-                    volume.cloud_location.path
+                    data, path, volume.cloud_location.path
                 )
             except Exception as e:
                 logger.error(f"Failed to backup to cloud: {e}")
@@ -256,20 +262,23 @@ class HybridStorageManager:
         full_path = self.data_path / pool_id / volume_id / path
         if full_path.exists():
             async with asyncio.Lock():
-                with open(full_path, 'rb') as f:
+                with open(full_path, "rb") as f:
                     return f.read()
 
         # If not found locally and cloud tiering is enabled, try cloud
-        if volume.cloud_tiering_enabled and self.cloud_provider and volume.cloud_location:
+        if (
+            volume.cloud_tiering_enabled
+            and self.cloud_provider
+            and volume.cloud_location
+        ):
             try:
                 data = await self.cloud_provider.download_file(
-                    path,
-                    volume.cloud_location.path
+                    path, volume.cloud_location.path
                 )
                 if data:
                     # Cache data locally
                     async with asyncio.Lock():
-                        with open(full_path, 'wb') as f:
+                        with open(full_path, "wb") as f:
                             f.write(data)
                     return data
             except Exception as e:
@@ -295,14 +304,12 @@ class HybridStorageManager:
         if age > timedelta(days=7):  # Cold tier after 7 days
             try:
                 # Read file
-                with open(full_path, 'rb') as f:
+                with open(full_path, "rb") as f:
                     data = f.read()
 
                 # Upload to cloud
                 await self.cloud_provider.upload_file(
-                    data,
-                    path,
-                    volume.cloud_location.path
+                    data, path, volume.cloud_location.path
                 )
 
                 # Remove local copy
@@ -326,7 +333,7 @@ class HybridStorageManager:
         # Calculate average file age
         total_age = 0
         file_count = 0
-        for path in volume_path.rglob('*'):
+        for path in volume_path.rglob("*"):
             if path.is_file():
                 age = datetime.now() - datetime.fromtimestamp(path.stat().st_mtime)
                 total_age += age.days
@@ -355,15 +362,14 @@ class HybridStorageManager:
         # Create new snapshot state
         snapshot = SnapshotState(
             parent_id=self._get_latest_snapshot_id(protection),
-            metadata={"name": name} if name else {}
+            metadata={"name": name} if name else {},
         )
 
         # Track changed blocks since parent
         if snapshot.parent_id:
             parent = protection.snapshots[snapshot.parent_id]
             snapshot.changed_blocks = self._get_changed_blocks_since(
-                volume_id,
-                parent.creation_time
+                volume_id, parent.creation_time
             )
 
         protection.snapshots[snapshot.id] = snapshot
@@ -379,12 +385,11 @@ class HybridStorageManager:
         """Get the most recent snapshot ID"""
         if not protection.snapshots:
             return None
-        return max(
-            protection.snapshots.items(),
-            key=lambda x: x[1].creation_time
-        )[0]
+        return max(protection.snapshots.items(), key=lambda x: x[1].creation_time)[0]
 
-    def _get_changed_blocks_since(self, volume_id: str, timestamp: datetime) -> Set[int]:
+    def _get_changed_blocks_since(
+        self, volume_id: str, timestamp: datetime
+    ) -> Set[int]:
         """Get blocks that changed since timestamp"""
         # Implementation would track block changes
         # For now, return empty set
@@ -404,21 +409,25 @@ class HybridStorageManager:
 
         # Upload with compression and dedup
         await self.cloud_provider.upload_snapshot(
-            changed_data,
-            f"snapshots/{snapshot_id}",
-            volume.cloud_location.path
+            changed_data, f"snapshots/{snapshot_id}", volume.cloud_location.path
         )
 
-    def _get_snapshot_changed_data(self, volume_id: str, snapshot: SnapshotState) -> bytes:
+    def _get_snapshot_changed_data(
+        self, volume_id: str, snapshot: SnapshotState
+    ) -> bytes:
         """Get changed data for snapshot"""
         # Implementation would get changed data
         # For now, return empty bytes
-        return b''
+        return b""
 
-    async def _should_tier_based_on_prediction(self, temp_data: DataTemperature) -> bool:
+    async def _should_tier_based_on_prediction(
+        self, temp_data: DataTemperature
+    ) -> bool:
         """Use access pattern and prediction to decide on tiering"""
         if temp_data.predicted_next_access:
-            days_until_next_access = (temp_data.predicted_next_access - datetime.now()).days
+            days_until_next_access = (
+                temp_data.predicted_next_access - datetime.now()
+            ).days
             if days_until_next_access < 7:  # If predicted access is soon, don't tier
                 return False
         return True
@@ -432,7 +441,7 @@ class HybridStorageManager:
         source = self.data_path / volume.primary_pool_id / volume_id / path
 
         # Optimize data before upload
-        with open(source, 'rb') as f:
+        with open(source, "rb") as f:
             data = f.read()
 
         # Apply compression if enabled
@@ -449,18 +458,22 @@ class HybridStorageManager:
             data = self._deduplicate_data(data, volume_id, path)
 
         # Upload to cloud with optimal chunk size
-        if await self.cloud_provider.upload_file(data, path, volume.cloud_location.path):
+        if await self.cloud_provider.upload_file(
+            data, path, volume.cloud_location.path
+        ):
             # Create space-efficient stub
             await self._create_cloud_stub(source, volume.cloud_location.path, path)
 
-    async def _create_cloud_stub(self, source_path: Path, bucket: str, path: str) -> None:
+    async def _create_cloud_stub(
+        self, source_path: Path, bucket: str, path: str
+    ) -> None:
         """Create space-efficient stub file for tiered data"""
         stub_data = {
             "tiered_to_cloud": True,
             "bucket": bucket,
             "path": path,
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
         }
         async with asyncio.Lock():
-            with open(source_path, 'w') as f:
+            with open(source_path, "w") as f:
                 json.dump(stub_data, f)

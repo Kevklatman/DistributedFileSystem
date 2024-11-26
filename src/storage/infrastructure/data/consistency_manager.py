@@ -1,21 +1,26 @@
 """Manages data consistency across storage nodes."""
+
 import asyncio
 import logging
 from typing import Dict, Set, Optional, Any
 from dataclasses import dataclass
 from datetime import datetime
 
+
 @dataclass
 class VersionedData:
     """Data with version information."""
+
     content: bytes
     version: int
     timestamp: datetime
     checksum: str
 
+
 @dataclass
 class WriteOperation:
     """Write operation metadata."""
+
     data_id: str
     content: bytes
     version: int
@@ -23,13 +28,16 @@ class WriteOperation:
     timestamp: datetime
     consistency_level: str
 
+
 class ConsistencyManager:
     """Manages data consistency across storage nodes."""
 
     def __init__(self, quorum_size: int = 2):
         self.quorum_size = quorum_size
         self.logger = logging.getLogger(__name__)
-        self._version_map: Dict[str, Dict[str, VersionedData]] = {}  # data_id -> {node_id -> version}
+        self._version_map: Dict[str, Dict[str, VersionedData]] = (
+            {}
+        )  # data_id -> {node_id -> version}
         self._pending_writes: Dict[str, WriteOperation] = {}
         self._write_locks: Dict[str, asyncio.Lock] = {}
         self._active_nodes: Dict[str, Set[str]] = {}  # data_id -> set of node_ids
@@ -40,14 +48,12 @@ class ConsistencyManager:
         if data_id not in self._version_map:
             return 1
 
-        max_version = max(
-            data.version
-            for data in self._version_map[data_id].values()
-        )
+        max_version = max(data.version for data in self._version_map[data_id].values())
         return max_version + 1
 
-    async def update_node_version(self, node_id: str, data_id: str,
-                                version_data: VersionedData) -> None:
+    async def update_node_version(
+        self, node_id: str, data_id: str, version_data: VersionedData
+    ) -> None:
         """Update version information for a node."""
         # Initialize version map for data_id if it doesn't exist
         if data_id not in self._version_map:
@@ -78,12 +84,13 @@ class ConsistencyManager:
 
         self._pending_writes[write_op.data_id] = write_op
 
-    async def complete_write(self, data_id: str,
-                           successful_nodes: Set[str]) -> bool:
+    async def complete_write(self, data_id: str, successful_nodes: Set[str]) -> bool:
         """Complete a write operation."""
         write_op = self._pending_writes.get(data_id)
         if not write_op:
-            self.logger.error(f"No pending write operation found for data_id: {data_id}")
+            self.logger.error(
+                f"No pending write operation found for data_id: {data_id}"
+            )
             return False
 
         try:
@@ -113,7 +120,7 @@ class ConsistencyManager:
                 content=write_op.content,
                 version=write_op.version,
                 timestamp=write_op.timestamp,
-                checksum=write_op.checksum
+                checksum=write_op.checksum,
             )
 
             for node_id in successful_nodes:
@@ -131,8 +138,9 @@ class ConsistencyManager:
             self.logger.error(f"Error during write completion: {e}")
             return False
 
-    async def get_latest_version(self, data_id: str,
-                               consistency_level: str = "eventual") -> Optional[VersionedData]:
+    async def get_latest_version(
+        self, data_id: str, consistency_level: str = "eventual"
+    ) -> Optional[VersionedData]:
         """Get latest version of data based on consistency level."""
         if data_id not in self._version_map:
             return None
@@ -148,10 +156,7 @@ class ConsistencyManager:
                 return None
 
         # Return newest version
-        return max(
-            node_versions.values(),
-            key=lambda x: (x.version, x.timestamp)
-        )
+        return max(node_versions.values(), key=lambda x: (x.version, x.timestamp))
 
     def generate_version(self) -> int:
         """Generate a new version number for data updates."""
@@ -170,8 +175,8 @@ class ConsistencyManager:
         # Sort by version number (descending) and timestamp
         sorted_versions = sorted(
             versions.values(),
-            key=lambda x: (x.get('version', 0), x.get('timestamp', datetime.min)),
-            reverse=True
+            key=lambda x: (x.get("version", 0), x.get("timestamp", datetime.min)),
+            reverse=True,
         )
 
         return sorted_versions[0]

@@ -1,4 +1,5 @@
 """System-related models for the distributed file system."""
+
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Literal, Set, Any
 from datetime import datetime
@@ -10,17 +11,20 @@ from .base import StorageLocation, Volume
 from .storage import StoragePool
 from .policy import CloudTieringPolicy, DataProtection, ReplicationPolicy
 
+
 class SystemStatus(Enum):
     HEALTHY = "healthy"
     DEGRADED = "degraded"
     ERROR = "error"
     MAINTENANCE = "maintenance"
 
+
 @dataclass
 class SystemMetrics:
     """System-wide metrics for the distributed file system"""
+
     total_storage: int  # in bytes
-    used_storage: int   # in bytes
+    used_storage: int  # in bytes
     total_nodes: int
     active_nodes: int
     total_volumes: int
@@ -34,25 +38,35 @@ class SystemMetrics:
 
     @property
     def storage_utilization(self) -> float:
-        return (self.used_storage / self.total_storage) * 100 if self.total_storage > 0 else 0
+        return (
+            (self.used_storage / self.total_storage) * 100
+            if self.total_storage > 0
+            else 0
+        )
 
     @property
     def node_health(self) -> float:
-        return (self.active_nodes / self.total_nodes) * 100 if self.total_nodes > 0 else 0
+        return (
+            (self.active_nodes / self.total_nodes) * 100 if self.total_nodes > 0 else 0
+        )
+
 
 @dataclass
 class SystemConfig:
     """System-wide configuration for the distributed file system"""
+
     replication_factor: int = 3
     min_nodes_required: int = 1
     max_volume_size: int = 1024 * 1024 * 1024 * 1024  # 1TB
     heartbeat_interval: int = 30  # seconds
-    metrics_interval: int = 60    # seconds
+    metrics_interval: int = 60  # seconds
     maintenance_window: Optional[Dict[str, str]] = None  # start and end times
+
 
 @dataclass
 class SystemHealth:
     """System health status and diagnostics"""
+
     status: SystemStatus
     message: str
     last_check: datetime
@@ -60,17 +74,21 @@ class SystemHealth:
     errors: List[str]
     node_statuses: Dict[str, str]  # node_id -> status
 
+
 @dataclass
 class CloudCredentials:
     """Cloud provider credentials and configuration"""
+
     provider: Literal["aws", "azure", "gcp"]
     credentials: Dict[str, str]
     default_region: str
     endpoints: Dict[str, str] = field(default_factory=dict)
 
+
 @dataclass
 class HybridStorageSystem:
     """Main system managing hybrid storage infrastructure"""
+
     name: str
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     storage_pools: Dict[str, StoragePool] = field(default_factory=dict)

@@ -1,6 +1,7 @@
 """
 Enterprise data protection with snapshots, backups, and rapid recovery
 """
+
 import os
 from typing import Dict, List, Optional, Set, Tuple, Union
 from datetime import datetime, timedelta
@@ -18,10 +19,11 @@ from src.models.models import (
     DataProtectionPolicy,
     RetentionPolicy,
     BackupState,
-    RecoveryPoint
+    RecoveryPoint,
 )
 
 logger = logging.getLogger(__name__)
+
 
 class RetentionType(Enum):
     HOURLY = "hourly"
@@ -30,9 +32,11 @@ class RetentionType(Enum):
     MONTHLY = "monthly"
     YEARLY = "yearly"
 
+
 @dataclass
 class BackupJob:
     """Represents a backup job"""
+
     id: str
     volume_id: str
     snapshot_id: str
@@ -42,6 +46,7 @@ class BackupJob:
     progress: float = 0.0
     error: Optional[str] = None
     completion_time: Optional[datetime] = None
+
 
 class DataProtectionManager:
     """Manages data protection features including snapshots, backups, and recovery"""
@@ -58,16 +63,19 @@ class DataProtectionManager:
         self.logger = logging.getLogger(__name__)
         self.recovery_points: Dict[str, List[RecoveryPoint]] = {}
 
-    def initialize(self, backup_retention_days: int = 30, 
-                  snapshot_retention_days: int = 7,
-                  auto_backup_enabled: bool = True) -> bool:
+    def initialize(
+        self,
+        backup_retention_days: int = 30,
+        snapshot_retention_days: int = 7,
+        auto_backup_enabled: bool = True,
+    ) -> bool:
         """Initialize the data protection system.
-        
+
         Args:
             backup_retention_days: Number of days to retain backups
             snapshot_retention_days: Number of days to retain snapshots
             auto_backup_enabled: Whether to enable automatic backups
-            
+
         Returns:
             bool: True if initialization successful, False otherwise
         """
@@ -76,12 +84,12 @@ class DataProtectionManager:
             os.makedirs(self._backup_path, exist_ok=True)
             os.makedirs(self._snapshot_path, exist_ok=True)
             os.makedirs(self._metadata_path, exist_ok=True)
-            
+
             # Initialize protection policies
             self.backup_retention_days = backup_retention_days
             self.snapshot_retention_days = snapshot_retention_days
             self.auto_backup_enabled = auto_backup_enabled
-            
+
             # Create default retention policy
             default_policy = {
                 "backup_retention_days": backup_retention_days,
@@ -89,27 +97,28 @@ class DataProtectionManager:
                 "auto_backup_enabled": auto_backup_enabled,
                 "retention_types": {
                     RetentionType.HOURLY.value: 24,  # Keep 24 hourly backups
-                    RetentionType.DAILY.value: 7,    # Keep 7 daily backups
-                    RetentionType.WEEKLY.value: 4,   # Keep 4 weekly backups
-                    RetentionType.MONTHLY.value: 12  # Keep 12 monthly backups
-                }
+                    RetentionType.DAILY.value: 7,  # Keep 7 daily backups
+                    RetentionType.WEEKLY.value: 4,  # Keep 4 weekly backups
+                    RetentionType.MONTHLY.value: 12,  # Keep 12 monthly backups
+                },
             }
-            
+
             # Save default policy
             policy_file = self._metadata_path / "protection_policy.json"
             with open(policy_file, "w") as f:
                 json.dump(default_policy, f, indent=4)
-                
+
             self._initialized = True
             logger.info("Data protection manager initialized successfully")
             return True
-            
+
         except Exception as e:
             logger.error(f"Failed to initialize data protection manager: {str(e)}")
             return False
 
-    async def create_snapshot(self, volume: Volume, name: str = None,
-                            snapshot_type: str = "user") -> SnapshotState:
+    async def create_snapshot(
+        self, volume: Volume, name: str = None, snapshot_type: str = "user"
+    ) -> SnapshotState:
         """Create a new snapshot"""
         # Get parent snapshot if exists
         parent_id = self._get_latest_snapshot_id(volume)
@@ -117,19 +126,14 @@ class DataProtectionManager:
         # Create new snapshot
         snapshot = SnapshotState(
             parent_id=parent_id,
-            metadata={
-                "name": name,
-                "type": snapshot_type,
-                "volume_id": volume.id
-            }
+            metadata={"name": name, "type": snapshot_type, "volume_id": volume.id},
         )
 
         # Track changed blocks since parent
         if parent_id:
             parent = volume.snapshots[parent_id]
             snapshot.changed_blocks = await self._get_changed_blocks(
-                volume,
-                parent.creation_time
+                volume, parent.creation_time
             )
 
         # Add to volume
@@ -143,29 +147,29 @@ class DataProtectionManager:
 
         return snapshot
 
-    async def schedule_backups(self, volume: Volume,
-                             policy: DataProtectionPolicy) -> None:
+    async def schedule_backups(
+        self, volume: Volume, policy: DataProtectionPolicy
+    ) -> None:
         """Schedule backups according to policy"""
         # Schedule different backup types
         schedules = [
             (policy.hourly_schedule, RetentionType.HOURLY),
             (policy.daily_schedule, RetentionType.DAILY),
             (policy.weekly_schedule, RetentionType.WEEKLY),
-            (policy.monthly_schedule, RetentionType.MONTHLY)
+            (policy.monthly_schedule, RetentionType.MONTHLY),
         ]
 
         for schedule, retention_type in schedules:
             if schedule:
                 await self._schedule_backup(volume, schedule, retention_type)
 
-    async def _schedule_backup(self, volume: Volume, schedule: str,
-                             retention_type: RetentionType) -> None:
+    async def _schedule_backup(
+        self, volume: Volume, schedule: str, retention_type: RetentionType
+    ) -> None:
         """Schedule a specific backup"""
         # Parse schedule and create backup job
         snapshot = await self.create_snapshot(
-            volume,
-            name=f"scheduled_{retention_type.value}",
-            snapshot_type="scheduled"
+            volume, name=f"scheduled_{retention_type.value}", snapshot_type="scheduled"
         )
 
         job = BackupJob(
@@ -174,7 +178,7 @@ class DataProtectionManager:
             snapshot_id=snapshot.id,
             target_location=volume.backup_location,
             start_time=datetime.now(),
-            status="pending"
+            status="pending",
         )
 
         self.active_backups[job.id] = job
@@ -202,8 +206,12 @@ class DataProtectionManager:
             job.error = str(e)
             self.logger.error(f"Backup job {job.id} failed: {str(e)}")
 
-    async def restore_volume(self, volume: Volume, recovery_point: RecoveryPoint,
-                           target_path: Optional[Path] = None) -> None:
+    async def restore_volume(
+        self,
+        volume: Volume,
+        recovery_point: RecoveryPoint,
+        target_path: Optional[Path] = None,
+    ) -> None:
         """Restore volume from a recovery point"""
         try:
             # Validate recovery point
@@ -246,7 +254,7 @@ class DataProtectionManager:
             RetentionType.HOURLY: [],
             RetentionType.DAILY: [],
             RetentionType.WEEKLY: [],
-            RetentionType.MONTHLY: []
+            RetentionType.MONTHLY: [],
         }
 
         for snapshot in volume.snapshots.values():
@@ -277,8 +285,9 @@ class DataProtectionManager:
         for snapshot in to_delete:
             await self._delete_snapshot_and_backup(volume, snapshot)
 
-    async def _delete_snapshot_and_backup(self, volume: Volume,
-                                        snapshot: SnapshotState) -> None:
+    async def _delete_snapshot_and_backup(
+        self, volume: Volume, snapshot: SnapshotState
+    ) -> None:
         """Delete a snapshot and its associated backup"""
         # Find associated backup
         backup_id = None
@@ -307,8 +316,7 @@ class DataProtectionManager:
         # For testing, we'll return a dummy list
         return ["block1", "block2"]
 
-    def _update_recovery_points(self, volume: Volume,
-                              snapshot: SnapshotState) -> None:
+    def _update_recovery_points(self, volume: Volume, snapshot: SnapshotState) -> None:
         """Update available recovery points"""
         if volume.id not in self.recovery_points:
             self.recovery_points[volume.id] = []
@@ -318,13 +326,14 @@ class DataProtectionManager:
             backup_id=None,  # Will be updated when backup completes
             timestamp=snapshot.creation_time,
             type=snapshot.metadata.get("type", "user"),
-            name=snapshot.metadata.get("name")
+            name=snapshot.metadata.get("name"),
         )
 
         self.recovery_points[volume.id].append(recovery_point)
 
-    def _validate_recovery_point(self, volume: Volume,
-                               recovery_point: RecoveryPoint) -> bool:
+    def _validate_recovery_point(
+        self, volume: Volume, recovery_point: RecoveryPoint
+    ) -> bool:
         """Validate a recovery point"""
         # Check if snapshot exists
         if recovery_point.snapshot_id not in volume.snapshots:
@@ -345,17 +354,14 @@ class DataProtectionManager:
         """Get the ID of the latest snapshot for a volume."""
         if not volume.snapshots:
             return None
-        
-        latest = max(
-            volume.snapshots.values(),
-            key=lambda s: s.creation_time
-        )
+
+        latest = max(volume.snapshots.values(), key=lambda s: s.creation_time)
         return latest.id
 
     @staticmethod
-    def _split_into_chunks(data: bytes, chunk_size: int = 1024*1024) -> List[bytes]:
+    def _split_into_chunks(data: bytes, chunk_size: int = 1024 * 1024) -> List[bytes]:
         """Split data into chunks"""
-        return [data[i:i + chunk_size] for i in range(0, len(data), chunk_size)]
+        return [data[i : i + chunk_size] for i in range(0, len(data), chunk_size)]
 
     async def _prepare_backup_data(self, snapshot: SnapshotState) -> bytes:
         """Prepare data for backup"""
@@ -382,7 +388,7 @@ class DataProtectionManager:
     async def _swap_volume_data(self, volume: Volume, restore_path: Path) -> None:
         """Swap restored data with volume data"""
         volume_path = self.data_path / volume.id
-        temp_path = volume_path.with_suffix('.old')
+        temp_path = volume_path.with_suffix(".old")
 
         # Atomic swap
         os.rename(volume_path, temp_path)

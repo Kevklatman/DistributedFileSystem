@@ -1,9 +1,11 @@
 """Unit tests for sync manager."""
+
 import unittest
 import time
 from unittest.mock import Mock, patch
 from storage.infrastructure.data.cache_store import CacheStore, ConsistencyLevel
 from storage.infrastructure.data.sync_manager import SyncManager
+
 
 class TestSyncManager(unittest.TestCase):
     """Test cases for sync manager."""
@@ -11,19 +13,17 @@ class TestSyncManager(unittest.TestCase):
     def setUp(self):
         """Set up test environment."""
         self.cache = CacheStore(
-            max_size=5,
-            ttl_seconds=1,
-            consistency_level=ConsistencyLevel.EVENTUAL
+            max_size=5, ttl_seconds=1, consistency_level=ConsistencyLevel.EVENTUAL
         )
         self.sync_manager = SyncManager(
             cache=self.cache,
             sync_interval=0.1,  # Short interval for testing
-            max_retries=2
+            max_retries=2,
         )
 
     def tearDown(self):
         """Clean up after tests."""
-        if hasattr(self, 'sync_manager'):
+        if hasattr(self, "sync_manager"):
             self.sync_manager.stop()
 
     def test_sync_callback_registration(self):

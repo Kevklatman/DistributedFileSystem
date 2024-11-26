@@ -9,12 +9,17 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 # Add parent directory to Python path for imports
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
+sys.path.append(
+    os.path.dirname(
+        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    )
+)
 
 from .unified_metrics import UnifiedMetricsCollector
 import logging
 
 logger = logging.getLogger(__name__)
+
 
 @dataclass
 class NetworkMetrics:
@@ -44,6 +49,7 @@ class NetworkMetrics:
             return (self.bytes_recv / 1024 / 1024) / self.duration
         return 0.0
 
+
 class SystemMetricsCollector(UnifiedMetricsCollector):
     """System-wide metrics collector implementation."""
 
@@ -56,10 +62,7 @@ class SystemMetricsCollector(UnifiedMetricsCollector):
         self._history_window = history_window
         self._metrics_history: Dict[float, Dict[str, float]] = {}
         self._operation_latencies = defaultdict(list)
-        self._cache_stats = {
-            'hits': 0,
-            'misses': 0
-        }
+        self._cache_stats = {"hits": 0, "misses": 0}
         self._lock = threading.Lock()
         self._network_metrics: Dict[str, NetworkMetrics] = {}
         self._last_network_counters = psutil.net_io_counters()
@@ -76,17 +79,21 @@ class SystemMetricsCollector(UnifiedMetricsCollector):
             self._operation_latencies[operation].append(duration)
             # Keep only last 1000 samples per operation
             if len(self._operation_latencies[operation]) > 1000:
-                self._operation_latencies[operation] = self._operation_latencies[operation][-1000:]
+                self._operation_latencies[operation] = self._operation_latencies[
+                    operation
+                ][-1000:]
 
-    def record_resource_usage(self, cpu: float, memory: float, disk_io: float, network_io: float) -> None:
+    def record_resource_usage(
+        self, cpu: float, memory: float, disk_io: float, network_io: float
+    ) -> None:
         """Record system resource usage."""
         current_time = time.time()
         with self._lock:
             self._metrics_history[current_time] = {
-                'cpu_usage': cpu,
-                'memory_usage': memory,
-                'disk_io': disk_io,
-                'network_io': network_io
+                "cpu_usage": cpu,
+                "memory_usage": memory,
+                "disk_io": disk_io,
+                "network_io": network_io,
             }
 
             # Clean up old metrics
@@ -99,17 +106,15 @@ class SystemMetricsCollector(UnifiedMetricsCollector):
         """Record cache operation (hit/miss)."""
         with self._lock:
             if hit:
-                self._cache_stats['hits'] += 1
+                self._cache_stats["hits"] += 1
             else:
-                self._cache_stats['misses'] += 1
+                self._cache_stats["misses"] += 1
 
     def start_network_operation(self, operation_name: str, file_size: int = 0) -> None:
         """Start tracking network metrics for an operation."""
         self._current_operation = operation_name
         self._network_metrics[operation_name] = NetworkMetrics(
-            start_time=time.time(),
-            operation_type=operation_name,
-            file_size=file_size
+            start_time=time.time(), operation_type=operation_name, file_size=file_size
         )
         # Get initial network counters
         self._last_network_counters = psutil.net_io_counters()
@@ -122,10 +127,18 @@ class SystemMetricsCollector(UnifiedMetricsCollector):
             metrics = self._network_metrics[operation_name]
 
             # Calculate network usage for this operation
-            metrics.bytes_sent = current_counters.bytes_sent - self._last_network_counters.bytes_sent
-            metrics.bytes_recv = current_counters.bytes_recv - self._last_network_counters.bytes_recv
-            metrics.packets_sent = current_counters.packets_sent - self._last_network_counters.packets_sent
-            metrics.packets_recv = current_counters.packets_recv - self._last_network_counters.packets_recv
+            metrics.bytes_sent = (
+                current_counters.bytes_sent - self._last_network_counters.bytes_sent
+            )
+            metrics.bytes_recv = (
+                current_counters.bytes_recv - self._last_network_counters.bytes_recv
+            )
+            metrics.packets_sent = (
+                current_counters.packets_sent - self._last_network_counters.packets_sent
+            )
+            metrics.packets_recv = (
+                current_counters.packets_recv - self._last_network_counters.packets_recv
+            )
 
         self._current_operation = ""
 
@@ -140,7 +153,7 @@ class SystemMetricsCollector(UnifiedMetricsCollector):
                 "upload_speed_mbps": metrics.upload_speed,
                 "download_speed_mbps": metrics.download_speed,
                 "packets_sent": metrics.packets_sent,
-                "packets_received": metrics.packets_recv
+                "packets_received": metrics.packets_recv,
             }
         return {}
 
@@ -159,13 +172,13 @@ class SystemMetricsCollector(UnifiedMetricsCollector):
 
         if time_diff > 0:
             disk_io_rate = (
-                (current_disk_io.read_bytes + current_disk_io.write_bytes) -
-                (self._last_disk_io.read_bytes + self._last_disk_io.write_bytes)
+                (current_disk_io.read_bytes + current_disk_io.write_bytes)
+                - (self._last_disk_io.read_bytes + self._last_disk_io.write_bytes)
             ) / time_diff
 
             network_io_rate = (
-                (current_net_io.bytes_sent + current_net_io.bytes_recv) -
-                (self._last_net_io.bytes_sent + self._last_net_io.bytes_recv)
+                (current_net_io.bytes_sent + current_net_io.bytes_recv)
+                - (self._last_net_io.bytes_sent + self._last_net_io.bytes_recv)
             ) / time_diff
         else:
             disk_io_rate = 0
@@ -181,36 +194,36 @@ class SystemMetricsCollector(UnifiedMetricsCollector):
             for op, latencies in self._operation_latencies.items():
                 if latencies:
                     operation_stats[op] = {
-                        'avg_latency': sum(latencies) / len(latencies),
-                        'min_latency': min(latencies),
-                        'max_latency': max(latencies),
-                        'samples': len(latencies)
+                        "avg_latency": sum(latencies) / len(latencies),
+                        "min_latency": min(latencies),
+                        "max_latency": max(latencies),
+                        "samples": len(latencies),
                     }
 
             # Calculate cache hit rate
-            total_cache_ops = self._cache_stats['hits'] + self._cache_stats['misses']
+            total_cache_ops = self._cache_stats["hits"] + self._cache_stats["misses"]
             cache_hit_rate = (
-                self._cache_stats['hits'] / total_cache_ops
-                if total_cache_ops > 0 else 0
+                self._cache_stats["hits"] / total_cache_ops
+                if total_cache_ops > 0
+                else 0
             )
 
         return {
-            'system': {
-                'cpu_usage': cpu_usage,
-                'memory_usage': memory.percent,
-                'disk_io_rate': disk_io_rate,
-                'network_io_rate': network_io_rate
+            "system": {
+                "cpu_usage": cpu_usage,
+                "memory_usage": memory.percent,
+                "disk_io_rate": disk_io_rate,
+                "network_io_rate": network_io_rate,
             },
-            'operations': operation_stats,
-            'cache': {
-                'hit_rate': cache_hit_rate,
-                'hits': self._cache_stats['hits'],
-                'misses': self._cache_stats['misses']
+            "operations": operation_stats,
+            "cache": {
+                "hit_rate": cache_hit_rate,
+                "hits": self._cache_stats["hits"],
+                "misses": self._cache_stats["misses"],
             },
-            'network': {
-                op: self.get_network_metrics(op)
-                for op in self._network_metrics
-            }
+            "network": {
+                op: self.get_network_metrics(op) for op in self._network_metrics
+            },
         }
 
     def reset_stats(self) -> None:
@@ -218,7 +231,7 @@ class SystemMetricsCollector(UnifiedMetricsCollector):
         with self._lock:
             self._metrics_history.clear()
             self._operation_latencies.clear()
-            self._cache_stats = {'hits': 0, 'misses': 0}
+            self._cache_stats = {"hits": 0, "misses": 0}
             self._last_check_time = time.time()
             self._last_disk_io = psutil.disk_io_counters()
             self._last_net_io = psutil.net_io_counters()

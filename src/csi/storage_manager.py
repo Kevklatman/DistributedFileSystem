@@ -10,6 +10,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from storage.infrastructure.hybrid_storage import HybridStorageManager
 from src.models.models import StorageLocation, Volume, DataTemperature
 
+
 class CSIStorageManager:
     """Storage Manager for CSI Driver Integration"""
 
@@ -33,12 +34,10 @@ class CSIStorageManager:
             path=str(Path(self.storage_manager.root_path) / "csi"),
             size_bytes=1000 * 1024 * 1024 * 1024,  # 1TB
             replicas=[],
-            temperature=DataTemperature.HOT
+            temperature=DataTemperature.HOT,
         )
         return await self.storage_manager.create_storage_pool(
-            name=pool_name,
-            location=location,
-            capacity_gb=1000  # Default 1TB pool
+            name=pool_name, location=location, capacity_gb=1000  # Default 1TB pool
         )
 
     async def create_volume(self, name: str, size_bytes: int) -> str:
@@ -57,10 +56,7 @@ class CSIStorageManager:
 
         # Create volume with cloud tiering enabled
         volume = await self.storage_manager.create_volume(
-            name=name,
-            size_gb=size_gb,
-            pool_id=pool_id,
-            cloud_tiering=True
+            name=name, size_gb=size_gb, pool_id=pool_id, cloud_tiering=True
         )
 
         return volume.id
@@ -70,14 +66,18 @@ class CSIStorageManager:
         if volume_id in self.storage_manager.system.volumes:
             volume = self.storage_manager.system.volumes[volume_id]
             # Clean up mount points if any
-            if hasattr(volume, 'mount_point') and volume.mount_point:
+            if hasattr(volume, "mount_point") and volume.mount_point:
                 await self.unmount_volume(volume.mount_point)
-            
+
             # Delete from storage manager
             del self.storage_manager.system.volumes[volume_id]
-            
+
             # Delete physical volume directory
-            volume_path = Path(self.storage_manager.data_path) / volume.primary_pool_id / volume_id
+            volume_path = (
+                Path(self.storage_manager.data_path)
+                / volume.primary_pool_id
+                / volume_id
+            )
             if volume_path.exists():
                 shutil.rmtree(str(volume_path))
 
@@ -102,14 +102,16 @@ class CSIStorageManager:
             elif target.is_dir():
                 target.rmdir()
             else:
-                raise ValueError(f"Mount point {target_path} exists and is not a directory or symlink")
+                raise ValueError(
+                    f"Mount point {target_path} exists and is not a directory or symlink"
+                )
 
         # Create parent directory if needed
         target.parent.mkdir(parents=True, exist_ok=True)
 
         # Create symlink to target path
         os.symlink(volume_path, target_path)
-        
+
         # Store mount point in volume
         volume.mount_point = target_path
 
@@ -117,7 +119,7 @@ class CSIStorageManager:
         """Unmount a volume from the specified path"""
         if target_path is None:
             return
-            
+
         if os.path.exists(target_path):
             if os.path.islink(target_path):
                 os.unlink(target_path)

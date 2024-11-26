@@ -1,6 +1,7 @@
 """
 Examples of using the hybrid policy engine with manual overrides and constraints
 """
+
 from pathlib import Path
 from typing import Dict, Any
 import json
@@ -9,12 +10,16 @@ from datetime import datetime
 
 from .policy_engine import HybridPolicyEngine, PolicyMode
 from src.models.models import (
-    DataTemperature, Volume, StorageLocation, 
-    CloudTieringPolicy, DataProtection
+    DataTemperature,
+    Volume,
+    StorageLocation,
+    CloudTieringPolicy,
+    DataProtection,
 )
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
 
 def load_policy_config(config_path: Path) -> Dict[str, Any]:
     """Load policy configuration from JSON file"""
@@ -23,6 +28,7 @@ def load_policy_config(config_path: Path) -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"Failed to load policy config: {e}")
         return {}
+
 
 def setup_policy_engine(data_path: Path) -> HybridPolicyEngine:
     """Set up policy engine with configuration"""
@@ -42,6 +48,7 @@ def setup_policy_engine(data_path: Path) -> HybridPolicyEngine:
 
     return engine
 
+
 def example_financial_data_handling():
     """Example: Handling financial data with strict requirements"""
     data_path = Path("/Users/kevinklatman/Development/Code/DistributedFileSystem")
@@ -58,7 +65,7 @@ def example_financial_data_handling():
         tiering_policy=CloudTieringPolicy(
             volume_id="finance-vol-1",
             cold_tier_after_days=30,
-            archive_tier_after_days=90
+            archive_tier_after_days=90,
         ),
         protection=DataProtection(
             volume_id="finance-vol-1",
@@ -68,8 +75,8 @@ def example_financial_data_handling():
             cloud_backup_enabled=True,
             cloud_backup_schedule="0 0 * * *",
             cloud_backup_retention_days=90,
-            disaster_recovery_enabled=True
-        )
+            disaster_recovery_enabled=True,
+        ),
     )
 
     # Test financial data path
@@ -79,6 +86,7 @@ def example_financial_data_handling():
     # Get policy decision
     decision = engine.evaluate_tiering_decision(volume, file_path, temp_data)
     logger.info(f"Financial data decision: {decision}")
+
 
 def example_log_data_handling():
     """Example: Handling log data with cost optimization"""
@@ -94,9 +102,7 @@ def example_log_data_handling():
         last_accessed_at=datetime.now(),
         locations=[],
         tiering_policy=CloudTieringPolicy(
-            volume_id="logs-vol-1",
-            cold_tier_after_days=30,
-            archive_tier_after_days=60
+            volume_id="logs-vol-1", cold_tier_after_days=30, archive_tier_after_days=60
         ),
         protection=DataProtection(
             volume_id="logs-vol-1",
@@ -106,8 +112,8 @@ def example_log_data_handling():
             cloud_backup_enabled=True,
             cloud_backup_schedule="0 0 * * 0",
             cloud_backup_retention_days=60,
-            disaster_recovery_enabled=False
-        )
+            disaster_recovery_enabled=False,
+        ),
     )
 
     # Test log data path
@@ -117,6 +123,7 @@ def example_log_data_handling():
     # Get policy decision
     decision = engine.evaluate_tiering_decision(volume, file_path, temp_data)
     logger.info(f"Log data decision: {decision}")
+
 
 def example_ml_training_data():
     """Example: Handling ML training data with balanced requirements"""
@@ -135,15 +142,14 @@ def example_ml_training_data():
         last_accessed_at=datetime.now(),
         locations=[],
         tiering_policy=CloudTieringPolicy(
-            cold_tier_after_days=30,
-            archive_tier_after_days=90
+            cold_tier_after_days=30, archive_tier_after_days=90
         ),
         protection=DataProtection(
             replica_count=3,
             consistency_level="strong",
             sync_replication=True,
-            backup_schedule="0 0 * * *"  # Daily backup at midnight
-        )
+            backup_schedule="0 0 * * *",  # Daily backup at midnight
+        ),
     )
 
     # Test ML training data path
@@ -153,6 +159,7 @@ def example_ml_training_data():
     # Get policy decision
     decision = engine.evaluate_tiering_decision(volume, file_path, temp_data)
     logger.info(f"ML training data decision: {decision}")
+
 
 def example_backup_volume():
     """Example: Handling backup volume with retention requirements"""
@@ -168,15 +175,14 @@ def example_backup_volume():
         last_accessed_at=datetime.now(),
         locations=[],
         tiering_policy=CloudTieringPolicy(
-            cold_tier_after_days=30,
-            archive_tier_after_days=60
+            cold_tier_after_days=30, archive_tier_after_days=60
         ),
         protection=DataProtection(
             replica_count=2,
             consistency_level="eventual",
             sync_replication=False,
-            backup_schedule="0 0 * * 0"  # Weekly backup on Sunday
-        )
+            backup_schedule="0 0 * * 0",  # Weekly backup on Sunday
+        ),
     )
 
     # Test backup data
@@ -186,6 +192,7 @@ def example_backup_volume():
     # Get policy decision
     decision = engine.evaluate_tiering_decision(volume, file_path, temp_data)
     logger.info(f"Backup data decision: {decision}")
+
 
 if __name__ == "__main__":
     # Run examples

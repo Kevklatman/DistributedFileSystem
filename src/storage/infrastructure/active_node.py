@@ -1,4 +1,5 @@
 """Active node management for the distributed file system."""
+
 import asyncio
 import logging
 from datetime import datetime
@@ -15,15 +16,18 @@ from src.storage.infrastructure.data.consistency_manager import ConsistencyManag
 from src.storage.infrastructure.data.replication_manager import ReplicationManager
 from src.models.models import Volume, NodeState
 
+
 class ConsistencyLevel(Enum):
     """Consistency levels for read/write operations."""
+
     EVENTUAL = "eventual"
     STRONG = "strong"
     QUORUM = "quorum"
 
+
 class ActiveNode:
     """Active node in the distributed file system."""
-    
+
     def __init__(self, node_id: str, data_dir: str = None, quorum_size: int = 2):
         """Initialize active node."""
         self.node_id = node_id
@@ -84,23 +88,24 @@ class ActiveNode:
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get(
-                    f"http://{node.address}/metrics",
-                    timeout=2.0
+                    f"http://{node.address}/metrics", timeout=2.0
                 ) as response:
                     if response.status == 200:
                         return await response.json()
             return None
         except Exception as e:
-            self.logger.warning(f"Failed to get metrics from node {node.node_id}: {str(e)}")
+            self.logger.warning(
+                f"Failed to get metrics from node {node.node_id}: {str(e)}"
+            )
             return None
 
     def _is_node_degraded(self, metrics: Dict[str, float]) -> bool:
         """Check if node is in a degraded state based on metrics"""
         return (
-            metrics.get('cpu_usage', 0) > 80 or
-            metrics.get('memory_usage', 0) > 80 or
-            metrics.get('disk_usage', 0) > 90 or
-            metrics.get('error_rate', 0) > 0.05
+            metrics.get("cpu_usage", 0) > 80
+            or metrics.get("memory_usage", 0) > 80
+            or metrics.get("disk_usage", 0) > 90
+            or metrics.get("error_rate", 0) > 0.05
         )
 
     async def handle_node_failure(self, failed_node: NodeState) -> None:
@@ -118,18 +123,14 @@ class ActiveNode:
             replication_tasks = []
             for data_id, version_data in affected_data.items():
                 task = self.ensure_replication_level(
-                    data_id,
-                    version_data,
-                    exclude_nodes={failed_node.node_id}
+                    data_id, version_data, exclude_nodes={failed_node.node_id}
                 )
                 replication_tasks.append(task)
 
             # Wait for critical replications with timeout
             try:
                 await asyncio.wait(
-                    replication_tasks,
-                    timeout=30.0,
-                    return_when=asyncio.ALL_COMPLETED
+                    replication_tasks, timeout=30.0, return_when=asyncio.ALL_COMPLETED
                 )
             except asyncio.TimeoutError:
                 self.logger.error("Timeout waiting for failure recovery replication")
@@ -140,7 +141,9 @@ class ActiveNode:
         except Exception as e:
             self.logger.error(f"Failed to handle node failure: {str(e)}")
 
-    async def handle_node_degradation(self, node: NodeState, metrics: Dict[str, float]) -> None:
+    async def handle_node_degradation(
+        self, node: NodeState, metrics: Dict[str, float]
+    ) -> None:
         """Handle degraded node performance"""
         try:
             self.logger.warning(f"Handling degradation of node {node.node_id}")
@@ -150,7 +153,7 @@ class ActiveNode:
             node.performance_metrics = metrics
 
             # Gradually migrate load away from degraded node
-            if metrics.get('cpu_usage', 0) > 90:
+            if metrics.get("cpu_usage", 0) > 90:
                 # Critical load - migrate aggressively
                 await self.migrate_load_from_node(node, aggressive=True)
             else:
@@ -160,7 +163,9 @@ class ActiveNode:
         except Exception as e:
             self.logger.error(f"Failed to handle node degradation: {str(e)}")
 
-    async def migrate_load_from_node(self, node: NodeState, aggressive: bool = False) -> None:
+    async def migrate_load_from_node(
+        self, node: NodeState, aggressive: bool = False
+    ) -> None:
         """Migrate load away from a node"""
         try:
             # Get data hosted on the degraded node
@@ -171,9 +176,9 @@ class ActiveNode:
                 node_data.items(),
                 key=lambda x: (
                     self.load_manager.get_data_access_frequency(x[0]),
-                    len(x[1].content)
+                    len(x[1].content),
                 ),
-                reverse=True
+                reverse=True,
             )
 
             # Determine how much data to migrate
@@ -182,7 +187,9 @@ class ActiveNode:
             # Migrate most frequently accessed data first
             migration_tasks = []
             for data_id, version_data in sorted_data[:migration_limit]:
-                task = self.migrate_data(data_id, version_data, exclude_nodes={node.node_id})
+                task = self.migrate_data(
+                    data_id, version_data, exclude_nodes={node.node_id}
+                )
                 migration_tasks.append(task)
 
             # Wait for migrations with timeout
@@ -190,7 +197,7 @@ class ActiveNode:
                 await asyncio.wait(
                     migration_tasks,
                     timeout=60.0 if aggressive else 300.0,
-                    return_when=asyncio.ALL_COMPLETED
+                    return_when=asyncio.ALL_COMPLETED,
                 )
             except asyncio.TimeoutError:
                 self.logger.warning("Timeout waiting for load migration")
@@ -198,51 +205,47 @@ class ActiveNode:
         except Exception as e:
             self.logger.error(f"Failed to migrate load: {str(e)}")
 
-    async def migrate_data(self, data_id: str, version_data: Volume,
-                          exclude_nodes: Set[str]) -> None:
+    async def migrate_data(
+        self, data_id: str, version_data: Volume, exclude_nodes: Set[str]
+    ) -> None:
         """Migrate a single piece of data to a new node"""
         try:
             # Find best target node
             target_node = await self.find_migration_target(
-                data_id,
-                len(version_data.content),
-                exclude_nodes
+                data_id, len(version_data.content), exclude_nodes
             )
             if not target_node:
                 raise ValueError("No suitable migration target found")
 
             # Replicate to new node
             result = await self.replication_manager.replicate_to_node(
-                target_node,
-                data_id,
-                version_data.content,
-                version_data.checksum
+                target_node, data_id, version_data.content, version_data.checksum
             )
 
-            if result.get('status') != 'success':
+            if result.get("status") != "success":
                 raise RuntimeError(f"Migration failed: {result.get('error')}")
 
             # Update version map
             await self.consistency_manager.update_node_version(
-                target_node.node_id,
-                data_id,
-                version_data
+                target_node.node_id, data_id, version_data
             )
 
         except Exception as e:
             self.logger.error(f"Failed to migrate data {data_id}: {str(e)}")
             raise
 
-    async def find_migration_target(self, data_id: str, data_size: int,
-                                  exclude_nodes: Set[str]) -> Optional[NodeState]:
+    async def find_migration_target(
+        self, data_id: str, data_size: int, exclude_nodes: Set[str]
+    ) -> Optional[NodeState]:
         """Find best node to migrate data to"""
         try:
             candidate_nodes = [
-                node for node in self.get_active_nodes()
+                node
+                for node in self.get_active_nodes()
                 if (
-                    node.node_id not in exclude_nodes and
-                    node.status == "active" and
-                    node.available_storage > data_size * 1.5  # Include headroom
+                    node.node_id not in exclude_nodes
+                    and node.status == "active"
+                    and node.available_storage > data_size * 1.5  # Include headroom
                 )
             ]
 
@@ -253,10 +256,12 @@ class ActiveNode:
             scored_nodes = []
             for node in candidate_nodes:
                 score = (
-                    (1 - self.load_manager.get_node_load(node.node_id)) * 0.4 +  # Load
-                    (node.available_storage / node.total_storage) * 0.3 +  # Storage
-                    (1 - min(1.0, node.network_latency / 1000.0)) * 0.2 +  # Latency
-                    (0.1 if node.region != self.region else 0)  # Geographic distribution
+                    (1 - self.load_manager.get_node_load(node.node_id)) * 0.4  # Load
+                    + (node.available_storage / node.total_storage) * 0.3  # Storage
+                    + (1 - min(1.0, node.network_latency / 1000.0)) * 0.2  # Latency
+                    + (
+                        0.1 if node.region != self.region else 0
+                    )  # Geographic distribution
                 )
                 scored_nodes.append((score, node))
 
@@ -267,8 +272,9 @@ class ActiveNode:
             self.logger.error(f"Failed to find migration target: {str(e)}")
             return None
 
-    async def rebalance_cluster(self, failed_nodes: List[NodeState],
-                               degraded_nodes: List[NodeState]) -> None:
+    async def rebalance_cluster(
+        self, failed_nodes: List[NodeState], degraded_nodes: List[NodeState]
+    ) -> None:
         """Rebalance cluster after node failures or degradation"""
         try:
             self.logger.info("Starting cluster rebalance")
@@ -281,19 +287,14 @@ class ActiveNode:
 
             # Generate migration plan
             migration_plan = self.generate_migration_plan(
-                distribution,
-                ideal_distribution,
-                failed_nodes,
-                degraded_nodes
+                distribution, ideal_distribution, failed_nodes, degraded_nodes
             )
 
             # Execute migrations in parallel with rate limiting
             async with asyncio.Semaphore(5) as semaphore:  # Limit concurrent migrations
                 migration_tasks = []
                 for source, target, data_id in migration_plan:
-                    task = self.execute_migration(
-                        source, target, data_id, semaphore
-                    )
+                    task = self.execute_migration(source, target, data_id, semaphore)
                     migration_tasks.append(task)
 
                 await asyncio.gather(*migration_tasks)
@@ -303,17 +304,20 @@ class ActiveNode:
         except Exception as e:
             self.logger.error(f"Cluster rebalance failed: {str(e)}")
 
-    async def execute_migration(self, source: NodeState, target: NodeState,
-                              data_id: str, semaphore: asyncio.Semaphore) -> None:
+    async def execute_migration(
+        self,
+        source: NodeState,
+        target: NodeState,
+        data_id: str,
+        semaphore: asyncio.Semaphore,
+    ) -> None:
         """Execute a single migration in the rebalance plan"""
         async with semaphore:
             try:
                 version_data = await self.get_version_data(source, data_id)
                 if version_data:
                     await self.migrate_data(
-                        data_id,
-                        version_data,
-                        exclude_nodes={source.node_id}
+                        data_id, version_data, exclude_nodes={source.node_id}
                     )
             except Exception as e:
                 self.logger.error(
@@ -328,17 +332,17 @@ class ActiveNode:
             if alternate_node:
                 return await self.forward_request(request, alternate_node)
 
-        if request.method == 'GET':
+        if request.method == "GET":
             return await self.handle_read(request)
-        elif request.method in ['PUT', 'POST']:
+        elif request.method in ["PUT", "POST"]:
             return await self.handle_write(request)
-        elif request.method == 'DELETE':
+        elif request.method == "DELETE":
             return await self.handle_delete(request)
 
     async def handle_write(self, request) -> web.Response:
         """Handle write requests with parallel replication and load balancing"""
         try:
-            data_id = request.match_info['data_id']
+            data_id = request.match_info["data_id"]
             content = await request.read()
             checksum = hashlib.sha256(content).hexdigest()
 
@@ -353,19 +357,18 @@ class ActiveNode:
                 content=content,
                 version=await self.consistency_manager.get_next_version(data_id),
                 timestamp=datetime.now(),
-                checksum=checksum
+                checksum=checksum,
             )
 
             # Get target nodes for replication
             target_nodes = self.replication_manager._select_replica_nodes(
-                self.quorum_size - 1,  # Exclude self
-                {self.node_id}
+                self.quorum_size - 1, {self.node_id}  # Exclude self
             )
 
             if len(target_nodes) < self.quorum_size - 1:
                 return web.Response(
                     status=503,
-                    text=f"Not enough nodes available for quorum (need {self.quorum_size})"
+                    text=f"Not enough nodes available for quorum (need {self.quorum_size})",
                 )
 
             # Start parallel writes
@@ -394,7 +397,7 @@ class ActiveNode:
                 done, pending = await asyncio.wait(
                     write_futures,
                     timeout=5.0,  # 5 second timeout
-                    return_when=asyncio.FIRST_N_COMPLETED(self.quorum_size - 1)
+                    return_when=asyncio.FIRST_N_COMPLETED(self.quorum_size - 1),
                 )
 
                 # Cancel pending operations if quorum achieved
@@ -403,8 +406,7 @@ class ActiveNode:
 
                 # Check results
                 successful_writes = sum(
-                    1 for task in done
-                    if task.result().get('status') == 'success'
+                    1 for task in done if task.result().get("status") == "success"
                 )
 
                 if successful_writes < self.quorum_size - 1:
@@ -412,7 +414,7 @@ class ActiveNode:
                     await self.rollback_write(data_id)
                     return web.Response(
                         status=503,
-                        text=f"Write quorum not achieved ({successful_writes + 1}/{self.quorum_size})"
+                        text=f"Write quorum not achieved ({successful_writes + 1}/{self.quorum_size})",
                     )
 
                 # Update load metrics
@@ -420,16 +422,13 @@ class ActiveNode:
 
                 return web.Response(
                     status=200,
-                    text=f"Write successful, replicated to {successful_writes + 1} nodes"
+                    text=f"Write successful, replicated to {successful_writes + 1} nodes",
                 )
 
             except asyncio.TimeoutError:
                 # Rollback on timeout
                 await self.rollback_write(data_id)
-                return web.Response(
-                    status=503,
-                    text="Write timeout waiting for quorum"
-                )
+                return web.Response(status=503, text="Write timeout waiting for quorum")
 
         except Exception as e:
             self.logger.error(f"Write failed: {str(e)}")
@@ -455,9 +454,7 @@ class ActiveNode:
 
             # Wait for rollbacks with timeout
             await asyncio.wait(
-                rollback_futures,
-                timeout=2.0,
-                return_when=asyncio.ALL_COMPLETED
+                rollback_futures, timeout=2.0, return_when=asyncio.ALL_COMPLETED
             )
 
         except Exception as e:
@@ -469,7 +466,7 @@ class ActiveNode:
             async with aiohttp.ClientSession() as session:
                 async with session.delete(
                     f"http://{node.address}/storage/data/{data_id}",
-                    headers={'X-Operation': 'rollback'}
+                    headers={"X-Operation": "rollback"},
                 ) as response:
                     if response.status != 200:
                         self.logger.warning(
@@ -477,7 +474,9 @@ class ActiveNode:
                             f"HTTP {response.status}"
                         )
         except Exception as e:
-            self.logger.error(f"Failed to notify rollback to node {node.node_id}: {str(e)}")
+            self.logger.error(
+                f"Failed to notify rollback to node {node.node_id}: {str(e)}"
+            )
 
     def find_least_loaded_node(self) -> Optional[NodeState]:
         """Find the node with the lowest load"""
@@ -486,15 +485,16 @@ class ActiveNode:
             return None
 
         return min(
-            active_nodes,
-            key=lambda n: self.load_manager.get_node_load(n.node_id)
+            active_nodes, key=lambda n: self.load_manager.get_node_load(n.node_id)
         )
 
     async def handle_read(self, request) -> web.Response:
         """Handle read requests with load balancing and consistency guarantees"""
         try:
-            data_id = request.match_info['data_id']
-            consistency = request.query.get('consistency', ConsistencyLevel.QUORUM.value)
+            data_id = request.match_info["data_id"]
+            consistency = request.query.get(
+                "consistency", ConsistencyLevel.QUORUM.value
+            )
 
             # Check if we should handle this read
             if not self.load_manager.can_handle_read():
@@ -528,7 +528,9 @@ class ActiveNode:
             self.logger.error(f"Read failed: {str(e)}")
             return web.Response(status=500, text=str(e))
 
-    async def handle_strong_read(self, data_id: str, nodes: List[NodeState]) -> Optional[bytes]:
+    async def handle_strong_read(
+        self, data_id: str, nodes: List[NodeState]
+    ) -> Optional[bytes]:
         """Handle read with strong consistency - read from all nodes"""
         try:
             # Read from all nodes in parallel
@@ -539,9 +541,7 @@ class ActiveNode:
 
             # Wait for all reads with timeout
             done, pending = await asyncio.wait(
-                read_futures,
-                timeout=5.0,
-                return_when=asyncio.ALL_COMPLETED
+                read_futures, timeout=5.0, return_when=asyncio.ALL_COMPLETED
             )
 
             # Cancel any pending reads
@@ -553,7 +553,7 @@ class ActiveNode:
             for task in done:
                 try:
                     result = task.result()
-                    if result and result.get('status') == 'success':
+                    if result and result.get("status") == "success":
                         read_results.append(result)
                 except Exception as e:
                     self.logger.error(f"Read task failed: {str(e)}")
@@ -568,14 +568,18 @@ class ActiveNode:
                 raise ConsistencyError("Inconsistent data detected, repair initiated")
 
             # Return the most recent version
-            latest_result = max(read_results, key=lambda r: (r['version'], r['timestamp']))
-            return latest_result['content']
+            latest_result = max(
+                read_results, key=lambda r: (r["version"], r["timestamp"])
+            )
+            return latest_result["content"]
 
         except Exception as e:
             self.logger.error(f"Strong read failed: {str(e)}")
             raise
 
-    async def handle_quorum_read(self, data_id: str, nodes: List[NodeState]) -> Optional[bytes]:
+    async def handle_quorum_read(
+        self, data_id: str, nodes: List[NodeState]
+    ) -> Optional[bytes]:
         """Handle read with quorum consistency"""
         try:
             # Calculate required quorum size
@@ -591,7 +595,7 @@ class ActiveNode:
             done, pending = await asyncio.wait(
                 read_futures,
                 timeout=3.0,
-                return_when=asyncio.FIRST_N_COMPLETED(required_reads)
+                return_when=asyncio.FIRST_N_COMPLETED(required_reads),
             )
 
             # Cancel pending reads
@@ -603,7 +607,7 @@ class ActiveNode:
             for task in done:
                 try:
                     result = task.result()
-                    if result and result.get('status') == 'success':
+                    if result and result.get("status") == "success":
                         read_results.append(result)
                 except Exception as e:
                     self.logger.error(f"Read task failed: {str(e)}")
@@ -614,21 +618,23 @@ class ActiveNode:
                 )
 
             # Return the most recent version from quorum
-            latest_result = max(read_results, key=lambda r: (r['version'], r['timestamp']))
+            latest_result = max(
+                read_results, key=lambda r: (r["version"], r["timestamp"])
+            )
 
             # Schedule async repair if versions differ
-            if not all(r['version'] == latest_result['version'] for r in read_results):
-                asyncio.create_task(
-                    self.repair_inconsistency(data_id, read_results)
-                )
+            if not all(r["version"] == latest_result["version"] for r in read_results):
+                asyncio.create_task(self.repair_inconsistency(data_id, read_results))
 
-            return latest_result['content']
+            return latest_result["content"]
 
         except Exception as e:
             self.logger.error(f"Quorum read failed: {str(e)}")
             raise
 
-    async def handle_eventual_read(self, data_id: str, nodes: List[NodeState]) -> Optional[bytes]:
+    async def handle_eventual_read(
+        self, data_id: str, nodes: List[NodeState]
+    ) -> Optional[bytes]:
         """Handle read with eventual consistency - read from closest/least loaded node"""
         try:
             # Sort nodes by load and latency
@@ -636,16 +642,16 @@ class ActiveNode:
                 nodes,
                 key=lambda n: (
                     self.load_manager.get_node_load(n.node_id),
-                    n.network_latency
-                )
+                    n.network_latency,
+                ),
             )
 
             # Try nodes in order until successful
             for node in sorted_nodes:
                 try:
                     result = await self.read_from_node(node, data_id)
-                    if result and result.get('status') == 'success':
-                        return result['content']
+                    if result and result.get("status") == "success":
+                        return result["content"]
                 except Exception as e:
                     self.logger.warning(
                         f"Failed to read from node {node.node_id}: {str(e)}"
@@ -667,22 +673,24 @@ class ActiveNode:
                 ) as response:
                     if response.status == 200:
                         return {
-                            'status': 'success',
-                            'content': await response.read(),
-                            'version': int(response.headers.get('X-Version', '0')),
-                            'timestamp': datetime.fromisoformat(
-                                response.headers.get('X-Timestamp', datetime.min.isoformat())
-                            )
+                            "status": "success",
+                            "content": await response.read(),
+                            "version": int(response.headers.get("X-Version", "0")),
+                            "timestamp": datetime.fromisoformat(
+                                response.headers.get(
+                                    "X-Timestamp", datetime.min.isoformat()
+                                )
+                            ),
                         }
                     else:
                         return {
-                            'status': 'error',
-                            'error': f"HTTP {response.status}: {await response.text()}"
+                            "status": "error",
+                            "error": f"HTTP {response.status}: {await response.text()}",
                         }
 
         except Exception as e:
             self.logger.error(f"Failed to read from node {node.node_id}: {str(e)}")
-            return {'status': 'error', 'error': str(e)}
+            return {"status": "error", "error": str(e)}
 
     async def find_nodes_with_data(self, data_id: str) -> List[NodeState]:
         """Find all nodes that have a copy of the data"""
@@ -696,10 +704,7 @@ class ActiveNode:
             )
 
             # Filter active nodes that have the data
-            return [
-                node for node in active_nodes
-                if node.node_id in nodes_in_map
-            ]
+            return [node for node in active_nodes if node.node_id in nodes_in_map]
 
         except Exception as e:
             self.logger.error(f"Failed to find nodes with data: {str(e)}")
@@ -708,20 +713,21 @@ class ActiveNode:
     async def write_local(self, path: str, content: bytes) -> None:
         """Write data locally with proper locking"""
         async with self.consistency_manager.get_write_lock(path):
-            with open(path, 'wb') as f:
+            with open(path, "wb") as f:
                 f.write(content)
 
     async def read_local(self, path: str) -> bytes:
         """Read data locally with proper locking"""
         async with self.consistency_manager.get_read_lock(path):
-            with open(path, 'rb') as f:
+            with open(path, "rb") as f:
                 return f.read()
 
     def get_active_nodes(self) -> List[NodeState]:
         """Get list of active nodes in the cluster"""
         now = datetime.now()
         return [
-            node for node in self.cluster_nodes.values()
+            node
+            for node in self.cluster_nodes.values()
             if (now - node.last_heartbeat).total_seconds() < 30
             and node.status == "active"
         ]
@@ -738,7 +744,7 @@ class ActiveNode:
                     capacity=self.load_manager.get_capacity(),
                     last_heartbeat=datetime.now(),
                     address="",
-                    available_storage=0.0
+                    available_storage=0.0,
                 )
 
                 # Get states from other nodes
@@ -757,13 +763,16 @@ class ActiveNode:
         """Remove nodes that haven't sent heartbeat recently"""
         now = datetime.now()
         inactive_nodes = [
-            node_id for node_id, state in self.cluster_nodes.items()
+            node_id
+            for node_id, state in self.cluster_nodes.items()
             if (now - state.last_heartbeat).total_seconds() > 30
         ]
         for node_id in inactive_nodes:
             del self.cluster_nodes[node_id]
 
-    async def write_data(self, data_id: str, content: bytes, consistency_level: str = "strong") -> Dict[str, Any]:
+    async def write_data(
+        self, data_id: str, content: bytes, consistency_level: str = "strong"
+    ) -> Dict[str, Any]:
         """Write data with parallel replication and load balancing"""
         try:
             # Generate version info
@@ -772,8 +781,7 @@ class ActiveNode:
 
             # Select target nodes based on load and health
             target_nodes = await self.select_write_targets(
-                data_size=len(content),
-                min_nodes=self.quorum_size
+                data_size=len(content), min_nodes=self.quorum_size
             )
 
             if len(target_nodes) < self.quorum_size:
@@ -787,7 +795,7 @@ class ActiveNode:
                 content=content,
                 version=version,
                 checksum=checksum,
-                timestamp=datetime.now()
+                timestamp=datetime.now(),
             )
 
             # Execute parallel writes with load-aware routing
@@ -806,22 +814,25 @@ class ActiveNode:
                 "status": "success",
                 "version": version,
                 "nodes": [node.node_id for node in target_nodes],
-                "timestamp": write_op.timestamp.isoformat()
+                "timestamp": write_op.timestamp.isoformat(),
             }
 
         except Exception as e:
             self.logger.error(f"Write operation failed: {str(e)}")
             raise
 
-    async def select_write_targets(self, data_size: int, min_nodes: int) -> List[NodeState]:
+    async def select_write_targets(
+        self, data_size: int, min_nodes: int
+    ) -> List[NodeState]:
         """Select optimal nodes for write operation based on load and health"""
         try:
             # Get all healthy nodes
             healthy_nodes = [
-                node for node in self.get_active_nodes()
+                node
+                for node in self.get_active_nodes()
                 if (
-                    node.status == "active" and
-                    node.available_storage >= data_size * 1.5  # Include headroom
+                    node.status == "active"
+                    and node.available_storage >= data_size * 1.5  # Include headroom
                 )
             ]
 
@@ -844,11 +855,10 @@ class ActiveNode:
 
             # Sort by score and select top nodes
             selected_nodes = [
-                node for _, node in sorted(
-                    scored_nodes,
-                    key=lambda x: x[0],
-                    reverse=True
-                )[:min_nodes]
+                node
+                for _, node in sorted(scored_nodes, key=lambda x: x[0], reverse=True)[
+                    :min_nodes
+                ]
             ]
 
             return selected_nodes
@@ -857,44 +867,45 @@ class ActiveNode:
             self.logger.error(f"Failed to select write targets: {str(e)}")
             raise
 
-    def calculate_node_write_score(self, node: NodeState, metrics: Dict[str, float],
-                                 data_size: int) -> float:
+    def calculate_node_write_score(
+        self, node: NodeState, metrics: Dict[str, float], data_size: int
+    ) -> float:
         """Calculate node score for write operations"""
         try:
             # Base capacity score (0-1)
             storage_score = node.available_storage / node.total_storage
 
             # Load score (0-1, inverse of load)
-            cpu_score = 1 - (metrics.get('cpu_usage', 0) / 100)
-            memory_score = 1 - (metrics.get('memory_usage', 0) / 100)
+            cpu_score = 1 - (metrics.get("cpu_usage", 0) / 100)
+            memory_score = 1 - (metrics.get("memory_usage", 0) / 100)
 
             # Network health score (0-1)
             network_score = 1 - min(1.0, node.network_latency / 1000.0)
 
             # Recent error rate (0-1, inverse of error rate)
-            error_score = 1 - min(1.0, metrics.get('error_rate', 0) * 20)
+            error_score = 1 - min(1.0, metrics.get("error_rate", 0) * 20)
 
             # Write queue length score (0-1, inverse of queue length)
             queue_score = 1 - min(1.0, len(node.write_queue) / 100)
 
             # Weight factors
             weights = {
-                'storage': 0.25,
-                'cpu': 0.2,
-                'memory': 0.15,
-                'network': 0.2,
-                'error': 0.1,
-                'queue': 0.1
+                "storage": 0.25,
+                "cpu": 0.2,
+                "memory": 0.15,
+                "network": 0.2,
+                "error": 0.1,
+                "queue": 0.1,
             }
 
             # Calculate composite score
             score = (
-                storage_score * weights['storage'] +
-                cpu_score * weights['cpu'] +
-                memory_score * weights['memory'] +
-                network_score * weights['network'] +
-                error_score * weights['error'] +
-                queue_score * weights['queue']
+                storage_score * weights["storage"]
+                + cpu_score * weights["cpu"]
+                + memory_score * weights["memory"]
+                + network_score * weights["network"]
+                + error_score * weights["error"]
+                + queue_score * weights["queue"]
             )
 
             # Apply geographic penalty if different region
@@ -907,8 +918,9 @@ class ActiveNode:
             self.logger.error(f"Failed to calculate node score: {str(e)}")
             return 0.0
 
-    async def execute_parallel_write(self, write_op: Volume,
-                                   target_nodes: List[NodeState]) -> List[Dict[str, Any]]:
+    async def execute_parallel_write(
+        self, write_op: Volume, target_nodes: List[NodeState]
+    ) -> List[Dict[str, Any]]:
         """Execute write operation in parallel across target nodes"""
         try:
             # Prepare write tasks
@@ -923,7 +935,7 @@ class ActiveNode:
                 done, pending = await asyncio.wait(
                     write_tasks,
                     timeout=30.0,  # 30 second timeout
-                    return_when=asyncio.ALL_COMPLETED
+                    return_when=asyncio.ALL_COMPLETED,
                 )
 
                 # Cancel any pending tasks
@@ -966,21 +978,21 @@ class ActiveNode:
                         async with session.post(
                             f"http://{node.address}/write",
                             data={
-                                'data_id': write_op.data_id,
-                                'content': write_op.content.hex(),
-                                'version': write_op.version,
-                                'checksum': write_op.checksum,
-                                'timestamp': write_op.timestamp.isoformat()
+                                "data_id": write_op.data_id,
+                                "content": write_op.content.hex(),
+                                "version": write_op.version,
+                                "checksum": write_op.checksum,
+                                "timestamp": write_op.timestamp.isoformat(),
                             },
-                            timeout=10.0
+                            timeout=10.0,
                         ) as response:
                             if response.status == 200:
                                 result = await response.json()
                                 return {
-                                    'node_id': node.node_id,
-                                    'status': 'success',
-                                    'version': write_op.version,
-                                    'timestamp': write_op.timestamp.isoformat()
+                                    "node_id": node.node_id,
+                                    "status": "success",
+                                    "version": write_op.version,
+                                    "timestamp": write_op.timestamp.isoformat(),
                                 }
                             else:
                                 raise WriteFailureError(
@@ -1000,13 +1012,18 @@ class ActiveNode:
                 else:
                     raise
 
-        raise WriteFailureError(f"Write to node {node.node_id} failed after {max_retries} attempts")
+        raise WriteFailureError(
+            f"Write to node {node.node_id} failed after {max_retries} attempts"
+        )
 
-    async def validate_write_results(self, results: List[Dict[str, Any]],
-                                   consistency_level: str) -> bool:
+    async def validate_write_results(
+        self, results: List[Dict[str, Any]], consistency_level: str
+    ) -> bool:
         """Validate write results based on consistency level"""
         try:
-            successful_writes = len([r for r in results if r.get('status') == 'success'])
+            successful_writes = len(
+                [r for r in results if r.get("status") == "success"]
+            )
 
             if consistency_level == "strong":
                 # All nodes must succeed
@@ -1042,11 +1059,8 @@ class ActiveNode:
             async with aiohttp.ClientSession() as session:
                 async with session.post(
                     f"http://{node.address}/rollback",
-                    data={
-                        'data_id': write_op.data_id,
-                        'version': write_op.version
-                    },
-                    timeout=5.0
+                    data={"data_id": write_op.data_id, "version": write_op.version},
+                    timeout=5.0,
                 ) as response:
                     if response.status != 200:
                         self.logger.error(
@@ -1058,28 +1072,23 @@ class ActiveNode:
                 f"Error during write rollback on node {node.node_id}: {str(e)}"
             )
 
-    async def update_write_metadata(self, write_op: Volume,
-                                  results: List[Dict[str, Any]]) -> None:
+    async def update_write_metadata(
+        self, write_op: Volume, results: List[Dict[str, Any]]
+    ) -> None:
         """Update metadata after successful write"""
         try:
             successful_nodes = [
-                r['node_id'] for r in results
-                if r.get('status') == 'success'
+                r["node_id"] for r in results if r.get("status") == "success"
             ]
 
             # Update version map
             await self.consistency_manager.update_version_map(
-                write_op.data_id,
-                write_op.version,
-                successful_nodes
+                write_op.data_id, write_op.version, successful_nodes
             )
 
             # Update load statistics
             for node_id in successful_nodes:
-                self.load_manager.record_write_operation(
-                    node_id,
-                    len(write_op.content)
-                )
+                self.load_manager.record_write_operation(node_id, len(write_op.content))
 
         except Exception as e:
             self.logger.error(f"Failed to update write metadata: {str(e)}")
@@ -1126,49 +1135,65 @@ class ActiveNode:
         except Exception as e:
             self.logger.error(f"Error deregistering node: {str(e)}")
 
+
 class WriteTimeoutError(Exception):
     """Raised when a write operation times out"""
+
     pass
+
 
 class ConsistencyError(Exception):
     """Raised when consistency requirements cannot be met"""
+
     pass
+
 
 class InsufficientNodesError(Exception):
     """Raised when there are not enough healthy nodes available"""
+
     pass
+
 
 class WriteFailureError(Exception):
     """Raised when a write operation fails to achieve required consistency"""
+
     pass
+
 
 class NodeUnhealthyError(Exception):
     """Raised when a node is found to be unhealthy"""
+
     pass
+
 
 @dataclass
 class Volume:
     """Volume metadata"""
+
     data_id: str
     content: bytes
     version: int
     checksum: str
     timestamp: datetime
 
+
 class EdgeNodeState(NodeState):
     """Extended node state for edge computing"""
+
     def __init__(self, node_id: str, address: str):
         super().__init__(node_id, address)
         self.edge_capabilities = {}  # Specific edge node capabilities
-        self.local_cache = {}       # Local data cache
-        self.bandwidth_limit = 0    # Available bandwidth to central nodes
-        self.processing_power = 0   # Local processing capability
-        self.device_type = ""       # Edge device type (mobile, IoT, etc)
-        self.battery_level = None   # Battery level for mobile devices
-        self.offline_mode = False   # Whether node is operating offline
+        self.local_cache = {}  # Local data cache
+        self.bandwidth_limit = 0  # Available bandwidth to central nodes
+        self.processing_power = 0  # Local processing capability
+        self.device_type = ""  # Edge device type (mobile, IoT, etc)
+        self.battery_level = None  # Battery level for mobile devices
+        self.offline_mode = False  # Whether node is operating offline
+
 
 class EdgeAwareNode(ActiveNode):
     """Edge-computing aware node implementation"""
+
     def __init__(self, node_id: str, data_dir: str, quorum_size: int):
         super().__init__(node_id, data_dir, quorum_size)
         self.edge_nodes: Dict[str, EdgeNodeState] = {}
@@ -1194,12 +1219,14 @@ class EdgeAwareNode(ActiveNode):
     def get_edge_context(self, request: web.Request) -> Dict[str, Any]:
         """Extract edge computing context from request"""
         return {
-            'device_type': request.headers.get('X-Edge-Device-Type', 'unknown'),
-            'battery_level': float(request.headers.get('X-Battery-Level', 100)),
-            'bandwidth': float(request.headers.get('X-Available-Bandwidth', 1000)),
-            'latency_requirement': float(request.headers.get('X-Latency-Requirement', 1000)),
-            'processing_power': float(request.headers.get('X-Processing-Power', 1.0)),
-            'location': request.headers.get('X-Device-Location', 'unknown')
+            "device_type": request.headers.get("X-Edge-Device-Type", "unknown"),
+            "battery_level": float(request.headers.get("X-Battery-Level", 100)),
+            "bandwidth": float(request.headers.get("X-Available-Bandwidth", 1000)),
+            "latency_requirement": float(
+                request.headers.get("X-Latency-Requirement", 1000)
+            ),
+            "processing_power": float(request.headers.get("X-Processing-Power", 1.0)),
+            "location": request.headers.get("X-Device-Location", "unknown"),
         }
 
     def should_process_at_edge(self, context: Dict[str, Any]) -> bool:
@@ -1208,48 +1235,43 @@ class EdgeAwareNode(ActiveNode):
         score = 0
 
         # Latency requirements
-        if context['latency_requirement'] < 100:  # Need fast response
+        if context["latency_requirement"] < 100:  # Need fast response
             score += 3
 
         # Bandwidth constraints
-        if context['bandwidth'] < 500:  # Limited bandwidth
+        if context["bandwidth"] < 500:  # Limited bandwidth
             score += 2
 
         # Battery considerations
-        if context['battery_level'] < 20:  # Low battery
+        if context["battery_level"] < 20:  # Low battery
             score -= 1
 
         # Processing requirements vs capability
-        if context['processing_power'] > 0.7:  # High local processing power
+        if context["processing_power"] > 0.7:  # High local processing power
             score += 2
 
         return score > 3  # Threshold for edge processing
 
-    async def process_at_edge(self, request: web.Request, context: Dict[str, Any]) -> web.Response:
+    async def process_at_edge(
+        self, request: web.Request, context: Dict[str, Any]
+    ) -> web.Response:
         """Process request at edge node"""
         try:
             # Check local cache first
             cache_result = await self.cache_manager.get_cached_result(
-                request.path,
-                context
+                request.path, context
             )
             if cache_result:
                 return web.json_response(cache_result)
 
             # Schedule task for edge processing
             result = await self.edge_scheduler.schedule_edge_task(
-                request,
-                context,
-                self.edge_nodes
+                request, context, self.edge_nodes
             )
 
             # Cache result if appropriate
             if self.should_cache_result(result, context):
-                await self.cache_manager.cache_result(
-                    request.path,
-                    result,
-                    context
-                )
+                await self.cache_manager.cache_result(request.path, result, context)
 
             return web.json_response(result)
 
@@ -1258,7 +1280,9 @@ class EdgeAwareNode(ActiveNode):
             # Fallback to cloud processing
             return await self.process_at_cloud(request, context)
 
-    async def process_at_cloud(self, request: web.Request, context: Dict[str, Any]) -> web.Response:
+    async def process_at_cloud(
+        self, request: web.Request, context: Dict[str, Any]
+    ) -> web.Response:
         """Process request in cloud with edge awareness"""
         try:
             # Optimize data transfer based on edge context
@@ -1268,10 +1292,7 @@ class EdgeAwareNode(ActiveNode):
             result = await super().handle_request(optimized_request)
 
             # Optimize response for edge device
-            optimized_response = await self.optimize_response_for_edge(
-                result,
-                context
-            )
+            optimized_response = await self.optimize_response_for_edge(result, context)
 
             return optimized_response
 
@@ -1279,25 +1300,28 @@ class EdgeAwareNode(ActiveNode):
             self.logger.error(f"Cloud processing failed: {str(e)}")
             raise
 
-    async def optimize_for_edge(self, request: web.Request, context: Dict[str, Any]) -> web.Request:
+    async def optimize_for_edge(
+        self, request: web.Request, context: Dict[str, Any]
+    ) -> web.Request:
         """Optimize request for edge device constraints"""
         # Implement data reduction techniques based on context
-        if context['bandwidth'] < 500:  # Low bandwidth
+        if context["bandwidth"] < 500:  # Low bandwidth
             request = await self.compress_request(request)
 
-        if context['battery_level'] < 30:  # Low battery
+        if context["battery_level"] < 30:  # Low battery
             request = await self.optimize_power_usage(request)
 
         return request
 
-    async def optimize_response_for_edge(self, response: web.Response,
-                                       context: Dict[str, Any]) -> web.Response:
+    async def optimize_response_for_edge(
+        self, response: web.Response, context: Dict[str, Any]
+    ) -> web.Response:
         """Optimize response for edge device"""
         try:
-            if context['bandwidth'] < 500:  # Low bandwidth
+            if context["bandwidth"] < 500:  # Low bandwidth
                 response = await self.compress_response(response)
 
-            if context['device_type'] == 'mobile':
+            if context["device_type"] == "mobile":
                 response = await self.optimize_for_mobile(response)
 
             return response
@@ -1336,12 +1360,12 @@ class EdgeAwareNode(ActiveNode):
                 metrics = await self.get_edge_node_metrics(node)
 
                 # Update node state
-                node.battery_level = metrics.get('battery_level')
-                node.bandwidth_limit = metrics.get('bandwidth')
-                node.processing_power = metrics.get('processing_power')
+                node.battery_level = metrics.get("battery_level")
+                node.bandwidth_limit = metrics.get("bandwidth")
+                node.processing_power = metrics.get("processing_power")
 
                 # Check for offline mode
-                if metrics.get('connectivity') == 'offline':
+                if metrics.get("connectivity") == "offline":
                     await self.handle_edge_node_offline(node)
 
                 await asyncio.sleep(30)  # Check every 30 seconds
@@ -1368,52 +1392,62 @@ class EdgeAwareNode(ActiveNode):
         except Exception as e:
             self.logger.error(f"Failed to handle offline edge node: {str(e)}")
 
+
 class EdgeCacheManager:
     """Manage caching for edge nodes"""
+
     def __init__(self):
         self.cache = {}
         self.cache_policy = {}
 
-    async def get_cached_result(self, key: str, context: Dict[str, Any]) -> Optional[Any]:
+    async def get_cached_result(
+        self, key: str, context: Dict[str, Any]
+    ) -> Optional[Any]:
         """Get cached result if available and valid"""
         if key in self.cache:
             entry = self.cache[key]
             if self.is_cache_valid(entry, context):
-                return entry['data']
+                return entry["data"]
         return None
 
     async def cache_result(self, key: str, data: Any, context: Dict[str, Any]) -> None:
         """Cache result with context-aware policies"""
         self.cache[key] = {
-            'data': data,
-            'timestamp': datetime.now(),
-            'context': context
+            "data": data,
+            "timestamp": datetime.now(),
+            "context": context,
         }
+
 
 class EdgeTaskScheduler:
     """Schedule tasks for edge processing"""
+
     def __init__(self):
         self.task_queue = asyncio.Queue()
 
-    async def schedule_edge_task(self, request: web.Request, context: Dict[str, Any],
-                                edge_nodes: Dict[str, EdgeNodeState]) -> Any:
+    async def schedule_edge_task(
+        self,
+        request: web.Request,
+        context: Dict[str, Any],
+        edge_nodes: Dict[str, EdgeNodeState],
+    ) -> Any:
         """Schedule task for edge processing"""
         # Find best edge node for task
         target_node = self.select_edge_node(request, context, edge_nodes)
 
         # Schedule task
-        task = {
-            'request': request,
-            'context': context,
-            'node': target_node
-        }
+        task = {"request": request, "context": context, "node": target_node}
         await self.task_queue.put(task)
 
         # Execute task
         return await self.execute_task(task)
 
-    def select_edge_node(self, request: web.Request, context: Dict[str, Any],
-                        edge_nodes: Dict[str, EdgeNodeState]) -> Optional[EdgeNodeState]:
+    def select_edge_node(
+        self,
+        request: web.Request,
+        context: Dict[str, Any],
+        edge_nodes: Dict[str, EdgeNodeState],
+    ) -> Optional[EdgeNodeState]:
         """Select best edge node for task"""
         # Consider multiple factors for edge node selection
         best_node = None
@@ -1427,7 +1461,9 @@ class EdgeTaskScheduler:
 
         return best_node
 
-    def calculate_edge_node_score(self, node: EdgeNodeState, context: Dict[str, Any]) -> float:
+    def calculate_edge_node_score(
+        self, node: EdgeNodeState, context: Dict[str, Any]
+    ) -> float:
         """Calculate edge node score"""
         # Consider multiple factors for edge node scoring
         score = 0
@@ -1451,7 +1487,9 @@ class EdgeTaskScheduler:
         """Execute task on edge node"""
         try:
             # Execute task on edge node
-            result = await self.edge_nodes[task['node'].node_id].execute_task(task['request'])
+            result = await self.edge_nodes[task["node"].node_id].execute_task(
+                task["request"]
+            )
             return result
 
         except Exception as e:

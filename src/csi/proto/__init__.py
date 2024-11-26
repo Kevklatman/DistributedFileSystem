@@ -8,9 +8,9 @@ except ImportError:
     # If protobuf files are not generated yet, provide empty stubs
     class IdentityServicer:
         pass
-        
+
     class ControllerServicer:
         pass
-        
+
     class NodeServicer:
         pass

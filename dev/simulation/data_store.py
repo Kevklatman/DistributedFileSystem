@@ -3,17 +3,22 @@ import os
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
 import json
-#r
+
+
+# r
 @dataclass
 class DataBlock:
     """Represents a block of data in the distributed system"""
+
     block_id: str
     data_size: int  # Size in bytes
     content_hash: str
     replicas: List[str]  # List of node IDs storing this block
 
+
 class DataStore:
     """Simulates data storage and management in the distributed system"""
+
     def __init__(self, base_dir: str = "simulated_data"):
         self.base_dir = base_dir
         self.blocks: Dict[str, DataBlock] = {}
@@ -42,7 +47,7 @@ class DataStore:
             block_id=block_id,
             data_size=data_size,
             content_hash=content_hash,
-            replicas=replicas
+            replicas=replicas,
         )
 
         # Store block metadata
@@ -78,7 +83,9 @@ class DataStore:
     def get_node_blocks(self, node_id: str) -> List[DataBlock]:
         """Get all blocks stored on a specific node"""
         block_ids = self.node_data.get(node_id, [])
-        return [self.blocks[block_id] for block_id in block_ids if block_id in self.blocks]
+        return [
+            self.blocks[block_id] for block_id in block_ids if block_id in self.blocks
+        ]
 
     def get_block_locations(self, block_id: str) -> List[str]:
         """Get all nodes storing a specific block"""
@@ -102,9 +109,9 @@ class DataStore:
             "block_id": block.block_id,
             "data_size": block.data_size,
             "content_hash": block.content_hash,
-            "replicas": block.replicas
+            "replicas": block.replicas,
         }
-        with open(metadata_file, 'w') as f:
+        with open(metadata_file, "w") as f:
             json.dump(metadata, f, indent=2)
 
     def get_storage_stats(self) -> Dict[str, Dict]:
@@ -116,6 +123,6 @@ class DataStore:
             stats[node_id] = {
                 "block_count": len(blocks),
                 "total_size": total_size,
-                "blocks": [block.block_id for block in blocks]
+                "blocks": [block.block_id for block in blocks],
             }
         return stats

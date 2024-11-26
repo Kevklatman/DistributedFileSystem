@@ -9,13 +9,16 @@ from collections import defaultdict
 from storage.metrics.collector import MetricsCollector, NetworkMetrics
 
 logger = logging.getLogger(__name__)
-#e
+
+
+# e
 @dataclass
 class NodeLocation:
     region: str
     zone: str
     provider: str  # 'aws', 'gcp', 'azure', 'edge'
     latency_base: float  # Base latency in ms for this location
+
 
 @dataclass
 class SimulatedNodeMetrics:
@@ -30,25 +33,26 @@ class SimulatedNodeMetrics:
     errors: int = 0
     last_update: float = field(default_factory=time.time)
 
+
 class NetworkSimulator:
     """Simulates network conditions between different regions and cloud providers."""
 
     # Base latencies between regions (ms)
     REGION_LATENCIES = {
-        ('us-east', 'us-west'): 60,
-        ('us-east', 'eu-west'): 80,
-        ('us-east', 'ap-south'): 200,
-        ('us-west', 'eu-west'): 100,
-        ('us-west', 'ap-south'): 150,
-        ('eu-west', 'ap-south'): 120
+        ("us-east", "us-west"): 60,
+        ("us-east", "eu-west"): 80,
+        ("us-east", "ap-south"): 200,
+        ("us-west", "eu-west"): 100,
+        ("us-west", "ap-south"): 150,
+        ("eu-west", "ap-south"): 120,
     }
 
     # Provider-specific latency adjustments (ms)
     PROVIDER_ADJUSTMENTS = {
-        'aws': 1.0,      # baseline
-        'gcp': 1.1,      # 10% slower
-        'azure': 1.2,    # 20% slower
-        'edge': 2.0      # edge nodes have higher latency
+        "aws": 1.0,  # baseline
+        "gcp": 1.1,  # 10% slower
+        "azure": 1.2,  # 20% slower
+        "edge": 2.0,  # edge nodes have higher latency
     }
 
     @classmethod
@@ -64,13 +68,14 @@ class NetworkSimulator:
         # Apply provider adjustments
         provider_factor = max(
             cls.PROVIDER_ADJUSTMENTS[source.provider],
-            cls.PROVIDER_ADJUSTMENTS[dest.provider]
+            cls.PROVIDER_ADJUSTMENTS[dest.provider],
         )
 
         # Add jitter (±10%)
         jitter = random.uniform(-0.1, 0.1) * base_latency
 
         return (base_latency * provider_factor) + jitter
+
 
 class SimulatedMetricsCollector(MetricsCollector):
     """Metrics collector that simulates a distributed system."""
@@ -100,29 +105,33 @@ class SimulatedMetricsCollector(MetricsCollector):
         while True:
             for node_id, metrics in self._metrics.items():
                 # Simulate CPU usage (fluctuating between 10-90%)
-                metrics.cpu_usage = min(90, max(10,
-                    metrics.cpu_usage + random.uniform(-5, 5)))
+                metrics.cpu_usage = min(
+                    90, max(10, metrics.cpu_usage + random.uniform(-5, 5))
+                )
 
                 # Simulate memory usage (more stable, 20-80%)
-                metrics.memory_usage = min(80, max(20,
-                    metrics.memory_usage + random.uniform(-2, 2)))
+                metrics.memory_usage = min(
+                    80, max(20, metrics.memory_usage + random.uniform(-2, 2))
+                )
 
                 # Simulate disk usage (slowly increasing)
-                metrics.disk_usage = min(95,
-                    metrics.disk_usage + random.uniform(0, 0.1))
+                metrics.disk_usage = min(
+                    95, metrics.disk_usage + random.uniform(0, 0.1)
+                )
 
                 # Simulate network I/O
-                metrics.network_in = max(0,
-                    metrics.network_in + random.uniform(-1, 1))
-                metrics.network_out = max(0,
-                    metrics.network_out + random.uniform(-1, 1))
+                metrics.network_in = max(0, metrics.network_in + random.uniform(-1, 1))
+                metrics.network_out = max(
+                    0, metrics.network_out + random.uniform(-1, 1)
+                )
 
                 metrics.last_update = time.time()
 
             await asyncio.sleep(1)  # Update every second
 
-    async def simulate_operation(self, source_node: str, dest_node: str,
-                               operation: str, data_size: int) -> float:
+    async def simulate_operation(
+        self, source_node: str, dest_node: str, operation: str, data_size: int
+    ) -> float:
         """Simulate a storage operation between nodes.
 
         Args:
@@ -139,8 +148,7 @@ class SimulatedMetricsCollector(MetricsCollector):
 
         # Calculate network latency
         latency = self.network_sim.get_latency(
-            self.nodes[source_node],
-            self.nodes[dest_node]
+            self.nodes[source_node], self.nodes[dest_node]
         )
 
         # Simulate network transfer time based on data size
@@ -158,7 +166,7 @@ class SimulatedMetricsCollector(MetricsCollector):
         source_metrics.operation_count += 1
         dest_metrics.operation_count += 1
 
-        if operation == 'write':
+        if operation == "write":
             source_metrics.network_out += data_size
             dest_metrics.network_in += data_size
         else:  # read
@@ -175,14 +183,20 @@ class SimulatedMetricsCollector(MetricsCollector):
             self._operation_latencies[operation].append(duration)
             # Keep only last 1000 samples per operation
             if len(self._operation_latencies[operation]) > 1000:
-                self._operation_latencies[operation] = self._operation_latencies[operation][-1000:]
+                self._operation_latencies[operation] = self._operation_latencies[
+                    operation
+                ][-1000:]
 
-    def record_resource_usage(self, cpu: float, memory: float, disk_io: float, network_io: float) -> None:
+    def record_resource_usage(
+        self, cpu: float, memory: float, disk_io: float, network_io: float
+    ) -> None:
         """Record system resource usage."""
         # In simulation mode, resource usage is handled by _simulate_metrics
         pass
 
-    def record_volume_operation(self, volume_id: str, operation: str, size: int) -> None:
+    def record_volume_operation(
+        self, volume_id: str, operation: str, size: int
+    ) -> None:
         """Record a volume operation."""
         # In simulation mode, volume operations are handled by simulate_operation
         pass
@@ -213,6 +227,5 @@ class SimulatedMetricsCollector(MetricsCollector):
             raise ValueError("Invalid node ID")
 
         return self.network_sim.get_latency(
-            self.nodes[source_node],
-            self.nodes[dest_node]
+            self.nodes[source_node], self.nodes[dest_node]
         )

@@ -13,6 +13,7 @@ from src.api.services.fs_manager import FileSystemManager
 
 logger = logging.getLogger(__name__)
 
+
 class StorageBackend(ABC):
     """Storage backend implementation that handles both simple S3 and AWS S3 operations"""
 
@@ -23,7 +24,9 @@ class StorageBackend(ABC):
         """Create a new bucket"""
         try:
             loop = asyncio.get_event_loop()
-            return await loop.run_in_executor(None, self.fs_manager.create_directory, bucket_name)
+            return await loop.run_in_executor(
+                None, self.fs_manager.create_directory, bucket_name
+            )
         except Exception as e:
             logger.error(f"Failed to create bucket {bucket_name}: {str(e)}")
             return False
@@ -32,7 +35,9 @@ class StorageBackend(ABC):
         """Delete a bucket"""
         try:
             loop = asyncio.get_event_loop()
-            return await loop.run_in_executor(None, self.fs_manager.delete_directory, bucket_name)
+            return await loop.run_in_executor(
+                None, self.fs_manager.delete_directory, bucket_name
+            )
         except Exception as e:
             logger.error(f"Failed to delete bucket {bucket_name}: {str(e)}")
             return False
@@ -43,38 +48,46 @@ class StorageBackend(ABC):
             loop = asyncio.get_event_loop()
             buckets = await loop.run_in_executor(None, self.fs_manager.list_directories)
             return [
-                {
-                    "name": bucket,
-                    "creation_date": datetime.now().isoformat()
-                }
+                {"name": bucket, "creation_date": datetime.now().isoformat()}
                 for bucket in buckets
             ]
         except Exception as e:
             logger.error(f"Failed to list buckets: {str(e)}")
             return []
 
-    async def put_object(self, bucket_name: str, object_key: str, data: bytes,
-                        metadata: Optional[Dict[str, str]] = None,
-                        storage_class: str = 'STANDARD') -> Dict[str, Any]:
+    async def put_object(
+        self,
+        bucket_name: str,
+        object_key: str,
+        data: bytes,
+        metadata: Optional[Dict[str, str]] = None,
+        storage_class: str = "STANDARD",
+    ) -> Dict[str, Any]:
         """Put an object into a bucket"""
         try:
             full_path = os.path.join(bucket_name, object_key)
             loop = asyncio.get_event_loop()
-            success = await loop.run_in_executor(None, self.fs_manager.write_file, full_path, data)
-            
+            success = await loop.run_in_executor(
+                None, self.fs_manager.write_file, full_path, data
+            )
+
             if success:
                 return {
-                    'etag': self.calculate_etag(data),
-                    'last_modified': datetime.now().isoformat()
+                    "etag": self.calculate_etag(data),
+                    "last_modified": datetime.now().isoformat(),
                 }
             else:
                 raise Exception("Failed to write file")
         except Exception as e:
-            logger.error(f"Failed to put object {object_key} in bucket {bucket_name}: {str(e)}")
+            logger.error(
+                f"Failed to put object {object_key} in bucket {bucket_name}: {str(e)}"
+            )
             raise
 
     @abstractmethod
-    async def get_object(self, bucket_name: str, object_key: str, consistency_level: str = 'eventual'):
+    async def get_object(
+        self, bucket_name: str, object_key: str, consistency_level: str = "eventual"
+    ):
         """Get an object from a bucket"""
         pass
 
@@ -84,7 +97,7 @@ class StorageBackend(ABC):
         pass
 
     @abstractmethod
-    async def list_objects(self, bucket_name: str, consistency_level: str = 'eventual'):
+    async def list_objects(self, bucket_name: str, consistency_level: str = "eventual"):
         """List objects in a bucket"""
         pass
 
@@ -94,17 +107,32 @@ class StorageBackend(ABC):
         pass
 
     @abstractmethod
-    async def upload_part(self, bucket_name: str, object_key: str, upload_id: str, part_number: int, data: BinaryIO):
+    async def upload_part(
+        self,
+        bucket_name: str,
+        object_key: str,
+        upload_id: str,
+        part_number: int,
+        data: BinaryIO,
+    ):
         """Upload a part in a multipart upload"""
         pass
 
     @abstractmethod
-    async def complete_multipart_upload(self, bucket_name: str, object_key: str, upload_id: str, parts: List[Dict[str, Any]]):
+    async def complete_multipart_upload(
+        self,
+        bucket_name: str,
+        object_key: str,
+        upload_id: str,
+        parts: List[Dict[str, Any]],
+    ):
         """Complete a multipart upload"""
         pass
 
     @abstractmethod
-    async def abort_multipart_upload(self, bucket_name: str, object_key: str, upload_id: str):
+    async def abort_multipart_upload(
+        self, bucket_name: str, object_key: str, upload_id: str
+    ):
         """Abort a multipart upload"""
         pass
 
@@ -129,21 +157,28 @@ class StorageBackend(ABC):
         pass
 
     @abstractmethod
-    async def list_object_versions(self, bucket_name: str, prefix: Optional[str] = None):
+    async def list_object_versions(
+        self, bucket_name: str, prefix: Optional[str] = None
+    ):
         """List all versions of objects in a bucket"""
         pass
 
     @abstractmethod
-    async def get_object_version(self, bucket_name: str, object_key: str, version_id: str):
+    async def get_object_version(
+        self, bucket_name: str, object_key: str, version_id: str
+    ):
         """Get a specific version of an object"""
         pass
 
     @abstractmethod
-    async def delete_object_version(self, bucket_name: str, object_key: str, version_id: str):
+    async def delete_object_version(
+        self, bucket_name: str, object_key: str, version_id: str
+    ):
         """Delete a specific version of an object"""
         pass
 
     def calculate_etag(self, data: bytes) -> str:
         """Calculate ETag for an object"""
         import hashlib
+
         return f'"{hashlib.md5(data).hexdigest()}"'

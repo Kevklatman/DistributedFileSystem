@@ -1,8 +1,10 @@
 import datetime
 import json
 
+
 class JSONEncoder(json.JSONEncoder):
     """Custom JSON encoder for handling datetime objects"""
+
     def default(self, obj):
         try:
             if isinstance(obj, datetime.datetime):

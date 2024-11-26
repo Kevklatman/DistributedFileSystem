@@ -1,4 +1,5 @@
 """Module for advanced caching in the distributed file system."""
+
 from typing import Any, Dict, Optional, Set, Tuple
 from datetime import datetime
 import threading
@@ -6,28 +7,29 @@ from enum import Enum
 from dataclasses import dataclass
 from ..interfaces import CacheInterface
 
+
 @dataclass
 class CacheEntry:
     """Cache entry with metadata."""
+
     value: Any
     version: int
     timestamp: datetime
     session_id: Optional[str] = None
 
+
 class ConsistencyLevel(Enum):
     """Cache consistency levels."""
+
     STRONG = "strong"
     EVENTUAL = "eventual"
     WEAK = "weak"
 
+
 class CacheStore(CacheInterface):
     """Thread-safe cache store with consistency levels."""
 
-    def __init__(
-        self,
-        max_size: int = 1000,
-        ttl_seconds: float = 3600
-    ):
+    def __init__(self, max_size: int = 1000, ttl_seconds: float = 3600):
         """Initialize cache store.
 
         Args:
@@ -55,7 +57,11 @@ class CacheStore(CacheInterface):
         Returns:
             Value if found, None if not found
         """
-        with self._write_lock if consistency_level == ConsistencyLevel.STRONG.value else self._lock:
+        with (
+            self._write_lock
+            if consistency_level == ConsistencyLevel.STRONG.value
+            else self._lock
+        ):
             entry = self._cache.get(key)
             if entry is None:
                 return None
@@ -83,19 +89,14 @@ class CacheStore(CacheInterface):
         with self._write_lock:
             if len(self._cache) >= self._max_size:
                 # Evict oldest entry
-                oldest_key = min(
-                    self._cache.items(),
-                    key=lambda x: x[1].timestamp
-                )[0]
+                oldest_key = min(self._cache.items(), key=lambda x: x[1].timestamp)[0]
                 del self._cache[oldest_key]
                 if oldest_key in self._dirty_keys:
                     self._dirty_keys.remove(oldest_key)
 
             self._version += 1
             self._cache[key] = CacheEntry(
-                value=value,
-                version=self._version,
-                timestamp=datetime.now()
+                value=value, version=self._version, timestamp=datetime.now()
             )
             return True
 
@@ -146,7 +147,5 @@ class CacheStore(CacheInterface):
         """
         with self._lock:
             return {
-                key: self._cache[key]
-                for key in self._dirty_keys
-                if key in self._cache
+                key: self._cache[key] for key in self._dirty_keys if key in self._cache
             }

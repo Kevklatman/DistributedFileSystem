@@ -1,6 +1,7 @@
 """
 Advanced DFS Dashboard Example demonstrating monitoring and management capabilities
 """
+
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
@@ -9,8 +10,12 @@ import json
 from pathlib import Path
 
 from src.models.models import (
-    Volume, StoragePool, StorageLocation, TierType,
-    DataTemperature, HybridStorageSystem
+    Volume,
+    StoragePool,
+    StorageLocation,
+    TierType,
+    DataTemperature,
+    HybridStorageSystem,
 )
 from src.storage.policy.policy_engine import PolicyMode
 from src.storage.policy.tiering_manager import TierCost
@@ -18,9 +23,11 @@ from src.storage.policy.tiering_manager import TierCost
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
 @dataclass
 class SystemHealth:
     """System health metrics"""
+
     cpu_usage: float
     memory_usage: float
     io_latency_ms: float
@@ -28,9 +35,11 @@ class SystemHealth:
     error_count: int
     warning_count: int
 
+
 @dataclass
 class StorageMetrics:
     """Storage-related metrics"""
+
     total_capacity_gb: float
     used_capacity_gb: float
     dedup_ratio: float
@@ -38,9 +47,11 @@ class StorageMetrics:
     iops: int
     throughput_mbps: float
 
+
 @dataclass
 class CostMetrics:
     """Cost-related metrics"""
+
     total_cost_month: float
     savings_from_tiering: float
     savings_from_dedup: float
@@ -48,15 +59,14 @@ class CostMetrics:
     projected_cost_next_month: float
     cost_per_gb: Dict[TierType, float]
 
+
 class DFSDashboard:
     """Advanced DFS Dashboard with monitoring and management capabilities"""
 
     def __init__(self, data_path: Path):
         self.data_path = data_path
         self.system = HybridStorageSystem(
-            name="Production DFS",
-            storage_pools={},
-            volumes={}
+            name="Production DFS", storage_pools={}, volumes={}
         )
 
         # Initialize monitoring metrics
@@ -66,7 +76,7 @@ class DFSDashboard:
             io_latency_ms=0.0,
             network_bandwidth_mbps=0.0,
             error_count=0,
-            warning_count=0
+            warning_count=0,
         )
 
         self.metrics = StorageMetrics(
@@ -75,7 +85,7 @@ class DFSDashboard:
             dedup_ratio=1.0,
             compression_ratio=1.0,
             iops=0,
-            throughput_mbps=0.0
+            throughput_mbps=0.0,
         )
 
         self.costs = CostMetrics(
@@ -88,8 +98,8 @@ class DFSDashboard:
                 TierType.PERFORMANCE: 0.15,
                 TierType.CAPACITY: 0.05,
                 TierType.COLD: 0.01,
-                TierType.ARCHIVE: 0.004
-            }
+                TierType.ARCHIVE: 0.004,
+            },
         )
 
     def show_system_overview(self):
@@ -100,13 +110,20 @@ class DFSDashboard:
         logger.info(f"Total Volumes: {len(self.system.volumes)}")
 
         # Health status
-        health_status = "🟢 Healthy" if self.health.error_count == 0 else "🔴 Issues Detected"
+        health_status = (
+            "🟢 Healthy" if self.health.error_count == 0 else "🔴 Issues Detected"
+        )
         logger.info(f"System Status: {health_status}")
 
         # Capacity overview
-        usage_percent = (self.metrics.used_capacity_gb / self.metrics.total_capacity_gb * 100) \
-            if self.metrics.total_capacity_gb > 0 else 0
-        logger.info(f"Storage Usage: {usage_percent:.1f}% ({self.metrics.used_capacity_gb:.1f} GB / {self.metrics.total_capacity_gb:.1f} GB)")
+        usage_percent = (
+            (self.metrics.used_capacity_gb / self.metrics.total_capacity_gb * 100)
+            if self.metrics.total_capacity_gb > 0
+            else 0
+        )
+        logger.info(
+            f"Storage Usage: {usage_percent:.1f}% ({self.metrics.used_capacity_gb:.1f} GB / {self.metrics.total_capacity_gb:.1f} GB)"
+        )
 
     def show_health_metrics(self):
         """Display detailed health metrics"""
@@ -115,7 +132,9 @@ class DFSDashboard:
         logger.info(f"Memory Usage: {self.health.memory_usage:.1f}%")
         logger.info(f"I/O Latency: {self.health.io_latency_ms:.2f} ms")
         logger.info(f"Network Bandwidth: {self.health.network_bandwidth_mbps:.1f} Mbps")
-        logger.info(f"Active Alerts: {self.health.error_count} errors, {self.health.warning_count} warnings")
+        logger.info(
+            f"Active Alerts: {self.health.error_count} errors, {self.health.warning_count} warnings"
+        )
 
     def show_performance_metrics(self):
         """Display performance metrics"""
@@ -129,14 +148,18 @@ class DFSDashboard:
         """Display cost analysis"""
         logger.info("\n=== Cost Analysis ===")
         logger.info(f"Current Month Cost: ${self.costs.total_cost_month:.2f}")
-        logger.info(f"Projected Next Month: ${self.costs.projected_cost_next_month:.2f}")
+        logger.info(
+            f"Projected Next Month: ${self.costs.projected_cost_next_month:.2f}"
+        )
         logger.info("\nCost Savings:")
         logger.info(f"- From Tiering: ${self.costs.savings_from_tiering:.2f}")
         logger.info(f"- From Deduplication: ${self.costs.savings_from_dedup:.2f}")
         logger.info(f"- From Compression: ${self.costs.savings_from_compression:.2f}")
-        total_savings = (self.costs.savings_from_tiering +
-                        self.costs.savings_from_dedup +
-                        self.costs.savings_from_compression)
+        total_savings = (
+            self.costs.savings_from_tiering
+            + self.costs.savings_from_dedup
+            + self.costs.savings_from_compression
+        )
         logger.info(f"Total Monthly Savings: ${total_savings:.2f}")
 
     def show_policy_status(self):
@@ -148,7 +171,7 @@ class DFSDashboard:
             PolicyMode.MANUAL: 0,
             PolicyMode.ML: 0,
             PolicyMode.HYBRID: 0,
-            PolicyMode.SUPERVISED: 0
+            PolicyMode.SUPERVISED: 0,
         }
 
         # Count data by tier
@@ -156,7 +179,7 @@ class DFSDashboard:
             TierType.PERFORMANCE: 0,
             TierType.CAPACITY: 0,
             TierType.COLD: 0,
-            TierType.ARCHIVE: 0
+            TierType.ARCHIVE: 0,
         }
 
         # Analyze volumes
@@ -186,8 +209,11 @@ class DFSDashboard:
         logger.info("\n=== System Recommendations ===")
 
         # Capacity recommendations
-        usage_percent = (self.metrics.used_capacity_gb / self.metrics.total_capacity_gb * 100) \
-            if self.metrics.total_capacity_gb > 0 else 0
+        usage_percent = (
+            (self.metrics.used_capacity_gb / self.metrics.total_capacity_gb * 100)
+            if self.metrics.total_capacity_gb > 0
+            else 0
+        )
         if usage_percent > 80:
             logger.info("⚠️ High storage usage detected:")
             logger.info("- Consider adding more capacity")
@@ -238,7 +264,7 @@ class DFSDashboard:
             name="Pool-1",
             location=StorageLocation(type="on_prem", path="/data/pool1"),
             total_capacity_gb=10000,
-            available_capacity_gb=1500
+            available_capacity_gb=1500,
         )
         self.system.storage_pools[pool.id] = pool
 
@@ -248,7 +274,7 @@ class DFSDashboard:
                 name=f"vol-{i}",
                 size_gb=1000,
                 primary_pool_id=pool.id,
-                cloud_tiering_enabled=(i % 2 == 0)
+                cloud_tiering_enabled=(i % 2 == 0),
             )
             self.system.volumes[volume.id] = volume
 
@@ -257,18 +283,21 @@ class DFSDashboard:
                 access_frequency=100,
                 days_since_last_access=0,
                 size_bytes=1024**3 * 100,
-                current_tier=TierType.PERFORMANCE
+                current_tier=TierType.PERFORMANCE,
             )
             volume.data_temperature["/data/cold"] = DataTemperature(
                 access_frequency=1,
                 days_since_last_access=90,
                 size_bytes=1024**3 * 900,
-                current_tier=TierType.COLD
+                current_tier=TierType.COLD,
             )
+
 
 def main():
     """Main function demonstrating dashboard capabilities"""
-    dashboard = DFSDashboard(Path("/Users/kevinklatman/Development/Code/DistributedFileSystem"))
+    dashboard = DFSDashboard(
+        Path("/Users/kevinklatman/Development/Code/DistributedFileSystem")
+    )
 
     # Simulate some metrics
     dashboard.simulate_metrics()
@@ -280,6 +309,7 @@ def main():
     dashboard.show_cost_analysis()
     dashboard.show_policy_status()
     dashboard.show_recommendations()
+
 
 if __name__ == "__main__":
     main()

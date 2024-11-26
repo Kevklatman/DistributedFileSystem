@@ -1,6 +1,7 @@
 """
 Hybrid Policy Engine combining ML-based and manual policy decisions
 """
+
 from typing import Dict, Optional, Any, List, Union
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -14,8 +15,9 @@ from src.models.models import (
     CloudTieringPolicy as TieringPolicy,
     DataProtection as ReplicationPolicy,
     DataTemperature,
-    StoragePool
+    StoragePool,
 )
+
 
 # Define PolicyMode here since it's not in core/models.py
 class PolicyMode:
@@ -23,9 +25,11 @@ class PolicyMode:
     ML = "ml"
     HYBRID = "hybrid"
 
+
 @dataclass
 class PolicyDecision:
     """Represents a policy decision with explanation"""
+
     action: str
     parameters: Dict[str, Any]
     confidence: float
@@ -33,9 +37,11 @@ class PolicyDecision:
     manual_override: bool = False
     ml_factors: Dict[str, float] = field(default_factory=dict)
 
+
 @dataclass
 class PolicyConstraints:
     """Hard constraints that ML cannot override"""
+
     min_copies: int = 2
     max_copies: int = 5
     minimum_retention_days: int = 30
@@ -43,6 +49,7 @@ class PolicyConstraints:
     required_regions: List[str] = field(default_factory=list)
     max_cost_per_gb: float = 0.15
     force_encryption: bool = False
+
 
 class HybridPolicyEngine:
     """Central policy engine combining ML and manual policies"""
@@ -68,10 +75,9 @@ class HybridPolicyEngine:
                 return {}
         return {}
 
-    def evaluate_tiering_decision(self,
-                                volume: Volume,
-                                file_path: str,
-                                temp_data: DataTemperature) -> PolicyDecision:
+    def evaluate_tiering_decision(
+        self, volume: Volume, file_path: str, temp_data: DataTemperature
+    ) -> PolicyDecision:
         """Evaluate tiering decision using hybrid approach"""
 
         # Check for manual overrides first
@@ -82,7 +88,7 @@ class HybridPolicyEngine:
                 parameters={"target_tier": override["tier"]},
                 confidence=1.0,
                 reason="Manual policy override applied",
-                manual_override=True
+                manual_override=True,
             )
 
         # Get ML prediction if enabled
@@ -91,30 +97,30 @@ class HybridPolicyEngine:
             ml_decision = self._get_ml_tiering_prediction(volume, file_path, temp_data)
 
         # In manual or low confidence cases, use traditional logic
-        if (self.mode == PolicyMode.MANUAL or
-            (ml_decision and ml_decision.confidence < 0.7)):
-            return self._apply_traditional_tiering_logic(temp_data, volume.tiering_policy)
+        if self.mode == PolicyMode.MANUAL or (
+            ml_decision and ml_decision.confidence < 0.7
+        ):
+            return self._apply_traditional_tiering_logic(
+                temp_data, volume.tiering_policy
+            )
 
         return ml_decision or self._apply_traditional_tiering_logic(
             temp_data, volume.tiering_policy
         )
 
-    def evaluate_replication_decision(self,
-                                   volume: Volume,
-                                   target_location: StorageLocation) -> PolicyDecision:
+    def evaluate_replication_decision(
+        self, volume: Volume, target_location: StorageLocation
+    ) -> PolicyDecision:
         """Evaluate replication decision using hybrid approach"""
 
         # Check compliance requirements first
         if self._requires_compliance_replication(volume):
             return PolicyDecision(
                 action="replicate",
-                parameters={
-                    "target_location": target_location,
-                    "priority": "high"
-                },
+                parameters={"target_location": target_location, "priority": "high"},
                 confidence=1.0,
                 reason="Compliance requirement",
-                manual_override=True
+                manual_override=True,
             )
 
         # Get ML prediction if enabled
@@ -133,17 +139,15 @@ class HybridPolicyEngine:
     def _check_manual_override(self, volume_id: str, file_path: str) -> Optional[Dict]:
         """Check if manual override exists for path"""
         for override in self.manual_overrides.get("path_overrides", []):
-            if (
-                volume_id == override.get("volume_id", "*") and
-                Path(file_path).match(override["pattern"])
+            if volume_id == override.get("volume_id", "*") and Path(file_path).match(
+                override["pattern"]
             ):
                 return override
         return None
 
-    def _get_ml_tiering_prediction(self,
-                                 volume: Volume,
-                                 file_path: str,
-                                 temp_data: DataTemperature) -> PolicyDecision:
+    def _get_ml_tiering_prediction(
+        self, volume: Volume, file_path: str, temp_data: DataTemperature
+    ) -> PolicyDecision:
         """Get ML-based tiering prediction"""
         if not self.ml_model:
             return None
@@ -166,18 +170,18 @@ class HybridPolicyEngine:
             parameters={"target_tier": prediction},
             confidence=confidence,
             reason="ML prediction based on access patterns",
-            ml_factors=features
+            ml_factors=features,
         )
 
-    def _apply_traditional_tiering_logic(self,
-                                      temp_data: DataTemperature,
-                                      policy: TieringPolicy) -> PolicyDecision:
+    def _apply_traditional_tiering_logic(
+        self, temp_data: DataTemperature, policy: TieringPolicy
+    ) -> PolicyDecision:
         """Apply traditional tiering logic"""
         # Implement existing tiering logic
         temperature_score = (
-            0.4 * (1 - temp_data.days_since_last_access / 90) +
-            0.4 * min(1.0, temp_data.access_frequency / 10) +
-            0.2 * (1 - min(1.0, temp_data.size_bytes / (1024**3)))
+            0.4 * (1 - temp_data.days_since_last_access / 90)
+            + 0.4 * min(1.0, temp_data.access_frequency / 10)
+            + 0.2 * (1 - min(1.0, temp_data.size_bytes / (1024**3)))
         )
 
         # Determine tier based on temperature score
@@ -194,7 +198,7 @@ class HybridPolicyEngine:
             action="move_tier",
             parameters={"target_tier": target_tier},
             confidence=0.8,  # High confidence in traditional logic
-            reason="Traditional temperature-based decision"
+            reason="Traditional temperature-based decision",
         )
 
     def _apply_constraints(self, decision: PolicyDecision) -> PolicyDecision:
@@ -204,10 +208,9 @@ class HybridPolicyEngine:
         # Apply region constraints
         if "target_location" in decision.parameters:
             target_loc = decision.parameters["target_location"]
-            if (
-                target_loc.region in self.constraints.forbidden_regions or
-                (self.constraints.required_regions and
-                 target_loc.region not in self.constraints.required_regions)
+            if target_loc.region in self.constraints.forbidden_regions or (
+                self.constraints.required_regions
+                and target_loc.region not in self.constraints.required_regions
             ):
                 # Find alternative location
                 decision.parameters["target_location"] = self._find_compliant_location(
@@ -221,7 +224,7 @@ class HybridPolicyEngine:
                 TierType.PERFORMANCE: 0.15,
                 TierType.CAPACITY: 0.05,
                 TierType.COLD: 0.01,
-                TierType.ARCHIVE: 0.004
+                TierType.ARCHIVE: 0.004,
             }
             target_tier = decision.parameters["target_tier"]
             if tier_costs[target_tier] > self.constraints.max_cost_per_gb:
@@ -255,4 +258,6 @@ class HybridPolicyEngine:
 
         # Save to file
         self.manual_overrides_path.parent.mkdir(parents=True, exist_ok=True)
-        self.manual_overrides_path.write_text(json.dumps(self.manual_overrides, indent=2))
+        self.manual_overrides_path.write_text(
+            json.dumps(self.manual_overrides, indent=2)
+        )

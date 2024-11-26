@@ -1,7 +1,9 @@
 """Mock gRPC service definitions for testing."""
 
+
 class IdentityServicer:
     """Mock Identity service."""
+
     def GetPluginInfo(self, request, context):
         pass
 
@@ -11,8 +13,10 @@ class IdentityServicer:
     def Probe(self, request, context):
         pass
 
+
 class ControllerServicer:
     """Mock Controller service."""
+
     def CreateVolume(self, request, context):
         pass
 
@@ -37,8 +41,10 @@ class ControllerServicer:
     def ControllerGetCapabilities(self, request, context):
         pass
 
+
 class NodeServicer:
     """Mock Node service."""
+
     def NodeStageVolume(self, request, context):
         pass
 

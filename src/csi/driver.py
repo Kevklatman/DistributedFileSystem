@@ -1,6 +1,7 @@
 """
 Container Storage Interface (CSI) driver implementation
 """
+
 import grpc
 from concurrent import futures
 import time
@@ -17,9 +18,12 @@ from csi.proto import csi_pb2, csi_pb2_grpc
 from models.models import Volume, StoragePool
 from storage.infrastructure.hybrid_storage import HybridStorageManager
 
-class CSIDriver(csi_pb2_grpc.IdentityServicer,
-               csi_pb2_grpc.ControllerServicer,
-               csi_pb2_grpc.NodeServicer):
+
+class CSIDriver(
+    csi_pb2_grpc.IdentityServicer,
+    csi_pb2_grpc.ControllerServicer,
+    csi_pb2_grpc.NodeServicer,
+):
     """CSI driver implementation for hybrid cloud storage"""
 
     def __init__(self, storage_manager: HybridStorageManager):
@@ -39,8 +43,7 @@ class CSIDriver(csi_pb2_grpc.IdentityServicer,
     def GetPluginInfo(self, request, context):
         """Return plugin info"""
         return csi_pb2.GetPluginInfoResponse(
-            name="dfs.csi.k8s.io",
-            vendor_version="v1.0.0"
+            name="dfs.csi.k8s.io", vendor_version="v1.0.0"
         )
 
     def GetPluginCapabilities(self, request, context):
@@ -66,16 +69,14 @@ class CSIDriver(csi_pb2_grpc.IdentityServicer,
 
             # Create volume
             volume = self.storage_manager.create_volume(
-                name=name,
-                size=capacity,
-                parameters=parameters
+                name=name, size=capacity, parameters=parameters
             )
 
             return csi_pb2.CreateVolumeResponse(
                 volume=csi_pb2.Volume(
                     volume_id=volume.id,
                     capacity_bytes=volume.size,
-                    volume_context=volume.parameters
+                    volume_context=volume.parameters,
                 )
             )
         except Exception as e:
@@ -107,7 +108,7 @@ class CSIDriver(csi_pb2_grpc.IdentityServicer,
             self.storage_manager.stage_volume(
                 volume_id=volume_id,
                 staging_path=staging_path,
-                volume_context=volume_context
+                volume_context=volume_context,
             )
 
             return csi_pb2.NodeStageVolumeResponse()
@@ -130,7 +131,7 @@ class CSIDriver(csi_pb2_grpc.IdentityServicer,
                 volume_id=volume_id,
                 staging_path=staging_path,
                 target_path=target_path,
-                volume_context=volume_context
+                volume_context=volume_context,
             )
 
             return csi_pb2.NodePublishVolumeResponse()
@@ -148,6 +149,7 @@ class CSIDriver(csi_pb2_grpc.IdentityServicer,
             )
         )
         return csi_pb2.NodeGetCapabilitiesResponse(capabilities=[cap])
+
 
 def serve(mode: str = "node", endpoint: str = "unix:///csi/csi.sock"):
     """Start the CSI driver server"""
@@ -175,12 +177,18 @@ def serve(mode: str = "node", endpoint: str = "unix:///csi/csi.sock"):
     except KeyboardInterrupt:
         server.stop(0)
 
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="CSI Driver")
-    parser.add_argument("--mode", choices=["controller", "node"], default="node",
-                      help="Driver mode (controller or node)")
-    parser.add_argument("--endpoint", default="unix:///csi/csi.sock",
-                      help="CSI endpoint")
+    parser.add_argument(
+        "--mode",
+        choices=["controller", "node"],
+        default="node",
+        help="Driver mode (controller or node)",
+    )
+    parser.add_argument(
+        "--endpoint", default="unix:///csi/csi.sock", help="CSI endpoint"
+    )
     args = parser.parse_args()
 
     serve(mode=args.mode, endpoint=args.endpoint)

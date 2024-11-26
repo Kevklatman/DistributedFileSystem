@@ -4,12 +4,13 @@ from typing import Dict, List, Tuple
 
 logger = logging.getLogger(__name__)
 
+
 class FileSystemManager:
     """Manages file system operations for the distributed file system"""
 
     def __init__(self, storage_root: str = None):
         """Initialize the file system manager.
-        
+
         Args:
             storage_root: Root directory for storage. If not provided, uses environment variable
                         or default path.
@@ -19,9 +20,11 @@ class FileSystemManager:
 
         # Get storage directory from parameter, environment variable, or use default
         if storage_root is None:
-            storage_root = os.environ.get('LOCAL_STORAGE_DIR', os.path.abspath('./storage'))
-        
-        self.root_dir = os.path.join(storage_root, 'buckets')
+            storage_root = os.environ.get(
+                "LOCAL_STORAGE_DIR", os.path.abspath("./storage")
+            )
+
+        self.root_dir = os.path.join(storage_root, "buckets")
 
         # Ensure root directory exists
         os.makedirs(self.root_dir, exist_ok=True)
@@ -41,17 +44,13 @@ class FileSystemManager:
             os.makedirs(path, exist_ok=True)
 
             # Add to in-memory tracking
-            self.directories[path] = {
-                'path': path,
-                'files': [],
-                'subdirs': []
-            }
+            self.directories[path] = {"path": path, "files": [], "subdirs": []}
 
             # Update parent directory
             parent_dir = os.path.dirname(path)
             if parent_dir in self.directories:
-                if path not in self.directories[parent_dir]['subdirs']:
-                    self.directories[parent_dir]['subdirs'].append(path)
+                if path not in self.directories[parent_dir]["subdirs"]:
+                    self.directories[parent_dir]["subdirs"].append(path)
 
             logger.info(f"Created directory: {path}")
             return True
@@ -70,10 +69,7 @@ class FileSystemManager:
                 logger.error(f"Directory does not exist: {path}")
                 return [], []
 
-            return (
-                self.directories[path]['files'],
-                self.directories[path]['subdirs']
-            )
+            return (self.directories[path]["files"], self.directories[path]["subdirs"])
 
         except Exception as e:
             logger.error(f"Error listing directory {path}: {e}")
@@ -95,8 +91,8 @@ class FileSystemManager:
             # Update parent directory
             parent_dir = os.path.dirname(path)
             if parent_dir in self.directories:
-                if path in self.directories[parent_dir]['subdirs']:
-                    self.directories[parent_dir]['subdirs'].remove(path)
+                if path in self.directories[parent_dir]["subdirs"]:
+                    self.directories[parent_dir]["subdirs"].remove(path)
 
             # Remove from in-memory tracking
             del self.directories[path]
@@ -116,7 +112,7 @@ class FileSystemManager:
             logger.error(f"Error listing directories: {e}")
             return []
 
-    def createFile(self, path: str, content: bytes = b'') -> bool:
+    def createFile(self, path: str, content: bytes = b"") -> bool:
         """Create a file at the specified path"""
         try:
             # Normalize path
@@ -133,19 +129,16 @@ class FileSystemManager:
                 self.createDirectory(parent_dir)
 
             # Write file
-            with open(path, 'wb') as f:
+            with open(path, "wb") as f:
                 f.write(content)
 
             # Add to in-memory tracking
-            self.files[path] = {
-                'path': path,
-                'size': len(content)
-            }
+            self.files[path] = {"path": path, "size": len(content)}
 
             # Update parent directory
             if parent_dir in self.directories:
-                if path not in self.directories[parent_dir]['files']:
-                    self.directories[parent_dir]['files'].append(path)
+                if path not in self.directories[parent_dir]["files"]:
+                    self.directories[parent_dir]["files"].append(path)
 
             logger.info(f"Created file: {path}")
             return True

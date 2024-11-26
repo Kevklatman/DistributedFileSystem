@@ -16,6 +16,7 @@ import psutil
 
 logger = logging.getLogger(__name__)
 
+
 @dataclass
 class StorageNodeInfo:
     node_id: str
@@ -28,13 +29,14 @@ class StorageNodeInfo:
     pods: List[str]
     zone: str
 
+
 class StorageClusterManager:
     def __init__(self, namespace: str = "default"):
         self.namespace = namespace
-        
+
         # Use defaults for development environment
-        self.node_id = os.environ.get('NODE_ID', f'dev-node-{uuid.uuid4()}')
-        self.pod_ip = os.environ.get('POD_IP', '127.0.0.1')
+        self.node_id = os.environ.get("NODE_ID", f"dev-node-{uuid.uuid4()}")
+        self.pod_ip = os.environ.get("POD_IP", "127.0.0.1")
 
         self.nodes: Dict[str, StorageNodeInfo] = {}
         self.leader = False
@@ -59,31 +61,31 @@ class StorageClusterManager:
 
     def register_node(self, node_id: str) -> bool:
         """Register a new node with the cluster.
-        
+
         Args:
             node_id: Unique identifier for the node
-            
+
         Returns:
             bool: True if registration successful, False otherwise
         """
         try:
             node_info = StorageNodeInfo(
                 node_id=node_id,
-                hostname=os.environ.get('HOSTNAME', 'localhost'),
+                hostname=os.environ.get("HOSTNAME", "localhost"),
                 pod_ip=self.pod_ip,
                 capacity_bytes=0,  # Will be updated later
-                used_bytes=0,      # Will be updated later
-                status='STARTING',
+                used_bytes=0,  # Will be updated later
+                status="STARTING",
                 last_heartbeat=time.time(),
                 pods=[],
-                zone=os.environ.get('ZONE', 'default')
+                zone=os.environ.get("ZONE", "default"),
             )
-            
+
             with self._lock:
                 self.nodes[node_id] = node_info
                 logger.info(f"Registered node {node_id} with cluster")
             return True
-            
+
         except Exception as e:
             logger.error(f"Failed to register node {node_id}: {str(e)}")
             return False
@@ -95,15 +97,15 @@ class StorageClusterManager:
             self._running = True
             logging.info(f"Starting cluster manager for node {self.node_id}")
             self._register_node()
-            
+
             # Start leader election in development mode without k8s
-            if not hasattr(self, 'k8s_api') or self.k8s_api is None:
+            if not hasattr(self, "k8s_api") or self.k8s_api is None:
                 logger.info("Running in development mode without Kubernetes")
                 self.leader = True
                 self.current_leader = self.node_id
             else:
                 await self._start_leader_election()
-            
+
             self._heartbeat_task = asyncio.create_task(self._start_heartbeat())
             logger.info(f"Cluster manager started successfully for node {self.node_id}")
         except Exception as e:
@@ -115,7 +117,7 @@ class StorageClusterManager:
         """Stop the cluster manager and cleanup resources."""
         logger.info(f"Stopping cluster manager for node {self.node_id}")
         self._running = False
-        
+
         if self._heartbeat_task:
             self._heartbeat_task.cancel()
             try:
@@ -153,7 +155,7 @@ class StorageClusterManager:
             status="READY",
             last_heartbeat=time.time(),
             pods=[],
-            zone=self._get_zone()
+            zone=self._get_zone(),
         )
 
         self._update_node_status(node_info)
@@ -168,15 +170,15 @@ class StorageClusterManager:
             lease = client.V1Lease(
                 metadata=client.V1ObjectMeta(name=lease_name),
                 spec=client.V1LeaseSpec(
-                    holder_identity=self.node_id,
-                    lease_duration_seconds=15
-                )
+                    holder_identity=self.node_id, lease_duration_seconds=15
+                ),
             )
 
-            logging.info(f"Attempting to create lease with holder_identity={self.node_id}")
+            logging.info(
+                f"Attempting to create lease with holder_identity={self.node_id}"
+            )
             self.coordination_api.create_namespaced_lease(
-                namespace=self.namespace,
-                body=lease
+                namespace=self.namespace, body=lease
             )
             self.leader = True
             logging.info("Successfully became leader")
@@ -189,8 +191,7 @@ class StorageClusterManager:
                 try:
                     logging.info("Lease exists, getting current leader")
                     current_lease = self.coordination_api.read_namespaced_lease(
-                        name=lease_name,
-                        namespace=self.namespace
+                        name=lease_name, namespace=self.namespace
                     )
                     self.current_leader = current_lease.spec.holder_identity
                     logging.info(f"Current leader is {self.current_leader}")
@@ -210,8 +211,7 @@ class StorageClusterManager:
             try:
                 # Get current lease
                 lease = self.coordination_api.read_namespaced_lease(
-                    name=lease_name,
-                    namespace=self.namespace
+                    name=lease_name, namespace=self.namespace
                 )
 
                 # Update lease timestamp
@@ -219,9 +219,7 @@ class StorageClusterManager:
 
                 # Update the lease
                 self.coordination_api.replace_namespaced_lease(
-                    name=lease_name,
-                    namespace=self.namespace,
-                    body=lease
+                    name=lease_name, namespace=self.namespace, body=lease
                 )
             except Exception as e:
                 logging.error(f"Failed to renew lease: {str(e)}")
@@ -264,8 +262,11 @@ class StorageClusterManager:
     def _redistribute_data(self, failed_node: StorageNodeInfo):
         """Redistribute data from failed node to healthy nodes"""
         # Get list of healthy nodes
-        healthy_nodes = [node for node in self.nodes.values()
-                        if node.status == "READY" and node.node_id != failed_node.node_id]
+        healthy_nodes = [
+            node
+            for node in self.nodes.values()
+            if node.status == "READY" and node.node_id != failed_node.node_id
+        ]
 
         if not healthy_nodes:
             return
@@ -278,12 +279,22 @@ class StorageClusterManager:
             target_node = self._select_target_node(healthy_nodes)
             self._replicate_data(data_id, data_info, target_node)
 
-    def _select_target_node(self, healthy_nodes: List[StorageNodeInfo]) -> StorageNodeInfo:
+    def _select_target_node(
+        self, healthy_nodes: List[StorageNodeInfo]
+    ) -> StorageNodeInfo:
         """Select the best node for data placement based on capacity and load"""
-        return min(healthy_nodes,
-                  key=lambda n: n.used_bytes / n.capacity_bytes if n.capacity_bytes > 0 else float('inf'))
+        return min(
+            healthy_nodes,
+            key=lambda n: (
+                n.used_bytes / n.capacity_bytes
+                if n.capacity_bytes > 0
+                else float("inf")
+            ),
+        )
 
-    def _replicate_data(self, data_id: str, data_info: dict, target_node: StorageNodeInfo):
+    def _replicate_data(
+        self, data_id: str, data_info: dict, target_node: StorageNodeInfo
+    ):
         """Replicate data to target node"""
         # Implementation would involve:
         # 1. Reading data from source/backup
@@ -296,8 +307,14 @@ class StorageClusterManager:
         with self._lock:
             return {
                 "nodes": len(self.nodes),
-                "healthy_nodes": sum(1 for n in self.nodes.values() if n.status == "READY"),
-                "leader_node": self.node_id if self.leader else getattr(self, 'current_leader', None)
+                "healthy_nodes": sum(
+                    1 for n in self.nodes.values() if n.status == "READY"
+                ),
+                "leader_node": (
+                    self.node_id
+                    if self.leader
+                    else getattr(self, "current_leader", None)
+                ),
             }
 
     async def get_cluster_status_async(self) -> dict:
@@ -307,15 +324,16 @@ class StorageClusterManager:
             nodes = await asyncio.to_thread(self._get_current_nodes)
 
             # Count healthy nodes (nodes with recent heartbeat)
-            healthy_nodes = sum(1 for node in nodes.values()
-                             if (time.time() - node.last_heartbeat) < 15)
+            healthy_nodes = sum(
+                1 for node in nodes.values() if (time.time() - node.last_heartbeat) < 15
+            )
 
             # Get current leader
             try:
                 lease = await asyncio.to_thread(
                     self.coordination_api.read_namespaced_lease,
                     name="storage-cluster-leader",
-                    namespace=self.namespace
+                    namespace=self.namespace,
                 )
                 leader_node = lease.spec.holder_identity
             except kubernetes.client.rest.ApiException as e:
@@ -329,7 +347,7 @@ class StorageClusterManager:
                 "healthy_nodes": healthy_nodes,
                 "leader_node": leader_node,
                 "current_node": self.node_id,
-                "is_leader": self.leader
+                "is_leader": self.leader,
             }
         except Exception as e:
             logging.error(f"Error getting cluster status: {str(e)}")
@@ -339,7 +357,7 @@ class StorageClusterManager:
                 "healthy_nodes": 0,
                 "leader_node": None,
                 "current_node": self.node_id,
-                "is_leader": self.leader
+                "is_leader": self.leader,
             }
 
     def _get_hostname(self) -> str:
@@ -350,6 +368,7 @@ class StorageClusterManager:
         except:
             # Return local hostname in development mode
             import socket
+
             return socket.gethostname()
 
     def _get_capacity(self) -> int:
@@ -358,10 +377,10 @@ class StorageClusterManager:
             if self.k8s_api:
                 # Get node capacity from Kubernetes
                 node = self.k8s_api.read_node(self._get_hostname())
-                return int(node.status.capacity['ephemeral-storage'])
+                return int(node.status.capacity["ephemeral-storage"])
             else:
                 # Fallback to local disk space
-                disk = psutil.disk_usage('/')
+                disk = psutil.disk_usage("/")
                 return disk.total
         except Exception as e:
             logger.error(f"Failed to get node capacity: {str(e)}")
@@ -386,10 +405,7 @@ class StorageClusterManager:
             node_status = {
                 "apiVersion": "storage.dfs.io/v1",
                 "kind": "StorageNodeStatus",
-                "metadata": {
-                    "name": node_info.node_id,
-                    "namespace": self.namespace
-                },
+                "metadata": {"name": node_info.node_id, "namespace": self.namespace},
                 "spec": {
                     "nodeId": node_info.node_id,
                     "hostname": node_info.hostname,
@@ -397,9 +413,11 @@ class StorageClusterManager:
                     "capacity": node_info.capacity_bytes,
                     "used": node_info.used_bytes,
                     "status": node_info.status,
-                    "lastHeartbeat": datetime.fromtimestamp(node_info.last_heartbeat).isoformat(),
-                    "zone": node_info.zone
-                }
+                    "lastHeartbeat": datetime.fromtimestamp(
+                        node_info.last_heartbeat
+                    ).isoformat(),
+                    "zone": node_info.zone,
+                },
             }
 
             try:
@@ -408,7 +426,7 @@ class StorageClusterManager:
                     version="v1",
                     namespace=self.namespace,
                     plural="storagenodestatuses",
-                    body=node_status
+                    body=node_status,
                 )
             except kubernetes.client.rest.ApiException as e:
                 if e.status == 409:  # Already exists, update instead
@@ -418,7 +436,7 @@ class StorageClusterManager:
                         namespace=self.namespace,
                         plural="storagenodestatuses",
                         name=node_info.node_id,
-                        body=node_status
+                        body=node_status,
                     )
 
     def _get_current_nodes(self) -> Dict[str, StorageNodeInfo]:
@@ -428,7 +446,7 @@ class StorageClusterManager:
 
     def is_healthy(self) -> bool:
         """Check if the cluster manager is healthy.
-        
+
         Returns:
             bool: True if healthy, False otherwise
         """
@@ -436,17 +454,17 @@ class StorageClusterManager:
             # Check if we have any registered nodes
             if not self.nodes:
                 return False
-                
+
             # Check if we have a leader
             if not self.current_leader:
                 return False
-                
+
             # Check node health
             healthy_nodes = 0
             for node in self.nodes.values():
-                if node.status == 'healthy':
+                if node.status == "healthy":
                     healthy_nodes += 1
-                    
+
             # Consider healthy if at least one node is healthy
             return healthy_nodes > 0
         except Exception as e:

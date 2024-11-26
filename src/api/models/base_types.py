@@ -1,5 +1,7 @@
 """Base types shared across multiple models."""
+
 from enum import Enum
+
 
 class SnapshotState(Enum):
     PENDING = "pending"

@@ -2,21 +2,21 @@ class FileSystemManager:
     def __init__(self):
         self.files = {}
         self.directories = set()
-        self.directories.add('/')  # Root directory always exists
+        self.directories.add("/")  # Root directory always exists
 
     def _normalize_path(self, path):
         # Ensure path starts with /
-        if not path.startswith('/'):
-            path = '/' + path
+        if not path.startswith("/"):
+            path = "/" + path
         # Remove trailing slash except for root
-        if path != '/' and path.endswith('/'):
-            path = path.rstrip('/')
+        if path != "/" and path.endswith("/"):
+            path = path.rstrip("/")
         return path
 
     def writeFile(self, filename, content):
         filename = self._normalize_path(filename)
         # Ensure parent directory exists
-        parent_dir = '/'.join(filename.split('/')[:-1])
+        parent_dir = "/".join(filename.split("/")[:-1])
         if parent_dir and parent_dir not in self.directories:
             return False
         self.files[filename] = content
@@ -39,12 +39,12 @@ class FileSystemManager:
     def createDirectory(self, path):
         path = self._normalize_path(path)
         # Create parent directories if they don't exist
-        parts = path.split('/')
-        current_path = ''
+        parts = path.split("/")
+        current_path = ""
         for part in parts:
             if not part:
                 continue
-            current_path += '/' + part
+            current_path += "/" + part
             self.directories.add(current_path)
         return True
 
@@ -66,6 +66,10 @@ class FileSystemManager:
         path = self._normalize_path(path)
         if path not in self.directories:
             return None
-        files = [f for f in self.files if f.startswith(path + '/')]
-        subdirs = [d for d in self.directories if d.startswith(path + '/') and d.count('/') == path.count('/') + 1]
-        return {'files': files, 'directories': subdirs}
+        files = [f for f in self.files if f.startswith(path + "/")]
+        subdirs = [
+            d
+            for d in self.directories
+            if d.startswith(path + "/") and d.count("/") == path.count("/") + 1
+        ]
+        return {"files": files, "directories": subdirs}

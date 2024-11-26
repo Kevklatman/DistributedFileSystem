@@ -1,8 +1,10 @@
 """Unit tests for cache store."""
+
 import unittest
 import time
 from datetime import datetime, timedelta
 from storage.infrastructure.data.cache_store import CacheStore, ConsistencyLevel
+
 
 class TestCacheStore(unittest.TestCase):
     """Test cases for cache store."""
@@ -10,9 +12,7 @@ class TestCacheStore(unittest.TestCase):
     def setUp(self):
         """Set up test environment."""
         self.cache = CacheStore(
-            max_size=5,
-            ttl_seconds=1,
-            consistency_level=ConsistencyLevel.EVENTUAL
+            max_size=5, ttl_seconds=1, consistency_level=ConsistencyLevel.EVENTUAL
         )
 
     def test_put_and_get(self):
@@ -70,27 +70,14 @@ class TestCacheStore(unittest.TestCase):
         session_id = "session1"
 
         # Put with session consistency
-        version = self.cache.put(
-            "key1",
-            "value1",
-            ConsistencyLevel.SESSION,
-            session_id
-        )
+        version = self.cache.put("key1", "value1", ConsistencyLevel.SESSION, session_id)
 
         # Should be available in same session
-        result = self.cache.get(
-            "key1",
-            ConsistencyLevel.SESSION,
-            session_id
-        )
+        result = self.cache.get("key1", ConsistencyLevel.SESSION, session_id)
         self.assertIsNotNone(result)
 
         # Should not be available in different session
-        result = self.cache.get(
-            "key1",
-            ConsistencyLevel.SESSION,
-            "different_session"
-        )
+        result = self.cache.get("key1", ConsistencyLevel.SESSION, "different_session")
         self.assertIsNone(result)
 
     def test_dirty_tracking(self):

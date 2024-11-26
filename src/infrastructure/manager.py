@@ -6,6 +6,7 @@ from typing import Dict, Optional, List, Union, Any
 
 logger = logging.getLogger(__name__)
 
+
 class InfrastructureManager:
     """Manages and coordinates all infrastructure components."""
 
@@ -48,7 +49,9 @@ class InfrastructureManager:
             logger.error(f"Health check failed: {str(e)}")
             return False
 
-    async def handle_storage_operation(self, operation: str, **kwargs) -> Union[Dict[str, Any], bool]:
+    async def handle_storage_operation(
+        self, operation: str, **kwargs
+    ) -> Union[Dict[str, Any], bool]:
         """Handle a storage operation with proper infrastructure coordination."""
         try:
             # Check system health
@@ -58,39 +61,37 @@ class InfrastructureManager:
                 return False
 
             # Mock storage operations for now
-            if operation == 'list_buckets':
+            if operation == "list_buckets":
                 return {
-                    'buckets': [
-                        {'name': 'test-bucket', 'creation_date': '2023-01-01T00:00:00Z'}
+                    "buckets": [
+                        {"name": "test-bucket", "creation_date": "2023-01-01T00:00:00Z"}
                     ]
                 }
-            elif operation == 'create_bucket':
+            elif operation == "create_bucket":
                 return True
-            elif operation == 'delete_bucket':
+            elif operation == "delete_bucket":
                 return True
-            elif operation == 'list_objects':
+            elif operation == "list_objects":
                 return {
-                    'objects': [
+                    "objects": [
                         {
-                            'key': 'test-object',
-                            'size': 1024,
-                            'last_modified': '2023-01-01T00:00:00Z',
-                            'etag': '"d41d8cd98f00b204e9800998ecf8427e"'
+                            "key": "test-object",
+                            "size": 1024,
+                            "last_modified": "2023-01-01T00:00:00Z",
+                            "etag": '"d41d8cd98f00b204e9800998ecf8427e"',
                         }
                     ]
                 }
-            elif operation == 'put_object':
+            elif operation == "put_object":
+                return {"etag": '"d41d8cd98f00b204e9800998ecf8427e"'}
+            elif operation == "get_object":
                 return {
-                    'etag': '"d41d8cd98f00b204e9800998ecf8427e"'
+                    "content": kwargs.get("data", b""),
+                    "content_type": "application/octet-stream",
+                    "last_modified": "2023-01-01T00:00:00Z",
+                    "etag": '"d41d8cd98f00b204e9800998ecf8427e"',
                 }
-            elif operation == 'get_object':
-                return {
-                    'content': kwargs.get('data', b''),
-                    'content_type': 'application/octet-stream',
-                    'last_modified': '2023-01-01T00:00:00Z',
-                    'etag': '"d41d8cd98f00b204e9800998ecf8427e"'
-                }
-            elif operation == 'delete_object':
+            elif operation == "delete_object":
                 return True
             else:
                 logger.error(f"Unknown operation: {operation}")
@@ -104,16 +105,13 @@ class InfrastructureManager:
         """Get current status of all infrastructure components."""
         try:
             return {
-                'status': 'healthy' if await self.check_health() else 'unhealthy',
-                'components': {
-                    'storage': 'active',
-                    'cache': 'inactive',
-                    'network': 'active'
-                }
+                "status": "healthy" if await self.check_health() else "unhealthy",
+                "components": {
+                    "storage": "active",
+                    "cache": "inactive",
+                    "network": "active",
+                },
             }
         except Exception as e:
             logger.error(f"Failed to get system status: {str(e)}")
-            return {
-                'status': 'error',
-                'error': str(e)
-            }
+            return {"status": "error", "error": str(e)}

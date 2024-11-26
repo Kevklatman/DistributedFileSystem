@@ -9,7 +9,7 @@ import asyncio
 from storage.infrastructure.data.data_protection import (
     DataProtectionManager,
     BackupJob,
-    RetentionType
+    RetentionType,
 )
 from src.models.models import (
     Volume,
@@ -17,8 +17,9 @@ from src.models.models import (
     DataProtectionPolicy,
     RetentionPolicy,
     BackupState,
-    RecoveryPoint
+    RecoveryPoint,
 )
+
 
 @pytest.fixture
 def storage_manager(volume):
@@ -28,14 +29,17 @@ def storage_manager(volume):
     # Configure get_volume to be async and return the volume
     async def get_volume(volume_id):
         return volume
+
     manager.get_volume = get_volume
 
     return manager
+
 
 @pytest.fixture
 def data_path(tmp_path):
     """Temporary data path fixture."""
     return tmp_path / "data"
+
 
 @pytest.fixture
 def volume():
@@ -47,15 +51,17 @@ def volume():
             hourly_retention=24,
             daily_retention=7,
             weekly_retention=4,
-            monthly_retention=12
-        )
+            monthly_retention=12,
+        ),
     )
     return volume
+
 
 @pytest.fixture
 def protection_manager(data_path, storage_manager):
     """DataProtectionManager fixture."""
     return DataProtectionManager(data_path, storage_manager)
+
 
 class TestDataProtectionManager:
     """Test suite for DataProtectionManager."""
@@ -86,7 +92,7 @@ class TestDataProtectionManager:
         policy.weekly_schedule = "0 0 * * 0"
         policy.monthly_schedule = "0 0 1 * *"
 
-        with patch.object(protection_manager, '_schedule_backup') as mock_schedule:
+        with patch.object(protection_manager, "_schedule_backup") as mock_schedule:
             await protection_manager.schedule_backups(volume, policy)
             assert mock_schedule.call_count == 4
 
@@ -101,17 +107,23 @@ class TestDataProtectionManager:
             snapshot_id=snapshot.id,
             target_location=volume.backup_location,
             start_time=datetime.now(),
-            status="pending"
+            status="pending",
         )
 
         # Mock the backup data preparation and upload
         async def mock_prepare_backup_data(*args):
             return b"test_data"
+
         async def mock_upload_chunk(*args):
             pass
 
-        with patch.object(protection_manager, '_prepare_backup_data', side_effect=mock_prepare_backup_data), \
-             patch.object(protection_manager, '_upload_chunk', side_effect=mock_upload_chunk):
+        with patch.object(
+            protection_manager,
+            "_prepare_backup_data",
+            side_effect=mock_prepare_backup_data,
+        ), patch.object(
+            protection_manager, "_upload_chunk", side_effect=mock_upload_chunk
+        ):
             await protection_manager._run_backup_job(job)
 
             assert job.status == "completed"
@@ -127,14 +139,18 @@ class TestDataProtectionManager:
             snapshot_id=snapshot.id,
             target_location=volume.backup_location,
             start_time=datetime.now(),
-            status="pending"
+            status="pending",
         )
 
         # Mock the backup data preparation to fail
         async def mock_prepare_backup_data(*args):
             raise Exception("Backup failed")
 
-        with patch.object(protection_manager, '_prepare_backup_data', side_effect=mock_prepare_backup_data):
+        with patch.object(
+            protection_manager,
+            "_prepare_backup_data",
+            side_effect=mock_prepare_backup_data,
+        ):
             await protection_manager._run_backup_job(job)
 
             assert job.status == "failed"
@@ -150,10 +166,13 @@ class TestDataProtectionManager:
         volume.backups["test-backup-1"] = Mock(spec=BackupState)
         volume.snapshots["test-snap-1"] = Mock(spec=SnapshotState)
 
-        with patch.object(protection_manager, '_validate_recovery_point', return_value=True), \
-             patch.object(protection_manager, '_download_backup'), \
-             patch.object(protection_manager, '_restore_data'), \
-             patch.object(protection_manager, '_swap_volume_data'):
+        with patch.object(
+            protection_manager, "_validate_recovery_point", return_value=True
+        ), patch.object(protection_manager, "_download_backup"), patch.object(
+            protection_manager, "_restore_data"
+        ), patch.object(
+            protection_manager, "_swap_volume_data"
+        ):
 
             await protection_manager.restore_volume(volume, recovery_point, tmp_path)
             # If no exception is raised, the test passes
@@ -167,8 +186,7 @@ class TestDataProtectionManager:
         # Hourly snapshots
         for i in range(5):
             snapshot = SnapshotState(
-                parent_id=None,
-                metadata={"type": "scheduled", "name": f"hourly-{i}"}
+                parent_id=None, metadata={"type": "scheduled", "name": f"hourly-{i}"}
             )
             snapshot.creation_time = now - timedelta(hours=i)
             volume.snapshots[snapshot.id] = snapshot
@@ -176,25 +194,23 @@ class TestDataProtectionManager:
         # Daily snapshots
         for i in range(3):
             snapshot = SnapshotState(
-                parent_id=None,
-                metadata={"type": "scheduled", "name": f"daily-{i}"}
+                parent_id=None, metadata={"type": "scheduled", "name": f"daily-{i}"}
             )
-            snapshot.creation_time = now - timedelta(days=i+1)
+            snapshot.creation_time = now - timedelta(days=i + 1)
             volume.snapshots[snapshot.id] = snapshot
 
         # Set retention policy
         volume.retention_policy.hourly_retention = 3
         volume.retention_policy.daily_retention = 2
 
-        with patch.object(protection_manager, '_delete_snapshot_and_backup'):
+        with patch.object(protection_manager, "_delete_snapshot_and_backup"):
             await protection_manager._apply_retention_policy(volume)
             # Should delete 2 hourly and 1 daily snapshots
 
     def test_recovery_points(self, protection_manager, volume):
         """Test recovery points management."""
         snapshot = SnapshotState(
-            parent_id=None,
-            metadata={"type": "user", "name": "test-snap"}
+            parent_id=None, metadata={"type": "user", "name": "test-snap"}
         )
 
         protection_manager._update_recovery_points(volume, snapshot)
@@ -218,7 +234,7 @@ class TestDataProtectionManager:
             snapshot_id=snapshot.id,
             backup_id="test-backup",
             timestamp=datetime.now(),
-            type="user"
+            type="user",
         )
 
         assert protection_manager._validate_recovery_point(volume, recovery_point)
@@ -228,7 +244,9 @@ class TestDataProtectionManager:
             snapshot_id="non-existent",
             backup_id="non-existent",
             timestamp=datetime.now(),
-            type="user"
+            type="user",
         )
 
-        assert not protection_manager._validate_recovery_point(volume, invalid_recovery_point)
+        assert not protection_manager._validate_recovery_point(
+            volume, invalid_recovery_point
+        )

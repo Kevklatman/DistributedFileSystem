@@ -13,13 +13,14 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
+
 def demonstrate_s3_metrics():
     """Demonstrate metrics collection with basic S3 operations."""
     # Initialize S3 provider with credentials from .env
     s3_provider = AWSS3Provider(
-        aws_access_key_id=os.getenv('AWS_ACCESS_KEY'),
-        aws_secret_access_key=os.getenv('AWS_SECRET_KEY'),
-        region_name=os.getenv('AWS_REGION', 'us-east-2')
+        aws_access_key_id=os.getenv("AWS_ACCESS_KEY"),
+        aws_secret_access_key=os.getenv("AWS_SECRET_KEY"),
+        region_name=os.getenv("AWS_REGION", "us-east-2"),
     )
 
     # Test bucket and object names
@@ -63,6 +64,7 @@ def demonstrate_s3_metrics():
     print("- operation_latencies.png")
     print("- cache_performance.png")
     print("- metrics_summary.txt")
+
 
 if __name__ == "__main__":
     demonstrate_s3_metrics()

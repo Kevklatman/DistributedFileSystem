@@ -14,29 +14,37 @@ from .base import StorageBackend
 
 logger = logging.getLogger(__name__)
 
+
 class AWSStorageBackend(StorageBackend):
     """AWS S3 storage backend implementation"""
 
     def __init__(self):
         super().__init__(None)
-        if not all([current_config['access_key'], current_config['secret_key']]):
+        if not all([current_config["access_key"], current_config["secret_key"]]):
             raise ValueError(
-                'AWS credentials not found. Please set AWS_ACCESS_KEY and AWS_SECRET_KEY '
-                'environment variables when using AWS storage.'
+                "AWS credentials not found. Please set AWS_ACCESS_KEY and AWS_SECRET_KEY "
+                "environment variables when using AWS storage."
             )
 
         # Initialize S3 client with explicit region configuration
-        self.region = current_config['region']
+        self.region = current_config["region"]
         if not self.region:
-            self.region = 'us-east-2'  # Fallback to us-east-2 if not set
+            self.region = "us-east-2"  # Fallback to us-east-2 if not set
 
         logger.info(f"Initial region configuration: {self.region}")
 
         # Create a client for each AWS region to handle cross-region operations
         self.regional_clients = {}
         self.available_regions = [
-            'eu-south-1', 'us-east-1', 'us-west-2', 'us-west-1', 'us-west-2',
-            'eu-west-1', 'eu-west-2', 'eu-west-3', 'eu-central-1'
+            "eu-south-1",
+            "us-east-1",
+            "us-west-2",
+            "us-west-1",
+            "us-west-2",
+            "eu-west-1",
+            "eu-west-2",
+            "eu-west-3",
+            "eu-central-1",
         ]
 
         # Initialize the default client
@@ -44,48 +52,47 @@ class AWSStorageBackend(StorageBackend):
 
     def _create_client(self, region):
         """Create an S3 client for a specific region"""
-        boto_config = Config(
-            signature_version='s3v4',
-            region_name=region
-        )
+        boto_config = Config(signature_version="s3v4", region_name=region)
         return boto3.client(
-            's3',
-            aws_access_key_id=current_config['access_key'],
-            aws_secret_access_key=current_config['secret_key'],
-            config=boto_config
+            "s3",
+            aws_access_key_id=current_config["access_key"],
+            aws_secret_access_key=current_config["secret_key"],
+            config=boto_config,
         )
 
     def _get_client_for_bucket(self, bucket_name):
         """Get the appropriate S3 client for a bucket, handling region differences"""
         try:
             location = self.s3.get_bucket_location(Bucket=bucket_name)
-            region = location.get('LocationConstraint', self.region)
-            
+            region = location.get("LocationConstraint", self.region)
+
             if region not in self.regional_clients:
                 self.regional_clients[region] = self._create_client(region)
-            
+
             return self.regional_clients[region]
         except Exception as e:
             logger.error(f"Error getting client for bucket {bucket_name}: {str(e)}")
             return self.s3
 
-    def list_objects(self, bucket_name: str, consistency_level: str = 'eventual'):
+    def list_objects(self, bucket_name: str, consistency_level: str = "eventual"):
         """List objects in a bucket, handling region-specific requirements"""
         try:
             client = self._get_client_for_bucket(bucket_name)
             response = client.list_objects_v2(Bucket=bucket_name)
-            return [{'Key': obj['Key']} for obj in response.get('Contents', [])]
+            return [{"Key": obj["Key"]} for obj in response.get("Contents", [])]
         except Exception as e:
             logger.error(f"Failed to list objects in bucket {bucket_name}: {str(e)}")
             return []
 
-    def create_bucket(self, bucket_name: str, consistency_level: str = 'eventual'):
+    def create_bucket(self, bucket_name: str, consistency_level: str = "eventual"):
         """Create a bucket in the configured region"""
         try:
-            kwargs = {'Bucket': bucket_name}
-            if self.region != 'us-east-1':
-                kwargs['CreateBucketConfiguration'] = {'LocationConstraint': self.region}
-            
+            kwargs = {"Bucket": bucket_name}
+            if self.region != "us-east-1":
+                kwargs["CreateBucketConfiguration"] = {
+                    "LocationConstraint": self.region
+                }
+
             self.s3.create_bucket(**kwargs)
             return True
         except Exception as e:
@@ -106,14 +113,21 @@ class AWSStorageBackend(StorageBackend):
         """List all buckets"""
         try:
             response = self.s3.list_buckets()
-            return [{'Name': bucket['Name'], 'CreationDate': bucket['CreationDate']}
-                   for bucket in response['Buckets']]
+            return [
+                {"Name": bucket["Name"], "CreationDate": bucket["CreationDate"]}
+                for bucket in response["Buckets"]
+            ]
         except Exception as e:
             logger.error(f"Failed to list buckets: {str(e)}")
             return []
 
-    def put_object(self, bucket_name: str, object_key: str, data: BinaryIO,
-                   consistency_level: str = 'eventual'):
+    def put_object(
+        self,
+        bucket_name: str,
+        object_key: str,
+        data: BinaryIO,
+        consistency_level: str = "eventual",
+    ):
         """Put an object into a bucket"""
         try:
             client = self._get_client_for_bucket(bucket_name)
@@ -123,12 +137,14 @@ class AWSStorageBackend(StorageBackend):
             logger.error(f"Failed to put object {object_key}: {str(e)}")
             return False
 
-    def get_object(self, bucket_name: str, object_key: str, consistency_level: str = 'eventual'):
+    def get_object(
+        self, bucket_name: str, object_key: str, consistency_level: str = "eventual"
+    ):
         """Get an object from a bucket"""
         try:
             client = self._get_client_for_bucket(bucket_name)
             response = client.get_object(Bucket=bucket_name, Key=object_key)
-            return response['Body'].read()
+            return response["Body"].read()
         except Exception as e:
             logger.error(f"Failed to get object {object_key}: {str(e)}")
             return None
@@ -147,14 +163,22 @@ class AWSStorageBackend(StorageBackend):
         """Initialize multipart upload"""
         try:
             client = self._get_client_for_bucket(bucket_name)
-            response = client.create_multipart_upload(Bucket=bucket_name, Key=object_key)
-            return response['UploadId']
+            response = client.create_multipart_upload(
+                Bucket=bucket_name, Key=object_key
+            )
+            return response["UploadId"]
         except Exception as e:
             logger.error(f"Failed to create multipart upload: {str(e)}")
             return None
 
-    def upload_part(self, bucket_name: str, object_key: str, upload_id: str,
-                    part_number: int, data: BinaryIO):
+    def upload_part(
+        self,
+        bucket_name: str,
+        object_key: str,
+        upload_id: str,
+        part_number: int,
+        data: BinaryIO,
+    ):
         """Upload a part in multipart upload"""
         try:
             client = self._get_client_for_bucket(bucket_name)
@@ -163,15 +187,20 @@ class AWSStorageBackend(StorageBackend):
                 Key=object_key,
                 UploadId=upload_id,
                 PartNumber=part_number,
-                Body=data
+                Body=data,
             )
-            return response['ETag']
+            return response["ETag"]
         except Exception as e:
             logger.error(f"Failed to upload part {part_number}: {str(e)}")
             return None
 
-    def complete_multipart_upload(self, bucket_name: str, object_key: str,
-                                 upload_id: str, parts: List[Dict[str, Any]]):
+    def complete_multipart_upload(
+        self,
+        bucket_name: str,
+        object_key: str,
+        upload_id: str,
+        parts: List[Dict[str, Any]],
+    ):
         """Complete multipart upload"""
         try:
             client = self._get_client_for_bucket(bucket_name)
@@ -179,7 +208,7 @@ class AWSStorageBackend(StorageBackend):
                 Bucket=bucket_name,
                 Key=object_key,
                 UploadId=upload_id,
-                MultipartUpload={'Parts': parts}
+                MultipartUpload={"Parts": parts},
             )
             return True
         except Exception as e:
@@ -191,9 +220,7 @@ class AWSStorageBackend(StorageBackend):
         try:
             client = self._get_client_for_bucket(bucket_name)
             client.abort_multipart_upload(
-                Bucket=bucket_name,
-                Key=object_key,
-                UploadId=upload_id
+                Bucket=bucket_name, Key=object_key, UploadId=upload_id
             )
             return True
         except Exception as e:
@@ -206,11 +233,8 @@ class AWSStorageBackend(StorageBackend):
             client = self._get_client_for_bucket(bucket_name)
             response = client.list_multipart_uploads(Bucket=bucket_name)
             return [
-                {
-                    'UploadId': upload['UploadId'],
-                    'Key': upload['Key']
-                }
-                for upload in response.get('Uploads', [])
+                {"UploadId": upload["UploadId"], "Key": upload["Key"]}
+                for upload in response.get("Uploads", [])
             ]
         except Exception as e:
             logger.error(f"Failed to list multipart uploads: {str(e)}")
@@ -221,8 +245,7 @@ class AWSStorageBackend(StorageBackend):
         try:
             client = self._get_client_for_bucket(bucket_name)
             client.put_bucket_versioning(
-                Bucket=bucket_name,
-                VersioningConfiguration={'Status': 'Enabled'}
+                Bucket=bucket_name, VersioningConfiguration={"Status": "Enabled"}
             )
             return True
         except Exception as e:
@@ -234,8 +257,7 @@ class AWSStorageBackend(StorageBackend):
         try:
             client = self._get_client_for_bucket(bucket_name)
             client.put_bucket_versioning(
-                Bucket=bucket_name,
-                VersioningConfiguration={'Status': 'Suspended'}
+                Bucket=bucket_name, VersioningConfiguration={"Status": "Suspended"}
             )
             return True
         except Exception as e:
@@ -247,7 +269,7 @@ class AWSStorageBackend(StorageBackend):
         try:
             client = self._get_client_for_bucket(bucket_name)
             response = client.get_bucket_versioning(Bucket=bucket_name)
-            return response.get('Status') == 'Enabled'
+            return response.get("Status") == "Enabled"
         except Exception as e:
             logger.error(f"Failed to get versioning status: {str(e)}")
             return False
@@ -256,21 +278,23 @@ class AWSStorageBackend(StorageBackend):
         """List object versions"""
         try:
             client = self._get_client_for_bucket(bucket_name)
-            kwargs = {'Bucket': bucket_name}
+            kwargs = {"Bucket": bucket_name}
             if prefix:
-                kwargs['Prefix'] = prefix
-            
+                kwargs["Prefix"] = prefix
+
             response = client.list_object_versions(**kwargs)
             versions = []
-            
-            for version in response.get('Versions', []):
-                versions.append({
-                    'Key': version['Key'],
-                    'VersionId': version['VersionId'],
-                    'LastModified': version['LastModified'],
-                    'IsLatest': version['IsLatest']
-                })
-            
+
+            for version in response.get("Versions", []):
+                versions.append(
+                    {
+                        "Key": version["Key"],
+                        "VersionId": version["VersionId"],
+                        "LastModified": version["LastModified"],
+                        "IsLatest": version["IsLatest"],
+                    }
+                )
+
             return versions
         except Exception as e:
             logger.error(f"Failed to list object versions: {str(e)}")
@@ -281,11 +305,9 @@ class AWSStorageBackend(StorageBackend):
         try:
             client = self._get_client_for_bucket(bucket_name)
             response = client.get_object(
-                Bucket=bucket_name,
-                Key=object_key,
-                VersionId=version_id
+                Bucket=bucket_name, Key=object_key, VersionId=version_id
             )
-            return response['Body'].read()
+            return response["Body"].read()
         except Exception as e:
             logger.error(f"Failed to get object version: {str(e)}")
             return None
@@ -295,9 +317,7 @@ class AWSStorageBackend(StorageBackend):
         try:
             client = self._get_client_for_bucket(bucket_name)
             client.delete_object(
-                Bucket=bucket_name,
-                Key=object_key,
-                VersionId=version_id
+                Bucket=bucket_name, Key=object_key, VersionId=version_id
             )
             return True
         except Exception as e:

@@ -1,4 +1,5 @@
 """Module for managing cache synchronization with storage backends."""
+
 import threading
 import time
 import logging
@@ -11,6 +12,7 @@ from .cache_store import CacheStore, ConsistencyLevel
 
 logger = logging.getLogger(__name__)
 
+
 class SyncManager:
     """Manages synchronization between cache and storage backends."""
 
@@ -19,7 +21,7 @@ class SyncManager:
         cache: CacheStore,
         sync_interval: float = 5.0,
         max_retries: int = 3,
-        max_workers: int = 4
+        max_workers: int = 4,
     ):
         """Initialize the sync manager.
 
@@ -40,9 +42,7 @@ class SyncManager:
         self._max_workers = max_workers
 
     def register_sync_callback(
-        self,
-        provider_name: str,
-        callback: Callable[[str, any, int], bool]
+        self, provider_name: str, callback: Callable[[str, any, int], bool]
     ):
         """Register a callback for syncing with a storage provider.
 
@@ -109,7 +109,7 @@ class SyncManager:
                     version,
                     provider_name,
                     callback,
-                    0  # Initial retry count
+                    0,  # Initial retry count
                 )
                 futures.append(future)
 
@@ -127,7 +127,7 @@ class SyncManager:
         version: int,
         provider_name: str,
         callback: Callable,
-        retry_count: int
+        retry_count: int,
     ):
         """Attempt to sync with retry logic.
 
@@ -170,12 +170,7 @@ class SyncManager:
             delay = self._retry_delays[min(retry_count, len(self._retry_delays) - 1)]
             time.sleep(delay)
             return self._sync_with_retry(
-                key,
-                value,
-                version,
-                provider_name,
-                callback,
-                retry_count + 1
+                key, value, version, provider_name, callback, retry_count + 1
             )
 
         return False
