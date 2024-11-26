@@ -1,8 +1,0 @@
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: dfs-production
-  labels:
-    name: dfs-production
-    part-of: distributed-file-system
-    environment: production

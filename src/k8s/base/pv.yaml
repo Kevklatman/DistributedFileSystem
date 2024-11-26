@@ -3,7 +3,7 @@ apiVersion: v1
 kind: PersistentVolume
 metadata:
   name: dfs-storage-pv
-  namespace: dfs-system
+  namespace: default
 spec:
   capacity:
     storage: 10Gi

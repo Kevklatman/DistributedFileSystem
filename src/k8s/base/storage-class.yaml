@@ -2,7 +2,7 @@ apiVersion: storage.k8s.io/v1
 kind: StorageClass
 metadata:
   name: dfs-storage
-  namespace: dfs-development
+  namespace: default
   labels:
     app.kubernetes.io/part-of: distributed-file-system
 provisioner: dfs.csi.k8s.io

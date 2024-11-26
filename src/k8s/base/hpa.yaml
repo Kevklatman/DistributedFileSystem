@@ -3,7 +3,7 @@ apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
   name: dfs-node-hpa
-  namespace: dfs-system
+  namespace: default
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
