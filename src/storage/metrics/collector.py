@@ -7,6 +7,7 @@ import sys
 import os
 from dataclasses import dataclass, field
 from datetime import datetime
+import abc
 
 # Add parent directory to Python path for imports
 sys.path.append(
@@ -50,7 +51,45 @@ class NetworkMetrics:
         return 0.0
 
 
-class SystemMetricsCollector(UnifiedMetricsCollector):
+class MetricsCollector(abc.ABC):
+    """Abstract base class for metrics collection."""
+
+    @abc.abstractmethod
+    def record_operation_latency(self, operation: str, duration: float) -> None:
+        """Record the latency of an operation."""
+        pass
+
+    @abc.abstractmethod
+    def record_resource_usage(
+        self, cpu: float, memory: float, disk_io: float, network_io: float
+    ) -> None:
+        """Record system resource usage."""
+        pass
+
+    @abc.abstractmethod
+    def record_volume_operation(
+        self, volume_id: str, operation: str, size: int
+    ) -> None:
+        """Record a volume operation."""
+        pass
+
+    @abc.abstractmethod
+    def get_metrics(self) -> Dict[str, Any]:
+        """Get current metrics."""
+        pass
+
+    @abc.abstractmethod
+    def get_node_metrics(self, node_id: str) -> Any:
+        """Get current metrics for a specific node."""
+        pass
+
+    @abc.abstractmethod
+    def get_all_metrics(self) -> Dict[str, Any]:
+        """Get current metrics for all nodes."""
+        pass
+
+
+class SystemMetricsCollector(MetricsCollector, UnifiedMetricsCollector):
     """System-wide metrics collector implementation."""
 
     def __init__(self, history_window: int = 300):
@@ -225,6 +264,20 @@ class SystemMetricsCollector(UnifiedMetricsCollector):
                 op: self.get_network_metrics(op) for op in self._network_metrics
             },
         }
+
+    def record_volume_operation(
+        self, volume_id: str, operation: str, size: int
+    ) -> None:
+        """Record a volume operation."""
+        pass
+
+    def get_node_metrics(self, node_id: str) -> Any:
+        """Get current metrics for a specific node."""
+        return None
+
+    def get_all_metrics(self) -> Dict[str, Any]:
+        """Get current metrics for all nodes."""
+        return {"local": self.get_metrics()}
 
     def reset_stats(self) -> None:
         """Reset all collected statistics."""

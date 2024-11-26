@@ -12,13 +12,14 @@ os.environ["STORAGE_ENV"] = "local"
 os.environ["NODE_ID"] = "test-node-1"
 os.environ["POD_IP"] = "10.0.0.1"
 
-# Add project root to Python path
+# Add project root and src to Python path
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
+sys.path.insert(0, str(PROJECT_ROOT.parent / "src"))
 
-from storage.infrastructure.hybrid_storage import HybridStorageManager
-from storage.infrastructure.active_node import ActiveNode
-from storage.infrastructure.cluster_manager import StorageClusterManager
+from src.storage.infrastructure.hybrid_storage import HybridStorageManager
+from src.storage.infrastructure.active_node import ActiveNode
+from src.storage.infrastructure.cluster_manager import StorageClusterManager
 
 
 @pytest.fixture(scope="session")
