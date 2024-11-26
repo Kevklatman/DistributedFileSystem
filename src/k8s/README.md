@@ -23,23 +23,8 @@ k8s/
 
 ## Local Development Setup
 
-### Prerequisites
-1. Docker Desktop with Kubernetes enabled
-2. Skaffold CLI installed (`brew install skaffold`)
 
-### Building Images Locally
-The project uses Skaffold for local development workflow. Images are built locally and deployed to your local Kubernetes cluster.
-
-```bash
-# Start local development with hot reload
-skaffold dev --profile=dev
-
-# Build images once
-skaffold build --profile=dev
-
-# Deploy to local cluster
-skaffold run --profile=dev
-```
+=
 
 ### Manual Deployment
 If you prefer to build and deploy manually:
@@ -63,14 +48,6 @@ kubectl apply -k overlays/development
 2. Kubernetes cluster access
 3. Required cloud credentials
 
-### Deployment Steps
-```bash
-# Build and push images
-skaffold run --profile=prod
-
-# Or apply configurations directly if images are already pushed
-kubectl apply -k overlays/production
-```
 
 ## Key Differences
 
@@ -81,9 +58,4 @@ kubectl apply -k overlays/production
 - Local storage path configuration
 - Images built locally with IfNotPresent pull policy
 
-### Production Environment
-- Uses LoadBalancer service type
-- Cloud-native storage configuration
-- WaitForFirstConsumer volume binding mode
-- Cloud credentials integration
-- Images pulled from container registry
+

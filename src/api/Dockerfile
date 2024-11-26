@@ -15,7 +15,6 @@ RUN find /app -type d -name "__pycache__" -exec rm -r {} +
 # Set environment variables
 ENV PYTHONPATH=/app
 ENV FLASK_APP=src/api/app.py
-ENV FLASK_ENV=production
 
 # Create storage directory
 RUN mkdir -p /app/storage/buckets

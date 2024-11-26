@@ -15,7 +15,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY src/csi /app/csi
 
 # Set Python path
-ENV PYTHONPATH=/app
+ENV FLASK_APP=/app
 
 # Make entrypoint script executable
 COPY src/csi/entrypoint.sh /entrypoint.sh
