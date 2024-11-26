@@ -91,7 +91,16 @@ logs/
 node_modules/
 *.generated.*
 
+# Test and coverage files
 .coverage
+.pytest_cache/
+htmlcov/
+.benchmarks/
+test-reports/
+coverage/
+.hypothesis/
+**/test-reports/
+**/coverage/
 
 # Prevent old manager files from reappearing
 src/storage/data/consistency_manager.py
