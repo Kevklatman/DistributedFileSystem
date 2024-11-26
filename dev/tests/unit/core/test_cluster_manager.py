@@ -86,8 +86,7 @@ class TestStorageClusterManager:
         mock_k8s_api.get_namespaced_lease.return_value = MagicMock(
             spec=client.V1Lease,
             metadata=MagicMock(name="storage-leader"),
-            spec=MagicMock(holder_identity="other-node"),
-        )
+            status=MagicMock(holder_identity="other-node"),)
 
         await cluster_manager.start_leader_election()
         assert not cluster_manager.is_leader
