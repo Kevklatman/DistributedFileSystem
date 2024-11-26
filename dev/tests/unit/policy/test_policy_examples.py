@@ -143,8 +143,10 @@ async def test_setup_policy_engine(mock_engine_class, mock_config_path, tmp_path
 def test_example_financial_data_handling(mock_setup):
     """Test financial data handling example."""
     volume = Volume(
-        volume_id="financial_data",
-        size_bytes=100 * 1024 * 1024 * 1024,  # 100 GB
+        name="financial_data",
+        size_gb=100,  # 100 GB
+        primary_pool_id="test-pool-1",
+        id="financial_data",
         protection=DataProtection(
             volume_id="financial_data",
             local_snapshot_enabled=True,
@@ -171,8 +173,10 @@ def test_example_financial_data_handling(mock_setup):
 def test_example_log_data_handling(mock_setup):
     """Test log data handling example."""
     volume = Volume(
-        volume_id="application_logs",
-        size_bytes=500 * 1024 * 1024 * 1024,  # 500 GB
+        name="application_logs",
+        size_gb=500,  # 500 GB
+        primary_pool_id="test-pool-1",
+        id="application_logs",
         protection=DataProtection(
             volume_id="application_logs",
             local_snapshot_enabled=True,

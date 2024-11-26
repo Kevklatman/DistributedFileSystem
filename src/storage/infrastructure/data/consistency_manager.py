@@ -101,8 +101,12 @@ class ConsistencyManager:
 
             # Check if consistency requirements are met
             if write_op.consistency_level == "strong":
+                # For strong consistency, we need at least one node
+                if total_nodes == 0:
+                    self.logger.error("Strong consistency failed: no active nodes")
+                    return False
                 # All nodes must succeed
-                if total_nodes > 0 and len(successful_nodes) < total_nodes:
+                if len(successful_nodes) < total_nodes:
                     self.logger.error(
                         f"Strong consistency failed: {len(successful_nodes)} < {total_nodes} nodes"
                     )
