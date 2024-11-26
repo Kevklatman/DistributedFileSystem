@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch, AsyncMock
 import asyncio
 
-from storage.infrastructure.data.data_protection import (
+from src.storage.infrastructure.data.data_protection import (
     DataProtectionManager,
     BackupJob,
     RetentionType,
@@ -45,6 +45,9 @@ def data_path(tmp_path):
 def volume():
     """Volume fixture."""
     volume = Volume(
+        name="test-volume-1",
+        size_gb=100,
+        primary_pool_id="test-pool-1",
         id="test-volume-1",
         backup_location="backup://test-bucket/test-volume-1",
         retention_policy=RetentionPolicy(
@@ -163,8 +166,14 @@ class TestDataProtectionManager:
         recovery_point.backup_id = "test-backup-1"
         recovery_point.snapshot_id = "test-snap-1"
 
-        volume.backups["test-backup-1"] = Mock(spec=BackupState)
-        volume.snapshots["test-snap-1"] = Mock(spec=SnapshotState)
+        backup = Mock(spec=BackupState)
+        backup.snapshot_id = "test-snap-1"
+        backup.completion_time = datetime.now()
+        backup.size_bytes = 1024
+        backup.location = "backup://test-bucket/test-volume-1"
+
+        # Add the backup state to the volume's snapshots
+        volume.snapshots["test-backup-1"] = backup
 
         with patch.object(
             protection_manager, "_validate_recovery_point", return_value=True
@@ -227,8 +236,14 @@ class TestDataProtectionManager:
         snapshot = SnapshotState(parent_id=None)
         volume.snapshots[snapshot.id] = snapshot
 
-        backup = BackupState(snapshot_id=snapshot.id)
-        volume.backups["test-backup"] = backup
+        backup = Mock(spec=BackupState)
+        backup.snapshot_id = snapshot.id
+        backup.completion_time = datetime.now()
+        backup.size_bytes = 1024
+        backup.location = "backup://test-bucket/test-volume-1"
+
+        # Add the backup to volume's snapshots
+        volume.snapshots["test-backup"] = backup
 
         recovery_point = RecoveryPoint(
             snapshot_id=snapshot.id,

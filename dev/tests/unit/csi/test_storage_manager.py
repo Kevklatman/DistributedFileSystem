@@ -8,11 +8,10 @@ from typing import Dict, List
 
 from src.csi.storage_manager import CSIStorageManager
 from src.models.models import StorageLocation, Volume
-from src.tests.common import (
-    test_data_dir,
+from src.tests.common.test_utils import (
     create_test_volume,
     generate_test_data,
-    mock_storage_pool,
+    create_test_storage_pool,
     simulate_network_latency
 )
 

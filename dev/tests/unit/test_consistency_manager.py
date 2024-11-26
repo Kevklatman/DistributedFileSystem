@@ -4,7 +4,7 @@ import pytest
 import asyncio
 import logging
 from datetime import datetime
-from storage.infrastructure.data.consistency_manager import (
+from src.storage.infrastructure.data.consistency_manager import (
     ConsistencyManager,
     VersionedData,
     WriteOperation,

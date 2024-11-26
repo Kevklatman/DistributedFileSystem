@@ -222,8 +222,8 @@ class DataProtectionManager:
             restore_path = target_path or self.data_path / volume.id / "restore"
             os.makedirs(restore_path, exist_ok=True)
 
-            # Get backup data
-            backup_state = volume.backups[recovery_point.backup_id]
+            # Get backup data from snapshots (since backups are stored as snapshots)
+            backup_state = volume.snapshots[recovery_point.backup_id]
             backup_data = await self._download_backup(backup_state)
 
             # Perform restore
@@ -289,26 +289,14 @@ class DataProtectionManager:
         self, volume: Volume, snapshot: SnapshotState
     ) -> None:
         """Delete a snapshot and its associated backup"""
-        # Find associated backup
-        backup_id = None
-        for bid, backup in volume.backups.items():
-            if backup.snapshot_id == snapshot.id:
-                backup_id = bid
-                break
-
-        # Delete backup if exists
-        if backup_id:
-            await self._delete_backup(volume, backup_id)
-            del volume.backups[backup_id]
-
-        # Delete snapshot
+        # Since backups are stored as snapshots, we just need to delete the snapshot
         del volume.snapshots[snapshot.id]
 
     async def _delete_backup(self, volume: Volume, backup_id: str) -> None:
         """Delete a backup from storage"""
-        backup = volume.backups[backup_id]
-        # Implementation would delete from backup storage
-        pass
+        # Since backups are stored as snapshots, we delete from snapshots
+        if backup_id in volume.snapshots:
+            del volume.snapshots[backup_id]
 
     async def _get_changed_blocks(self, volume: Volume, since: datetime) -> List[str]:
         """Get list of blocks that have changed since the given time."""
@@ -339,12 +327,12 @@ class DataProtectionManager:
         if recovery_point.snapshot_id not in volume.snapshots:
             return False
 
-        # Check if backup exists and is valid
+        # Check if backup exists and is valid (stored as a snapshot)
         if recovery_point.backup_id:
-            if recovery_point.backup_id not in volume.backups:
+            if recovery_point.backup_id not in volume.snapshots:
                 return False
 
-            backup = volume.backups[recovery_point.backup_id]
+            backup = volume.snapshots[recovery_point.backup_id]
             if backup.snapshot_id != recovery_point.snapshot_id:
                 return False
 
@@ -374,7 +362,7 @@ class DataProtectionManager:
         # Implementation would handle actual upload
         pass
 
-    async def _download_backup(self, backup_state: BackupState) -> bytes:
+    async def _download_backup(self, backup_state: SnapshotState) -> bytes:
         """Download backup data"""
         # Implementation would download from backup storage
         # For now, return dummy data
