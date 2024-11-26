@@ -1,177 +1,140 @@
-"""Unit tests for the StorageClusterManager class."""
+"""Unit tests for the cluster manager functionality."""
 
 import pytest
-import asyncio
-from datetime import datetime
-import time
+from unittest.mock import MagicMock, patch, AsyncMock
 import kubernetes
 from kubernetes import client, config
-from unittest.mock import Mock, patch, AsyncMock, MagicMock
-import os
 
-from storage.infrastructure.cluster_manager import (
+from src.storage.infrastructure.cluster_manager import (
     StorageClusterManager,
     StorageNodeInfo,
 )
 
 # Set default fixture loop scope
-pytest.asyncio_default_fixture_loop_scope = "function"
-
+pytestmark = pytest.mark.asyncio
 
 @pytest.fixture
 def mock_k8s_api():
-    """Create a mock Kubernetes API client."""
+    """Mock Kubernetes API client."""
     mock_api = MagicMock()
-    mock_api.list_namespaced_pod.return_value = client.V1PodList(items=[])
+    mock_api.create_namespaced_lease = AsyncMock()
+    mock_api.get_namespaced_lease = AsyncMock()
+    mock_api.patch_namespaced_lease = AsyncMock()
     return mock_api
 
-
 @pytest.fixture
-def mock_env_vars():
-    """Set up mock environment variables."""
-    with patch.dict(os.environ, {"NODE_ID": "test-node-1", "POD_IP": "10.0.0.1"}):
-        yield
-
-
-@pytest.fixture
-def cluster_manager(mock_env_vars, mock_k8s_api):
-    """Create a StorageClusterManager instance for testing."""
-    with patch("kubernetes.client.CoreV1Api", return_value=mock_k8s_api):
-        with patch("kubernetes.client.CustomObjectsApi"):
-            with patch("kubernetes.client.CoordinationV1Api"):
-                manager = StorageClusterManager(namespace="test-namespace")
-                return manager
-
-
-@pytest.fixture
-def mock_storage_nodes():
-    """Create mock storage nodes."""
-    return {
-        "node-1": StorageNodeInfo(
-            node_id="node-1",
-            hostname="host-1",
-            pod_ip="10.0.0.1",
-            capacity_bytes=1000000,
-            used_bytes=500000,
-            status="READY",
-            last_heartbeat=time.time(),
-            pods=["pod-1"],
-            zone="zone-1",
-        ),
-        "node-2": StorageNodeInfo(
-            node_id="node-2",
-            hostname="host-2",
-            pod_ip="10.0.0.2",
-            capacity_bytes=1000000,
-            used_bytes=300000,
-            status="READY",
-            last_heartbeat=time.time(),
-            pods=["pod-2"],
-            zone="zone-1",
-        ),
-    }
-
+def cluster_manager(mock_k8s_api):
+    """Create a cluster manager instance."""
+    with patch("kubernetes.client.CoordinationV1Api", return_value=mock_k8s_api):
+        manager = StorageClusterManager(
+            node_id="test-node-1",
+            namespace="storage-system",
+        )
+        return manager
 
 class TestStorageClusterManager:
-    def test_initialization(self, cluster_manager):
-        """Test proper initialization of StorageClusterManager."""
-        assert cluster_manager.namespace == "test-namespace"
+    async def test_initialization(self, cluster_manager):
+        """Test cluster manager initialization."""
         assert cluster_manager.node_id == "test-node-1"
-        assert cluster_manager.pod_ip == "10.0.0.1"
-        assert isinstance(cluster_manager.nodes, dict)
-        assert cluster_manager.leader is False
-        assert cluster_manager.current_leader is None
+        assert cluster_manager.namespace == "storage-system"
+        assert not cluster_manager.is_leader
 
-    @pytest.mark.asyncio
     async def test_node_registration(self, cluster_manager):
-        """Test node registration process."""
-        with patch.object(cluster_manager, "_get_hostname", return_value="test-host"):
-            with patch.object(cluster_manager, "_get_capacity", return_value=1000000):
-                with patch.object(
-                    cluster_manager, "_get_zone", return_value="test-zone"
-                ):
-                    cluster_manager._register_node()
-                    assert cluster_manager.node_id in cluster_manager.nodes
-                    node = cluster_manager.nodes[cluster_manager.node_id]
-                    assert node.status == "READY"
-                    assert node.hostname == "test-host"
-                    assert node.capacity_bytes == 1000000
+        """Test node registration."""
+        node_info = StorageNodeInfo(
+            node_id="node-2",
+            address="10.0.0.2",
+            status="ready",
+            capacity_gb=1000,
+            available_gb=800,
+        )
+        await cluster_manager.register_node(node_info)
+        assert "node-2" in cluster_manager.nodes
 
-    @pytest.mark.asyncio
-    async def test_leader_election(self, cluster_manager, mock_storage_nodes):
+    async def test_leader_election(self, cluster_manager, mock_k8s_api):
         """Test leader election process."""
-        cluster_manager.nodes = mock_storage_nodes.copy()
+        lease_name = "storage-cluster-leader"
+        
+        # Mock the lease creation
+        mock_lease = client.V1Lease(
+            metadata=client.V1ObjectMeta(name=lease_name),
+            spec=client.V1LeaseSpec(
+                holder_identity=cluster_manager.node_id,
+                lease_duration_seconds=15
+            )
+        )
+        mock_k8s_api.create_namespaced_lease.return_value = mock_lease
 
-        # Mock lease creation success
-        mock_lease = MagicMock()
-        mock_lease.spec.holder_identity = cluster_manager.node_id
+        # Start leader election
+        await cluster_manager._start_leader_election()
+        
+        # Verify leader election results
+        assert cluster_manager.leader is True
+        mock_k8s_api.create_namespaced_lease.assert_called_once()
+        
+        # Verify the lease creation arguments
+        call_args = mock_k8s_api.create_namespaced_lease.call_args
+        assert call_args[1]["namespace"] == cluster_manager.namespace
+        created_lease = call_args[1]["body"]
+        assert created_lease.metadata.name == lease_name
+        assert created_lease.spec.holder_identity == cluster_manager.node_id
+        assert created_lease.spec.lease_duration_seconds == 15
 
-        with patch.object(
-            cluster_manager.coordination_api, "create_namespaced_lease"
-        ) as mock_create_lease:
-            mock_create_lease.return_value = mock_lease
+    async def test_leader_election_failure(self, cluster_manager, mock_k8s_api):
+        """Test leader election when another node is leader."""
+        # Mock existing lease with different leader
+        mock_k8s_api.get_namespaced_lease.return_value = MagicMock(
+            spec=client.V1Lease,
+            metadata=MagicMock(name="storage-leader"),
+            spec=MagicMock(holder_identity="other-node"),
+        )
 
-            await cluster_manager._start_leader_election()
-            assert cluster_manager.leader is True
+        await cluster_manager.start_leader_election()
+        assert not cluster_manager.is_leader
 
-    @pytest.mark.asyncio
-    async def test_leader_election_failure(self, cluster_manager):
-        """Test leader election when lease already exists."""
-        # Mock lease creation failure (409 Conflict)
-        api_exception = kubernetes.client.rest.ApiException(status=409)
-
-        with patch.object(
-            cluster_manager.coordination_api, "create_namespaced_lease"
-        ) as mock_create:
-            mock_create.side_effect = api_exception
-
-            with patch.object(
-                cluster_manager.coordination_api, "read_namespaced_lease"
-            ) as mock_read:
-                mock_lease = MagicMock()
-                mock_lease.spec.holder_identity = "other-node"
-                mock_read.return_value = mock_lease
-
-                await cluster_manager._start_leader_election()
-                assert cluster_manager.leader is False
-                assert cluster_manager.current_leader == "other-node"
-
-    @pytest.mark.asyncio
-    async def test_node_failure_handling(self, cluster_manager, mock_storage_nodes):
+    async def test_node_failure_handling(self, cluster_manager):
         """Test handling of node failures."""
-        cluster_manager.nodes = mock_storage_nodes.copy()
-        cluster_manager.leader = True
+        # Register a node
+        node_info = StorageNodeInfo(
+            node_id="node-2",
+            address="10.0.0.2",
+            status="ready",
+            capacity_gb=1000,
+            available_gb=800,
+        )
+        await cluster_manager.register_node(node_info)
 
-        # Mock the data redistribution methods
-        with patch.object(cluster_manager, "_redistribute_data") as mock_redistribute:
-            # Simulate node failure
-            cluster_manager._handle_node_failure("node-1")
+        # Simulate node failure
+        await cluster_manager.mark_node_failed("node-2")
+        assert cluster_manager.nodes["node-2"].status == "failed"
 
-            # Verify node was removed
-            assert "node-1" not in cluster_manager.nodes
+    async def test_target_node_selection(self, cluster_manager):
+        """Test selection of target nodes for data placement."""
+        # Register multiple nodes
+        nodes = [
+            StorageNodeInfo(
+                node_id=f"node-{i}",
+                address=f"10.0.0.{i}",
+                status="ready",
+                capacity_gb=1000,
+                available_gb=800 - i * 100,  # Different available space
+            )
+            for i in range(1, 4)
+        ]
+        for node in nodes:
+            await cluster_manager.register_node(node)
 
-            # Verify redistribution was called
-            mock_redistribute.assert_called_once()
-            failed_node = mock_redistribute.call_args[0][0]
-            assert failed_node.node_id == "node-1"
+        # Select target nodes
+        target_nodes = await cluster_manager.select_target_nodes(
+            size_gb=100,
+            count=2,
+        )
+        assert len(target_nodes) == 2
+        # Should select nodes with most available space
+        assert target_nodes[0].node_id == "node-1"  # Most available space
 
-    def test_target_node_selection(self, cluster_manager, mock_storage_nodes):
-        """Test node selection for data placement."""
-        cluster_manager.nodes = mock_storage_nodes.copy()
-        healthy_nodes = list(mock_storage_nodes.values())
-
-        # Test selection based on used capacity ratio
-        selected_node = cluster_manager._select_target_node(healthy_nodes)
-        assert (
-            selected_node.node_id == "node-2"
-        )  # Should select node with less used space
-
-    def test_error_handling(self):
-        """Test error handling for missing environment variables."""
-        with patch.dict(os.environ, {}, clear=True):
-            with pytest.raises(ValueError):
-                StorageClusterManager()
-
-
-if __name__ == "__main__":
-    pytest.main([__file__])
+    async def test_error_handling(self):
+        """Test error handling in initialization."""
+        # Test initialization without required parameters
+        with pytest.raises(ValueError):
+            StorageClusterManager()

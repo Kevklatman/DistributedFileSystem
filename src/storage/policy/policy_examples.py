@@ -10,6 +10,7 @@ from datetime import datetime
 
 from .policy_engine import HybridPolicyEngine, PolicyMode
 from src.models.models import (
+    DataTemperature,
     Volume,
     StorageLocation,
     CloudTieringPolicy,
@@ -111,22 +112,17 @@ if __name__ == "__main__":
         engine = await setup_policy_engine(config_path, data_path)
 
         volume = Volume(
-            volume_id="test-volume",
-            size_bytes=100 * 1024 * 1024 * 1024,  # 100 GB
-            protection=DataProtection(
-                volume_id="test-volume",
-                local_snapshot_enabled=True,
-                local_snapshot_schedule="0 * * * *",
-                local_snapshot_retention_days=7,
-                cloud_backup_enabled=True,
-                cloud_backup_schedule="0 0 * * *",
-                cloud_backup_retention_days=30,
+            name="test-volume",
+            size_gb=100,
+            data_protection=DataProtection(
+                replicas=3,
+                encryption=True,
+                backup_schedule="daily",
             ),
-            tiering_policy=CloudTieringPolicy(
-                volume_id="test-volume",
-                mode=PolicyMode.HYBRID,
-                cold_tier_after_days=30,
-                archive_tier_after_days=90,
+            cloud_tiering=CloudTieringPolicy(
+                enabled=True,
+                temperature=DataTemperature.HOT,
+                archive_after_days=90,
             ),
         )
 

@@ -267,6 +267,119 @@ pre-commit run --all-files
 
 This will automatically run Black and isort before each commit.
 
+## Testing Infrastructure
+
+The distributed file system uses a comprehensive testing framework built on pytest. The testing infrastructure supports various test categories, parallel execution, benchmarking, and detailed reporting.
+
+### Test Structure
+
+The test suite is organized into three main categories:
+
+```
+tests/
+├── unit/               # Unit tests for individual components
+│   ├── storage/       # Storage module tests
+│   └── models/        # Data model tests
+├── integration/        # Integration tests for component interactions
+│   └── storage/       # Storage integration tests
+└── performance/       # Performance benchmarks and tests
+    └── storage/       # Storage performance tests
+```
+
+### Test Builder
+
+The project includes a user-friendly test builder that allows writing tests in plain English. This makes it easier to create and maintain tests, especially for complex scenarios.
+
+Example usage:
+
+```python
+# Create a test suite
+suite = TestBuilder("Storage Policy Tests")
+
+# Add test cases in plain English
+suite.test("When uploading a financial document, it should use strong consistency") \
+    .given("a financial volume is created", create_financial_volume) \
+    .when("a document is uploaded to the financial folder", 
+          lambda vol: example_financial_data_handling(vol, mock_engine)) \
+    .then("the storage policy should use strong consistency", check_strong_consistency) \
+    .and_then("there should be at least 3 replicas", check_replicas) \
+    .build()
+
+# Run the tests
+suite.run()
+```
+
+This creates readable and maintainable tests that clearly describe the behavior being tested.
+
+### Test Categories
+
+- **Unit Tests**: Test individual components in isolation
+  ```bash
+  pytest tests/unit -v
+  ```
+
+- **Integration Tests**: Test component interactions
+  ```bash
+  pytest tests/integration -v
+  ```
+
+- **Performance Tests**: Benchmark and performance analysis
+  ```bash
+  pytest tests/performance -v
+  ```
+
+### Common Test Commands
+
+```bash
+# Run all tests
+pytest tests/unit tests/integration tests/performance -v
+
+# Run tests with coverage report
+pytest tests/unit tests/integration -v --cov=src
+
+# Run specific test file
+pytest tests/unit/storage/test_policy.py -v
+
+# Run tests matching a pattern
+pytest -v -k "policy"
+
+# Run tests in parallel
+pytest -v -n auto
+
+# Generate HTML coverage report
+pytest --cov=src --cov-report=html
+```
+
+### Test Reports
+
+Test results can be generated in multiple formats:
+
+- **Coverage Reports**: Use `--cov=src --cov-report=html` for HTML coverage reports
+- **JUnit XML**: Use `--junitxml=report.xml` for CI/CD integration
+- **JSON Reports**: Use `--json-report` for machine-readable output
+
+### Writing Tests
+
+1. **Use the Test Builder** for complex scenarios:
+   - Makes tests more readable and maintainable
+   - Provides a fluent API for test creation
+   - Supports both sync and async tests
+
+2. **Follow Test Categories**:
+   - Unit tests go in `tests/unit/`
+   - Integration tests go in `tests/integration/`
+   - Performance tests go in `tests/performance/`
+
+3. **Use Fixtures and Mocks**:
+   - Create fixtures in `conftest.py`
+   - Use mocks for external dependencies
+   - Share common test utilities
+
+4. **Add Documentation**:
+   - Document test purpose and requirements
+   - Include example usage in docstrings
+   - Explain complex test scenarios
+
 ## Usage
 
 1. Build the development container:
