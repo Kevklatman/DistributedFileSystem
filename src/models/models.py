@@ -71,12 +71,16 @@ class StoragePool:
     created_at: datetime = field(default_factory=datetime.now)
 
 
-@dataclass(frozen=True)
+@dataclass
 class Volume:
     """Represents a logical volume that can span across on-prem and cloud."""
 
-    volume_id: str
-    size_bytes: int
+    name: str
+    size_gb: int
+    primary_pool_id: str
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    cloud_tiering: bool = False
+    metadata: Dict[str, Any] = field(default_factory=dict)
     used_bytes: int = 0
     created_at: datetime = field(default_factory=datetime.now)
     last_accessed_at: datetime = field(default_factory=datetime.now)
@@ -90,6 +94,12 @@ class Volume:
     snapshots: Dict[str, "SnapshotState"] = field(default_factory=dict)
     backup_location: Optional[str] = None
     retention_policy: Optional["RetentionPolicy"] = None
+    mount_point: Optional[str] = None
+
+    @property
+    def size_bytes(self) -> int:
+        """Get volume size in bytes."""
+        return self.size_gb * 1024 * 1024 * 1024
 
     def __getitem__(self, key):
         """Support dictionary-like access to snapshots."""

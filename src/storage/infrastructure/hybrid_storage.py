@@ -53,12 +53,23 @@ class HybridStorageManager:
     """Manages hybrid storage operations across on-prem and cloud"""
 
     def __init__(self, root_path: str):
+        """Initialize the hybrid storage manager.
+        
+        Args:
+            root_path (str): Root path for storage
+        """
         self.root_path = Path(root_path)
         self.metadata_path = self.root_path / "metadata"
         self.data_path = self.root_path / "data"
+        
+        # Create required directories
+        self.metadata_path.mkdir(parents=True, exist_ok=True)
+        self.data_path.mkdir(parents=True, exist_ok=True)
+        
         self.system = self._load_or_create_system()
         self.cloud_provider = None
         self._initialize_cloud_provider()
+        self._init_storage_pools()  # Initialize storage pools
 
     def initialize(self) -> bool:
         """Initialize the hybrid storage system.
@@ -69,10 +80,6 @@ class HybridStorageManager:
             bool: True if initialization successful, False otherwise
         """
         try:
-            # Create required directories
-            self.metadata_path.mkdir(parents=True, exist_ok=True)
-            self.data_path.mkdir(parents=True, exist_ok=True)
-
             # Initialize storage pools
             self._init_storage_pools()
 
@@ -179,6 +186,7 @@ class HybridStorageManager:
         pool_id: str,
         cloud_backup: bool = False,
         cloud_tiering: bool = False,
+        metadata: Optional[Dict] = None
     ) -> Volume:
         """Create a new volume in a storage pool"""
         if pool_id not in self.system.storage_pools:
@@ -194,6 +202,7 @@ class HybridStorageManager:
             primary_pool_id=pool_id,
             cloud_tiering=cloud_tiering,
             created_at=datetime.now(),
+            metadata=metadata or {}
         )
 
         # Create volume directory

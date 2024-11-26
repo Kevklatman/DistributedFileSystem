@@ -79,7 +79,7 @@ class AWSS3Provider(CloudProviderBase):
             region_name=region_name or os.getenv("AWS_REGION", "us-east-2"),
         )
 
-    def upload_file(
+    async def upload_file(
         self, file_data: Union[bytes, BinaryIO], object_key: str, bucket: str, **kwargs
     ) -> bool:
         """Upload a file to S3 bucket."""
@@ -166,6 +166,35 @@ class AWSS3Provider(CloudProviderBase):
         except ClientError as e:
             logger.error(f"Failed to get file metadata from S3: {e}")
             return None
+
+    async def create_bucket(self, bucket: str, region: Optional[str] = None) -> bool:
+        """Create a new S3 bucket.
+
+        Args:
+            bucket: Name of the bucket to create
+            region: AWS region for the bucket (optional)
+
+        Returns:
+            bool: True if bucket was created successfully, False otherwise
+        """
+        try:
+            start_time = time.time()
+            if region is None:
+                region = self.s3_client.meta.region_name
+
+            # Use boto3's create_bucket synchronously since it doesn't support async
+            self.s3_client.create_bucket(
+                Bucket=bucket,
+                CreateBucketConfiguration={"LocationConstraint": region}
+            )
+            self._record_operation("create_bucket", start_time)
+            return True
+        except ClientError as e:
+            if "BucketAlreadyOwnedByYou" in str(e):
+                # If we already own the bucket, consider it a success
+                return True
+            logger.error(f"Failed to create S3 bucket: {e}")
+            return False
 
 
 class GCPStorageProvider(CloudProviderBase):

@@ -15,6 +15,35 @@ from src.storage.infrastructure.active_node import (
     WriteFailureError,
     NodeUnhealthyError,
 )
+from src.storage.infrastructure.load_manager import LoadManager
+from src.storage.infrastructure.data.consistency_manager import ConsistencyManager
+from src.storage.infrastructure.data.replication_manager import ReplicationManager
+
+@pytest.fixture
+def mock_load_manager():
+    """Create a mock load manager."""
+    load_manager = MagicMock(spec=LoadManager)
+    load_manager.can_handle_request.return_value = True
+    load_manager.get_current_metrics.return_value = {
+        'cpu_usage': 20.0,
+        'memory_usage': 30.0,
+        'disk_io': 10.0,
+        'network_io': 5.0,
+        'request_rate': 100.0
+    }
+    return load_manager
+
+@pytest.fixture
+def mock_consistency_manager():
+    """Create a mock consistency manager."""
+    consistency_manager = MagicMock(spec=ConsistencyManager)
+    return consistency_manager
+
+@pytest.fixture
+def mock_replication_manager():
+    """Create a mock replication manager."""
+    replication_manager = MagicMock(spec=ReplicationManager)
+    return replication_manager
 
 @pytest.fixture
 def test_data_dir():
@@ -23,13 +52,17 @@ def test_data_dir():
         yield Path(tmpdir)
 
 @pytest.fixture
-def mock_node(test_data_dir):
+def mock_node(test_data_dir, mock_load_manager, mock_consistency_manager, mock_replication_manager):
     """Create a mock active node."""
     node = ActiveNode(
         node_id="test-node-1",
         data_dir=str(test_data_dir),
         quorum_size=2
     )
+    # Replace managers with mocks
+    node.load_manager = mock_load_manager
+    node.consistency_manager = mock_consistency_manager
+    node.replication_manager = mock_replication_manager
     return node
 
 def test_node_initialization(mock_node, test_data_dir):

@@ -12,7 +12,7 @@ import aiohttp
 from aiohttp import web
 from pathlib import Path
 
-from src.storage.infrastructure.interfaces import StorageInterface
+from src.storage.infrastructure.interfaces import StorageInterface, MetricsCollector
 from src.storage.infrastructure.load_manager import LoadManager
 from src.storage.infrastructure.data.consistency_manager import ConsistencyManager
 from src.storage.infrastructure.data.replication_manager import ReplicationManager
@@ -24,6 +24,10 @@ from src.models.models import (
     DeduplicationState,
     CompressionState,
     DataProtection,
+    DataTemperature,
+    TierType,
+    CloudTieringPolicy,
+    ReplicationPolicy
 )
 
 
@@ -45,14 +49,25 @@ class WriteResult:
 class ActiveNode(StorageInterface):
     """Active node in the distributed file system."""
 
-    def __init__(self, node_id: str, data_dir: str = None, quorum_size: int = 2, write_timeout: float = 5.0):
+    def __init__(
+        self,
+        node_id: str,
+        data_dir: str = None,
+        quorum_size: int = 2,
+        write_timeout: float = 5.0,
+        replication_policy: Optional[ReplicationPolicy] = None,
+        tiering_policy: Optional[CloudTieringPolicy] = None,
+        max_cpu_threshold: float = 80.0,
+        max_memory_threshold: float = 80.0,
+        max_requests_per_second: float = 1000.0
+    ):
         """Initialize active node."""
         self.node_id = node_id
         self.data_dir = data_dir or os.path.join(os.getcwd(), "data")
         self.quorum_size = quorum_size
         self.write_timeout = write_timeout
         
-        # Initialize state tracking
+        # Initialize state tracking with proper model
         self.node_state = NodeState(
             node_id=node_id,
             status="healthy",
@@ -63,8 +78,16 @@ class ActiveNode(StorageInterface):
             volumes=[]
         )
         
+        # Initialize policies
+        self.replication_policy = replication_policy or ReplicationPolicy()
+        self.tiering_policy = tiering_policy
+        
         # Initialize managers
-        self.load_manager = LoadManager()
+        self.load_manager = LoadManager(
+            max_cpu_threshold=max_cpu_threshold,
+            max_memory_threshold=max_memory_threshold,
+            max_requests_per_second=max_requests_per_second
+        )
         self.consistency_manager = ConsistencyManager(quorum_size)
         self.replication_manager = ReplicationManager()
         self.logger = logging.getLogger(__name__)
@@ -1075,7 +1098,7 @@ class ActiveNode(StorageInterface):
             return score
 
         except Exception as e:
-            self.logger.error(f"Failed to calculate node score: {str(e)}")
+            self.logger.error(f"Failed to calculate node score: {e}")
             return 0.0
 
     async def execute_parallel_write(
@@ -1353,6 +1376,80 @@ class ActiveNode(StorageInterface):
             self.logger.error(f"Failed to add volume {volume.volume_id}: {str(e)}")
             return False
 
+    def get_volume_temperature(self, volume: Volume) -> DataTemperature:
+        """Get the temperature classification of a volume."""
+        try:
+            now = datetime.now()
+            days_since_access = (now - volume.last_accessed_at).days
+            
+            return DataTemperature(
+                access_frequency=len(volume.locations),
+                days_since_last_access=days_since_access,
+                size_bytes=volume.size_bytes,
+                current_tier=self._determine_tier(days_since_access)
+            )
+        except Exception as e:
+            self.logger.error(f"Failed to get volume temperature: {str(e)}")
+            return None
+
+    def _determine_tier(self, days_since_access: int) -> TierType:
+        """Determine appropriate storage tier based on access patterns."""
+        if days_since_access < 7:
+            return TierType.PERFORMANCE
+        elif days_since_access < 30:
+            return TierType.CAPACITY
+        elif days_since_access < 90:
+            return TierType.COLD
+        else:
+            return TierType.ARCHIVE
+
+    async def apply_tiering_policy(self, volume: Volume) -> bool:
+        """Apply tiering policy to a volume."""
+        try:
+            if not self.tiering_policy or not self.tiering_policy.enabled:
+                return True
+
+            temp = self.get_volume_temperature(volume)
+            if not temp:
+                return False
+
+            # Check if volume should be moved to cold storage
+            if (temp.days_since_last_access >= self.tiering_policy.cold_tier_after_days and
+                temp.size_bytes >= self.tiering_policy.min_object_size):
+                await self._move_to_cold_storage(volume)
+                return True
+
+            # Check if volume should be archived
+            if temp.days_since_last_access >= self.tiering_policy.archive_tier_after_days:
+                await self._move_to_archive(volume)
+                return True
+
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Failed to apply tiering policy: {str(e)}")
+            return False
+
+    async def _move_to_cold_storage(self, volume: Volume) -> bool:
+        """Move volume to cold storage tier."""
+        try:
+            # Implement cold storage movement logic
+            volume.tiering_policy = self.tiering_policy
+            return True
+        except Exception as e:
+            self.logger.error(f"Failed to move to cold storage: {str(e)}")
+            return False
+
+    async def _move_to_archive(self, volume: Volume) -> bool:
+        """Move volume to archive storage tier."""
+        try:
+            # Implement archive movement logic
+            volume.tiering_policy = self.tiering_policy
+            return True
+        except Exception as e:
+            self.logger.error(f"Failed to move to archive: {str(e)}")
+            return False
+
     def remove_volume(self, volume_id: str) -> bool:
         """Remove a volume from the node."""
         try:
@@ -1383,20 +1480,26 @@ class ActiveNode(StorageInterface):
         return None
 
     async def replicate_data(self, data: bytes, consistency_level: ConsistencyLevel) -> WriteResult:
-        """Replicate data across nodes based on consistency level."""
+        """Replicate data across nodes based on consistency level and replication policy."""
         try:
             block_id = hashlib.sha256(data).hexdigest()
             
-            if consistency_level == ConsistencyLevel.EVENTUAL:
-                # Write locally only
+            if not self.replication_policy.enabled:
+                # Write locally only if replication is disabled
                 success = await self.write_file(os.path.join(self.data_dir, block_id), data)
+                return WriteResult(success=success, block_id=block_id)
+            
+            if consistency_level == ConsistencyLevel.EVENTUAL:
+                # Write locally and trigger async replication
+                success = await self.write_file(os.path.join(self.data_dir, block_id), data)
+                asyncio.create_task(self._async_replicate(block_id, data))
                 return WriteResult(success=success, block_id=block_id)
                 
             elif consistency_level == ConsistencyLevel.STRONG:
-                # Write to all replicas
+                # Write to all replicas synchronously
                 replicas = await self._get_replica_nodes()
-                if not replicas:
-                    return WriteResult(success=False, block_id="", error="No replica nodes available")
+                if len(replicas) < self.replication_policy.min_copies:
+                    return WriteResult(success=False, block_id="", error="Not enough replica nodes available")
                 
                 results = await asyncio.gather(
                     *[self._write_to_replica(replica, block_id, data) for replica in replicas],
@@ -1412,16 +1515,17 @@ class ActiveNode(StorageInterface):
             elif consistency_level == ConsistencyLevel.QUORUM:
                 # Write to quorum of replicas
                 replicas = await self._get_replica_nodes()
-                if len(replicas) < self.quorum_size:
+                required_copies = max(self.replication_policy.min_copies, self.quorum_size)
+                if len(replicas) < required_copies:
                     return WriteResult(success=False, block_id="", error="Not enough replica nodes for quorum")
                 
                 results = await asyncio.gather(
-                    *[self._write_to_replica(replica, block_id, data) for replica in replicas[:self.quorum_size]],
+                    *[self._write_to_replica(replica, block_id, data) for replica in replicas[:required_copies]],
                     return_exceptions=True
                 )
                 
                 success_count = sum(1 for r in results if isinstance(r, bool) and r)
-                if success_count < self.quorum_size:
+                if success_count < required_copies:
                     return WriteResult(success=False, block_id="", error="Failed to achieve quorum")
                 
                 return WriteResult(success=True, block_id=block_id)
@@ -1431,6 +1535,41 @@ class ActiveNode(StorageInterface):
                 
         except Exception as e:
             return WriteResult(success=False, block_id="", error=str(e))
+
+    async def _async_replicate(self, block_id: str, data: bytes) -> None:
+        """Asynchronously replicate data to other nodes."""
+        try:
+            replicas = await self._get_replica_nodes()
+            required_copies = min(len(replicas), self.replication_policy.max_copies)
+            
+            if self.replication_policy.bandwidth_limit_mbps:
+                # Implement bandwidth limiting logic
+                pass
+                
+            await asyncio.gather(
+                *[self._write_to_replica(replica, block_id, data) for replica in replicas[:required_copies]]
+            )
+        except Exception as e:
+            self.logger.error(f"Async replication failed: {str(e)}")
+
+    async def verify_data_protection(self, block_id: str) -> bool:
+        """Verify data protection by checking replicas."""
+        try:
+            if not self.replication_policy.enabled:
+                return os.path.exists(os.path.join(self.data_dir, block_id))
+                
+            replicas = await self._get_replica_nodes()
+            results = await asyncio.gather(
+                *[self._verify_replica_data(replica, block_id) for replica in replicas],
+                return_exceptions=True
+            )
+            
+            success_count = sum(1 for r in results if isinstance(r, bool) and r)
+            return success_count >= self.replication_policy.min_copies
+            
+        except Exception as e:
+            self.logger.error(f"Failed to verify data protection: {str(e)}")
+            return False
 
     async def _write_to_replica(self, replica: Any, block_id: str, data: bytes) -> bool:
         """Write data to a replica node."""
@@ -1444,19 +1583,6 @@ class ActiveNode(StorageInterface):
                     return response.status == 200
         except Exception as e:
             self.logger.error(f"Failed to write to replica {replica.node_id}: {str(e)}")
-            return False
-
-    async def verify_data_protection(self, block_id: str) -> bool:
-        """Verify data protection by checking replicas."""
-        try:
-            replicas = await self._get_replica_nodes()
-            results = await asyncio.gather(
-                *[self._verify_replica_data(replica, block_id) for replica in replicas],
-                return_exceptions=True
-            )
-            return any(isinstance(r, bool) and r for r in results)
-        except Exception as e:
-            self.logger.error(f"Failed to verify data protection: {str(e)}")
             return False
 
     async def _verify_replica_data(self, replica: Any, block_id: str) -> bool:
@@ -1754,81 +1880,3 @@ class EdgeCacheManager:
             "timestamp": datetime.now(),
             "context": context,
         }
-
-
-class EdgeTaskScheduler:
-    """Schedule tasks for edge processing"""
-
-    def __init__(self):
-        self.task_queue = asyncio.Queue()
-
-    async def schedule_edge_task(
-        self,
-        request: web.Request,
-        context: Dict[str, Any],
-        edge_nodes: Dict[str, EdgeNodeState],
-    ) -> Any:
-        """Schedule task for edge processing"""
-        # Find best edge node for task
-        target_node = self.select_edge_node(request, context, edge_nodes)
-
-        # Schedule task
-        task = {"request": request, "context": context, "node": target_node}
-        await self.task_queue.put(task)
-
-        # Execute task
-        return await self.execute_task(task)
-
-    def select_edge_node(
-        self,
-        request: web.Request,
-        context: Dict[str, Any],
-        edge_nodes: Dict[str, EdgeNodeState],
-    ) -> Optional[EdgeNodeState]:
-        """Select best edge node for task"""
-        # Consider multiple factors for edge node selection
-        best_node = None
-        best_score = 0
-
-        for node in edge_nodes.values():
-            score = self.calculate_edge_node_score(node, context)
-            if score > best_score:
-                best_node = node
-                best_score = score
-
-        return best_node
-
-    def calculate_edge_node_score(
-        self, node: EdgeNodeState, context: Dict[str, Any]
-    ) -> float:
-        """Calculate edge node score"""
-        # Consider multiple factors for edge node scoring
-        score = 0
-
-        # Processing power
-        score += node.processing_power * 0.4
-
-        # Bandwidth
-        score += node.bandwidth_limit * 0.3
-
-        # Battery level
-        score += (1 - (node.battery_level / 100)) * 0.2
-
-        # Offline mode
-        if node.offline_mode:
-            score -= 1
-
-        return score
-
-    async def execute_task(self, task: Dict[str, Any]) -> Any:
-        """Execute task on edge node"""
-        try:
-            # Execute task on edge node
-            result = await self.edge_nodes[task["node"].node_id].execute_task(
-                task["request"]
-            )
-            return result
-
-        except Exception as e:
-            self.logger.error(f"Task execution failed: {str(e)}")
-            raise
