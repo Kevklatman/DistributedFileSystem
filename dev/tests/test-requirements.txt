@@ -5,3 +5,12 @@ pytest-xdist==3.5.0
 pytest-timeout==2.2.0
 coverage==7.4.1
 hypothesis==6.98.0
+pytest-kubernetes==0.3.0
+pytest-docker==2.0.1
+pytest-mock==3.12.0
+moto==4.2.14
+pytest-localstack==1.0.0
+pytest-haproxy==1.0.0
+pytest-nfs==0.4.0
+pytest-samba==0.3.0
+pytest-iscsi==0.2.0
