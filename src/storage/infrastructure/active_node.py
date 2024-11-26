@@ -3,43 +3,203 @@
 import asyncio
 import logging
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple, Set, Any
+from typing import Dict, List, Optional, Tuple, Set, Any, Union, BinaryIO
 import os
 from dataclasses import dataclass
 from enum import Enum
 import hashlib
 import aiohttp
 from aiohttp import web
+from pathlib import Path
 
+from src.storage.infrastructure.interfaces import StorageInterface
 from src.storage.infrastructure.load_manager import LoadManager
 from src.storage.infrastructure.data.consistency_manager import ConsistencyManager
 from src.storage.infrastructure.data.replication_manager import ReplicationManager
-from src.models.models import Volume, NodeState
+from src.models.models import (
+    Volume,
+    NodeState,
+    StoragePool,
+    ThinProvisioningState,
+    DeduplicationState,
+    CompressionState,
+    DataProtection,
+)
 
 
 class ConsistencyLevel(Enum):
     """Consistency levels for read/write operations."""
-
     EVENTUAL = "eventual"
     STRONG = "strong"
     QUORUM = "quorum"
 
 
-class ActiveNode:
+@dataclass
+class WriteResult:
+    """Result of a write operation."""
+    success: bool
+    block_id: str
+    error: Optional[str] = None
+
+
+class ActiveNode(StorageInterface):
     """Active node in the distributed file system."""
 
-    def __init__(self, node_id: str, data_dir: str = None, quorum_size: int = 2):
+    def __init__(self, node_id: str, data_dir: str = None, quorum_size: int = 2, write_timeout: float = 5.0):
         """Initialize active node."""
         self.node_id = node_id
         self.data_dir = data_dir or os.path.join(os.getcwd(), "data")
         self.quorum_size = quorum_size
-        self.cluster_nodes: Dict[str, NodeState] = {}
+        self.write_timeout = write_timeout
+        
+        # Initialize state tracking
+        self.node_state = NodeState(
+            node_id=node_id,
+            status="healthy",
+            last_heartbeat=datetime.now(),
+            load=0.0,
+            available_storage=0,
+            network_latency=0.0,
+            volumes=[]
+        )
+        
+        # Initialize managers
         self.load_manager = LoadManager()
         self.consistency_manager = ConsistencyManager(quorum_size)
         self.replication_manager = ReplicationManager()
         self.logger = logging.getLogger(__name__)
-        self.heartbeat_timeout = 30  # seconds
-        self.max_latency = 1000  # milliseconds
+        
+        # Create data directory
+        os.makedirs(self.data_dir, exist_ok=True)
+
+    def is_healthy(self) -> bool:
+        """Check if the node is healthy."""
+        return self.node_state.status == "healthy"
+
+    def _mark_unhealthy(self) -> None:
+        """Mark the node as unhealthy."""
+        self.node_state.status = "unhealthy"
+        self.node_state.last_heartbeat = datetime.now()
+
+    def _mark_healthy(self) -> None:
+        """Mark the node as healthy."""
+        self.node_state.status = "healthy"
+        self.node_state.last_heartbeat = datetime.now()
+
+    async def _get_replica_nodes(self) -> List[Any]:
+        """Get list of available replica nodes."""
+        return self._replica_nodes
+
+    def _get_block_path(self, volume_id: str, block_id: str) -> str:
+        """Get the filesystem path for a block."""
+        volume_dir = os.path.join(self.data_dir, volume_id)
+        os.makedirs(volume_dir, exist_ok=True)
+        return os.path.join(volume_dir, block_id)
+
+    async def store_data(
+        self,
+        volume_id: str,
+        block_id: str,
+        data: bytes,
+        consistency_level: ConsistencyLevel
+    ) -> WriteResult:
+        """Store data block with replication."""
+        if not self.is_healthy():
+            raise NodeUnhealthyError("Node is not healthy")
+
+        # Store locally
+        block_path = self._get_block_path(volume_id, block_id)
+        try:
+            with open(block_path, 'wb') as f:
+                f.write(data)
+        except Exception as e:
+            self.logger.error(f"Failed to write data locally: {str(e)}")
+            raise WriteFailureError("Failed to write data locally")
+
+        # For eventual consistency, we're done
+        if consistency_level == ConsistencyLevel.EVENTUAL:
+            return WriteResult(success=True, block_id=block_id)
+
+        # Get replica nodes for stronger consistency levels
+        replica_nodes = await self._get_replica_nodes()
+        
+        # Check if we have enough nodes for strong consistency
+        if consistency_level == ConsistencyLevel.STRONG and len(replica_nodes) < self.quorum_size - 1:
+            # Rollback local write
+            try:
+                os.remove(block_path)
+            except:
+                pass
+            raise InsufficientNodesError(f"Need {self.quorum_size} nodes for strong consistency")
+
+        # Replicate to other nodes
+        if replica_nodes:
+            replication_tasks = []
+            for node in replica_nodes:
+                task = asyncio.create_task(
+                    node.store_data(
+                        volume_id=volume_id,
+                        block_id=block_id,
+                        data=data,
+                        consistency_level=consistency_level
+                    )
+                )
+                replication_tasks.append(task)
+
+            try:
+                done, pending = await asyncio.wait(
+                    replication_tasks,
+                    timeout=self.write_timeout,
+                    return_when=asyncio.ALL_COMPLETED if consistency_level == ConsistencyLevel.STRONG else asyncio.FIRST_COMPLETED
+                )
+
+                # Cancel pending tasks
+                for task in pending:
+                    task.cancel()
+
+                if consistency_level == ConsistencyLevel.STRONG and len(done) < len(replica_nodes):
+                    # Rollback local write for strong consistency
+                    try:
+                        os.remove(block_path)
+                    except:
+                        pass
+                    raise WriteTimeoutError("Failed to achieve required replication level")
+
+                # Check results
+                for task in done:
+                    result = await task
+                    if not result.success:
+                        # Rollback local write
+                        try:
+                            os.remove(block_path)
+                        except:
+                            pass
+                        raise WriteFailureError(f"Replication failed: {result.error}")
+
+            except asyncio.TimeoutError:
+                # Rollback local write
+                try:
+                    os.remove(block_path)
+                except:
+                    pass
+                raise WriteTimeoutError("Write operation timed out")
+
+        return WriteResult(success=True, block_id=block_id)
+
+    async def read_data(self, volume_id: str, block_id: str) -> bytes:
+        """Read data from a block."""
+        if not self.is_healthy():
+            raise NodeUnhealthyError("Node is not healthy")
+
+        block_path = self._get_block_path(volume_id, block_id)
+        try:
+            with open(block_path, 'rb') as f:
+                return f.read()
+        except FileNotFoundError:
+            raise KeyError(f"Block {block_id} not found")
+        except Exception as e:
+            self.logger.error(f"Failed to read data: {str(e)}")
+            raise
 
     async def start_health_monitor(self) -> None:
         """Start monitoring node health"""
@@ -1134,6 +1294,183 @@ class ActiveNode:
             self.load_manager.stop_monitoring()
         except Exception as e:
             self.logger.error(f"Error deregistering node: {str(e)}")
+
+    async def write_file(self, path: str, content: Union[bytes, BinaryIO]) -> bool:
+        """Write content to a file at the specified path."""
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            mode = 'wb' if isinstance(content, bytes) else 'wb+'
+            with open(path, mode) as f:
+                if isinstance(content, bytes):
+                    f.write(content)
+                else:
+                    f.write(content.read())
+            return True
+        except Exception as e:
+            self.logger.error(f"Failed to write file {path}: {str(e)}")
+            return False
+
+    async def read_file(self, path: str) -> Optional[bytes]:
+        """Read content from a file at the specified path."""
+        try:
+            with open(path, 'rb') as f:
+                return f.read()
+        except Exception as e:
+            self.logger.error(f"Failed to read file {path}: {str(e)}")
+            return None
+
+    async def delete_file(self, path: str) -> bool:
+        """Delete a file at the specified path."""
+        try:
+            os.remove(path)
+            return True
+        except Exception as e:
+            self.logger.error(f"Failed to delete file {path}: {str(e)}")
+            return False
+
+    async def list_files(self, path: str) -> List[str]:
+        """List all files in the specified path."""
+        try:
+            return [f for f in os.listdir(path) if os.path.isfile(os.path.join(path, f))]
+        except Exception as e:
+            self.logger.error(f"Failed to list files in {path}: {str(e)}")
+            return []
+
+    async def exists(self, path: str) -> bool:
+        """Check if a file exists at the specified path."""
+        return os.path.exists(path)
+
+    def add_volume(self, volume: Volume) -> bool:
+        """Add a volume to the node."""
+        try:
+            if volume.volume_id not in [v.volume_id for v in self.node_state.volumes]:
+                self.node_state.volumes.append(volume)
+                volume_path = os.path.join(self.data_dir, volume.volume_id)
+                os.makedirs(volume_path, exist_ok=True)
+                return True
+            return False
+        except Exception as e:
+            self.logger.error(f"Failed to add volume {volume.volume_id}: {str(e)}")
+            return False
+
+    def remove_volume(self, volume_id: str) -> bool:
+        """Remove a volume from the node."""
+        try:
+            self.node_state.volumes = [v for v in self.node_state.volumes if v.volume_id != volume_id]
+            volume_path = os.path.join(self.data_dir, volume_id)
+            if os.path.exists(volume_path):
+                os.rmdir(volume_path)
+            return True
+        except Exception as e:
+            self.logger.error(f"Failed to remove volume {volume_id}: {str(e)}")
+            return False
+
+    def get_volume(self, volume_id: str) -> Optional[Volume]:
+        """Get volume by ID."""
+        for volume in self.node_state.volumes:
+            if volume.volume_id == volume_id:
+                return volume
+        return None
+
+    def list_volumes(self) -> List[Volume]:
+        """List all volumes on the node."""
+        return self.node_state.volumes.copy()
+
+    def get_volume_path(self, volume_id: str) -> Optional[str]:
+        """Get the path for a volume."""
+        if self.get_volume(volume_id):
+            return os.path.join(self.data_dir, volume_id)
+        return None
+
+    async def replicate_data(self, data: bytes, consistency_level: ConsistencyLevel) -> WriteResult:
+        """Replicate data across nodes based on consistency level."""
+        try:
+            block_id = hashlib.sha256(data).hexdigest()
+            
+            if consistency_level == ConsistencyLevel.EVENTUAL:
+                # Write locally only
+                success = await self.write_file(os.path.join(self.data_dir, block_id), data)
+                return WriteResult(success=success, block_id=block_id)
+                
+            elif consistency_level == ConsistencyLevel.STRONG:
+                # Write to all replicas
+                replicas = await self._get_replica_nodes()
+                if not replicas:
+                    return WriteResult(success=False, block_id="", error="No replica nodes available")
+                
+                results = await asyncio.gather(
+                    *[self._write_to_replica(replica, block_id, data) for replica in replicas],
+                    return_exceptions=True
+                )
+                
+                success = all(isinstance(r, bool) and r for r in results)
+                if not success:
+                    return WriteResult(success=False, block_id="", error="Failed to write to all replicas")
+                
+                return WriteResult(success=True, block_id=block_id)
+                
+            elif consistency_level == ConsistencyLevel.QUORUM:
+                # Write to quorum of replicas
+                replicas = await self._get_replica_nodes()
+                if len(replicas) < self.quorum_size:
+                    return WriteResult(success=False, block_id="", error="Not enough replica nodes for quorum")
+                
+                results = await asyncio.gather(
+                    *[self._write_to_replica(replica, block_id, data) for replica in replicas[:self.quorum_size]],
+                    return_exceptions=True
+                )
+                
+                success_count = sum(1 for r in results if isinstance(r, bool) and r)
+                if success_count < self.quorum_size:
+                    return WriteResult(success=False, block_id="", error="Failed to achieve quorum")
+                
+                return WriteResult(success=True, block_id=block_id)
+            
+            else:
+                return WriteResult(success=False, block_id="", error=f"Unknown consistency level: {consistency_level}")
+                
+        except Exception as e:
+            return WriteResult(success=False, block_id="", error=str(e))
+
+    async def _write_to_replica(self, replica: Any, block_id: str, data: bytes) -> bool:
+        """Write data to a replica node."""
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.put(
+                    f"http://{replica.address}/write/{block_id}",
+                    data=data,
+                    timeout=self.write_timeout
+                ) as response:
+                    return response.status == 200
+        except Exception as e:
+            self.logger.error(f"Failed to write to replica {replica.node_id}: {str(e)}")
+            return False
+
+    async def verify_data_protection(self, block_id: str) -> bool:
+        """Verify data protection by checking replicas."""
+        try:
+            replicas = await self._get_replica_nodes()
+            results = await asyncio.gather(
+                *[self._verify_replica_data(replica, block_id) for replica in replicas],
+                return_exceptions=True
+            )
+            return any(isinstance(r, bool) and r for r in results)
+        except Exception as e:
+            self.logger.error(f"Failed to verify data protection: {str(e)}")
+            return False
+
+    async def _verify_replica_data(self, replica: Any, block_id: str) -> bool:
+        """Verify data exists on a replica node."""
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    f"http://{replica.address}/verify/{block_id}",
+                    timeout=self.write_timeout
+                ) as response:
+                    return response.status == 200
+        except Exception as e:
+            self.logger.error(f"Failed to verify replica {replica.node_id}: {str(e)}")
+            return False
 
 
 class WriteTimeoutError(Exception):

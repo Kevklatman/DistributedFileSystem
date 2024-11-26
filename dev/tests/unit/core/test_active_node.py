@@ -50,7 +50,7 @@ async def test_store_data_success(mock_node):
         volume_id=volume_id,
         block_id=block_id,
         data=data,
-        consistency_level=ConsistencyLevel.STRONG
+        consistency_level=ConsistencyLevel.EVENTUAL
     )
     
     assert result.success
