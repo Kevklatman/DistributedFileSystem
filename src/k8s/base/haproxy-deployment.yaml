@@ -1,0 +1,60 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dfs-haproxy
+  labels:
+    app: dfs-haproxy
+    app.kubernetes.io/name: dfs-haproxy
+    app.kubernetes.io/part-of: distributed-file-system
+spec:
+  replicas: 2  # Run 2 HAProxy instances for HA
+  selector:
+    matchLabels:
+      app: dfs-haproxy
+  template:
+    metadata:
+      labels:
+        app: dfs-haproxy
+        app.kubernetes.io/name: dfs-haproxy
+        app.kubernetes.io/part-of: distributed-file-system
+    spec:
+      containers:
+      - name: haproxy
+        image: haproxy:2.8
+        ports:
+        - name: storage
+          containerPort: 8000
+        - name: stats
+          containerPort: 8404
+        - name: iscsi
+          containerPort: 3260
+        - name: nfs
+          containerPort: 2049
+        - name: cifs
+          containerPort: 445
+        volumeMounts:
+        - name: haproxy-config
+          mountPath: /usr/local/etc/haproxy/
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /stats
+            port: 8404
+          initialDelaySeconds: 15
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /stats
+            port: 8404
+          initialDelaySeconds: 5
+          periodSeconds: 10
+      volumes:
+      - name: haproxy-config
+        configMap:
+          name: haproxy-config

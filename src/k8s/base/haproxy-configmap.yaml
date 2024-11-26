@@ -1,0 +1,92 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: haproxy-config
+data:
+  haproxy.cfg: |
+    global
+      log stdout format raw local0 info
+      maxconn 40000
+      nbproc 2
+      nbthread 4
+      tune.bufsize 32768
+      tune.maxrewrite 8192
+
+    defaults
+      log     global
+      mode    tcp
+      option  tcplog
+      option  dontlognull
+      option  redispatch
+      retries 3
+      timeout connect 10s
+      timeout client  1h
+      timeout server  1h
+      timeout queue   30m
+
+    frontend storage-frontend
+      bind *:8000
+      mode tcp
+      
+      # TCP connection rate limiting
+      stick-table type ip size 100k expire 30s store conn_rate(10s)
+      tcp-request connection track-sc0 src
+      tcp-request connection reject if { sc_conn_rate(0) gt 50 }
+      
+      # ACL for different storage protocols
+      acl is_iscsi dst_port 3260
+      acl is_nfs dst_port 2049
+      acl is_cifs dst_port 445
+      
+      use_backend iscsi_nodes if is_iscsi
+      use_backend nfs_nodes if is_nfs
+      use_backend cifs_nodes if is_cifs
+      default_backend storage_nodes
+
+    backend iscsi_nodes
+      mode tcp
+      balance roundrobin
+      option tcp-check
+      stick-table type ip size 100k expire 24h store conn_rate(3m)
+      stick on src
+      server node1 dfs-storage-service:3260 check inter 5s fall 3 rise 2 weight 100
+      server node2 dfs-storage-service:3260 check inter 5s fall 3 rise 2 weight 100 backup
+      server node3 dfs-storage-service:3260 check inter 5s fall 3 rise 2 weight 100 backup
+
+    backend nfs_nodes
+      mode tcp
+      balance roundrobin
+      option tcp-check
+      stick-table type ip size 100k expire 24h
+      stick on src
+      server node1 dfs-storage-service:2049 check inter 5s fall 3 rise 2 weight 100
+      server node2 dfs-storage-service:2049 check inter 5s fall 3 rise 2 weight 100
+      server node3 dfs-storage-service:2049 check inter 5s fall 3 rise 2 weight 100
+
+    backend cifs_nodes
+      mode tcp
+      balance roundrobin
+      option tcp-check
+      stick-table type ip size 100k expire 24h
+      stick on src
+      server node1 dfs-storage-service:445 check inter 5s fall 3 rise 2 weight 100
+      server node2 dfs-storage-service:445 check inter 5s fall 3 rise 2 weight 100
+      server node3 dfs-storage-service:445 check inter 5s fall 3 rise 2 weight 100
+
+    backend storage_nodes
+      mode tcp
+      balance roundrobin
+      option tcp-check
+      hash-type consistent
+      server node1 dfs-storage-service:8000 check inter 5s fall 3 rise 2 weight 100
+      server node2 dfs-storage-service:8000 check inter 5s fall 3 rise 2 weight 100
+      server node3 dfs-storage-service:8000 check inter 5s fall 3 rise 2 weight 100
+
+    frontend stats
+      bind *:8404
+      mode http
+      stats enable
+      stats uri /stats
+      stats refresh 10s
+      stats auth admin:strongpassword
+      stats admin if TRUE

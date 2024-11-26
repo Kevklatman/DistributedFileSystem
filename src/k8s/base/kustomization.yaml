@@ -8,13 +8,26 @@ resources:
   - api-deployment.yaml
   - api-service.yaml
   - storage-node-deployment.yaml
+  - storage-node-crd.yaml
+  - storage-node-rbac.yaml
   - service.yaml
   - csi-driver.yaml
+  - storage-class.yaml
+  - haproxy-deployment.yaml
+  - haproxy-configmap.yaml
+  - cloud-credentials.yaml
+  - aws-iam-role.yaml
+  - pv.yaml
+  - pvc.yaml
 
 configMapGenerator:
   - name: dfs-config
     literals:
       - API_HOST=0.0.0.0
-      - API_PORT=61478
+      - API_PORT=8000
       - DEBUG=False
       - FLASK_ENV=production
+      - STORAGE_PROTOCOL=hybrid
+      - ENABLE_ISCSI=true
+      - ENABLE_NFS=true
+      - ENABLE_CIFS=true

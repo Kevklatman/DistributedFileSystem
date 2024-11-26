@@ -10,8 +10,20 @@ spec:
   ports:
     - name: http
       protocol: TCP
-      port: 8080
-      targetPort: 8080
+      port: 8000
+      targetPort: 8000
+    - name: iscsi
+      protocol: TCP
+      port: 3260
+      targetPort: 3260
+    - name: nfs
+      protocol: TCP
+      port: 2049
+      targetPort: 2049
+    - name: cifs
+      protocol: TCP
+      port: 445
+      targetPort: 445
     - name: metrics
       protocol: TCP
       port: 9091
@@ -21,15 +33,19 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: dfs-core-service
+  name: dfs-haproxy
   labels:
-    app: dfs-core
+    app: dfs-haproxy
 spec:
   selector:
-    app: dfs-core  # Changed from dfs-node to match pod labels
+    app: dfs-haproxy
   ports:
-    - name: http
+    - name: storage
       protocol: TCP
       port: 8000
       targetPort: 8000
-  type: NodePort
+    - name: stats
+      protocol: TCP
+      port: 8404
+      targetPort: 8404
+  type: LoadBalancer
