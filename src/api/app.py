@@ -10,13 +10,7 @@ from src.config.base_config import (
     API_HOST,
     API_PORT,
     DEBUG,
-    STORAGE_ROOT,
-    NODE_ID,
-    CLOUD_PROVIDER_TYPE,
-    MAX_WORKERS,
-    CHUNK_SIZE,
-    CACHE_ENABLED,
-    REPLICATION_FACTOR
+    STORAGE_ROOT
 )
 
 from src.config.infrastructure_config import infrastructure_config
@@ -39,15 +33,7 @@ logger = logging.getLogger(__name__)
 # Initialize infrastructure manager
 try:
     infrastructure = InfrastructureManager()
-    fs_manager = FileSystemManager(
-        storage_root=STORAGE_ROOT,
-        node_id=NODE_ID,
-        cloud_provider=CLOUD_PROVIDER_TYPE,
-        max_workers=MAX_WORKERS,
-        chunk_size=CHUNK_SIZE,
-        cache_enabled=CACHE_ENABLED,
-        replication_factor=REPLICATION_FACTOR
-    )
+    fs_manager = FileSystemManager(storage_root=STORAGE_ROOT)
 except Exception as e:
     logger.error(f"Failed to initialize infrastructure: {str(e)}")
     sys.exit(1)
