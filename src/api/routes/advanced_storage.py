@@ -34,7 +34,7 @@ def create_volume():
         return jsonify({'error': str(e)}), 500
 
 @advanced_storage.route('/volumes/<volume_id>/snapshots', methods=['POST'])
-def create_snapshot():
+def create_snapshot(volume_id: str):
     """Create a volume snapshot."""
     try:
         data = request.json

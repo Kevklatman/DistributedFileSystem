@@ -12,7 +12,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: dfs-csi-controller
-  namespace: dfs-development
+  namespace: default
 ---
 kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
@@ -45,7 +45,7 @@ metadata:
 subjects:
   - kind: ServiceAccount
     name: dfs-csi-controller
-    namespace: dfs-development
+    namespace: default
 roleRef:
   kind: ClusterRole
   name: dfs-csi-controller-role
@@ -55,7 +55,7 @@ kind: Deployment
 apiVersion: apps/v1
 metadata:
   name: dfs-csi-controller
-  namespace: dfs-development
+  namespace: default
 spec:
   replicas: 1
   selector:
@@ -91,7 +91,7 @@ kind: DaemonSet
 apiVersion: apps/v1
 metadata:
   name: dfs-csi-node
-  namespace: dfs-development
+  namespace: default
 spec:
   selector:
     matchLabels:

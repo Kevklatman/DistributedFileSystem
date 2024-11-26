@@ -3,7 +3,7 @@
 import functools
 import logging
 import traceback
-from quart import request, Response
+from flask import request, Response
 from werkzeug.exceptions import BadRequest
 import xmltodict
 import datetime
@@ -20,9 +20,9 @@ def handle_s3_errors():
     """Decorator to handle S3 API errors in a consistent way."""
     def decorator(f):
         @functools.wraps(f)
-        async def decorated_function(*args, **kwargs):
+        def decorated_function(*args, **kwargs):
             try:
-                result = await f(*args, **kwargs)
+                result = f(*args, **kwargs)
                 if isinstance(result, bool):
                     return Response('', status=200 if result else 404)
                 return result
@@ -54,12 +54,13 @@ def handle_s3_errors():
         return decorated_function
     return decorator
 
-async def format_error_response(code: str, message: str, status_code: int = 500) -> Response:
+def format_error_response(code: str, message: str, status_code: int = 500) -> Response:
     """Format error response with proper XML content type."""
     error_response = {
         'Error': {
             'Code': code,
-            'Message': message
+            'Message': message,
+            'RequestId': hashlib.md5(str(datetime.datetime.now()).encode()).hexdigest()
         }
     }
     return Response(
@@ -68,59 +69,57 @@ async def format_error_response(code: str, message: str, status_code: int = 500)
         content_type='application/xml'
     )
 
-def format_list_buckets_response(buckets: list, aws_style: bool = True) -> Dict[str, Any]:
+def format_list_buckets_response(buckets: list, aws_style: bool = True) -> Response:
     """Format list buckets response."""
     response = {
         'ListAllMyBucketsResult': {
+            'Owner': {
+                'ID': 'dfs-owner',
+                'DisplayName': 'DFS Owner'
+            },
             'Buckets': {
                 'Bucket': [
-                    {'Name': bucket['name'], 'CreationDate': bucket['creation_date']}
-                    for bucket in buckets
+                    {
+                        'Name': bucket.name,
+                        'CreationDate': bucket.creation_date.isoformat()
+                    } for bucket in buckets
                 ]
-            },
-            'Owner': {
-                'ID': 'owner',
-                'DisplayName': 'owner'
             }
         }
     }
-    return response
+    return Response(xmltodict.unparse(response), content_type='application/xml')
 
 def format_list_objects_response(bucket: str, objects: list, prefix: str = '',
-                               max_keys: int = 1000, aws_style: bool = True) -> Dict[str, Any]:
+                               max_keys: int = 1000, aws_style: bool = True) -> Response:
     """Format list objects response."""
     response = {
         'ListBucketResult': {
             'Name': bucket,
             'Prefix': prefix,
-            'MaxKeys': str(max_keys),
-            'IsTruncated': len(objects) == max_keys,
+            'MaxKeys': max_keys,
             'Contents': [
                 {
-                    'Key': obj['key'],
-                    'LastModified': obj['last_modified'],
-                    'ETag': obj['etag'],
-                    'Size': str(obj['size']),
-                    'StorageClass': obj.get('storage_class', 'STANDARD')
-                }
-                for obj in objects
+                    'Key': obj.key,
+                    'LastModified': obj.last_modified.isoformat(),
+                    'Size': obj.size,
+                    'StorageClass': obj.storage_class
+                } for obj in objects
             ]
         }
     }
-    return response
+    return Response(xmltodict.unparse(response), content_type='application/xml')
 
-def format_object_response(obj: Dict[str, Any]) -> Dict[str, Any]:
+def format_object_response(obj: Dict[str, Any]) -> Response:
     """Format object response."""
-    headers = {
-        'Content-Length': str(len(obj['content'])),
-        'Last-Modified': obj['last_modified'],
-        'ETag': obj['etag']
-    }
-    return Response(obj['content'], status=200, headers=headers)
+    return Response(
+        obj['content'],
+        headers=obj.get('metadata', {}),
+        content_type=obj.get('content_type', 'application/octet-stream')
+    )
 
 class BaseS3Handler:
     """Base handler for S3-compatible APIs with shared functionality."""
-    
+
     def __init__(self, fs_manager, aws_style=True):
         """Initialize base handler.
         
@@ -130,145 +129,118 @@ class BaseS3Handler:
         """
         self.storage = get_storage_backend(fs_manager)
         self.aws_style = aws_style
-    
-    @handle_s3_errors()
-    async def list_buckets(self):
+
+    def list_buckets(self) -> Union[Dict[str, Any], bool]:
         """List all buckets."""
         try:
-            buckets = await self.storage.list_buckets()
-            response = format_list_buckets_response(buckets, self.aws_style)
-            return Response(xmltodict.unparse(response), status=200, content_type='application/xml')
+            buckets = self.storage.list_buckets()
+            return format_list_buckets_response(buckets, self.aws_style)
         except Exception as e:
             logger.error(f"Error listing buckets: {str(e)}")
-            raise
-    
-    @handle_s3_errors()
-    async def create_bucket(self, bucket):
+            return False
+
+    def create_bucket(self, bucket: str) -> bool:
         """Create a new bucket."""
         try:
-            await self.storage.create_bucket(bucket)
-            return Response('', status=200)
+            self.storage.create_bucket(bucket)
+            return True
         except Exception as e:
-            logger.error(f"Error creating bucket: {str(e)}")
-            raise
-    
-    @handle_s3_errors()
-    async def delete_bucket(self, bucket):
+            logger.error(f"Error creating bucket {bucket}: {str(e)}")
+            return False
+
+    def delete_bucket(self, bucket: str) -> bool:
         """Delete a bucket."""
         try:
-            await self.storage.delete_bucket(bucket)
-            return Response('', status=204)
+            self.storage.delete_bucket(bucket)
+            return True
         except Exception as e:
-            logger.error(f"Error deleting bucket: {str(e)}")
-            raise
-    
-    @handle_s3_errors()
-    async def list_objects(self, bucket):
+            logger.error(f"Error deleting bucket {bucket}: {str(e)}")
+            return False
+
+    def list_objects(self, bucket: str, prefix: str = '', delimiter: str = '/',
+                    max_keys: int = 1000, marker: str = '') -> Union[Dict[str, Any], bool]:
         """List objects in a bucket."""
         try:
-            prefix = request.args.get('prefix', '')
-            max_keys = int(request.args.get('max-keys', '1000'))
-            
-            objects = await self.storage.list_objects(bucket, prefix=prefix, max_keys=max_keys)
-            response = format_list_objects_response(bucket, objects, prefix, max_keys, self.aws_style)
-            return Response(xmltodict.unparse(response), status=200, content_type='application/xml')
+            objects = self.storage.list_objects(bucket, prefix, delimiter, max_keys, marker)
+            return format_list_objects_response(bucket, objects, prefix, max_keys, self.aws_style)
         except Exception as e:
-            logger.error(f"Error listing objects: {str(e)}")
-            raise
-    
-    @handle_s3_errors()
-    async def get_object(self, bucket, key):
+            logger.error(f"Error listing objects in bucket {bucket}: {str(e)}")
+            return False
+
+    def get_object(self, bucket: str, key: str) -> Union[Dict[str, Any], bool]:
         """Get an object."""
         try:
-            obj = await self.storage.get_object(bucket, key)
+            obj = self.storage.get_object(bucket, key)
             return format_object_response(obj)
         except Exception as e:
-            logger.error(f"Error getting object: {str(e)}")
-            raise
-    
-    @handle_s3_errors()
-    async def put_object(self, bucket, key):
+            logger.error(f"Error getting object {key} from bucket {bucket}: {str(e)}")
+            return False
+
+    def put_object(self, bucket: str, key: str, data: bytes,
+                  metadata: Optional[Dict[str, str]] = None) -> bool:
         """Upload an object."""
         try:
-            data = await request.get_data()
-            metadata = {
-                k[11:]: v for k, v in request.headers.items()
-                if k.lower().startswith('x-amz-meta-')
-            }
-            
-            storage_class = request.headers.get('x-amz-storage-class', 'STANDARD')
-            
-            result = await self.storage.put_object(
-                bucket, key, data,
-                metadata=metadata,
-                storage_class=storage_class
-            )
-            
-            response = Response('', status=200)
-            response.headers['ETag'] = result.get('etag', '')
-            return response
+            self.storage.put_object(bucket, key, data, metadata)
+            return True
         except Exception as e:
-            logger.error(f"Error putting object: {str(e)}")
-            raise
-    
-    @handle_s3_errors()
-    async def delete_object(self, bucket, key):
+            logger.error(f"Error putting object {key} to bucket {bucket}: {str(e)}")
+            return False
+
+    def delete_object(self, bucket: str, key: str) -> bool:
         """Delete an object."""
         try:
-            await self.storage.delete_object(bucket, key)
-            return Response('', status=204)
+            self.storage.delete_object(bucket, key)
+            return True
         except Exception as e:
-            logger.error(f"Error deleting object: {str(e)}")
-            raise
-    
+            logger.error(f"Error deleting object {key} from bucket {bucket}: {str(e)}")
+            return False
+
     def register_basic_routes(self, blueprint):
         """Register basic S3-compatible routes.
         
         Args:
-            blueprint: Quart blueprint to register routes on
+            blueprint: Flask blueprint to register routes on
         """
-        # Basic bucket operations
-        blueprint.add_url_rule(
-            '/' if self.aws_style else '/buckets',
-            'list_buckets',
-            self.list_buckets,
-            methods=['GET']
-        )
-        blueprint.add_url_rule(
-            '/<bucket>',
-            'create_bucket',
-            self.create_bucket,
-            methods=['PUT']
-        )
-        blueprint.add_url_rule(
-            '/<bucket>',
-            'delete_bucket',
-            self.delete_bucket,
-            methods=['DELETE']
-        )
-        blueprint.add_url_rule(
-            '/<bucket>',
-            'list_objects',
-            self.list_objects,
-            methods=['GET']
-        )
-        
-        # Basic object operations
-        blueprint.add_url_rule(
-            '/<bucket>/<key>',
-            'put_object',
-            self.put_object,
-            methods=['PUT']
-        )
-        blueprint.add_url_rule(
-            '/<bucket>/<key>',
-            'get_object',
-            self.get_object,
-            methods=['GET']
-        )
-        blueprint.add_url_rule(
-            '/<bucket>/<key>',
-            'delete_object',
-            self.delete_object,
-            methods=['DELETE']
-        )
+        @blueprint.route('/', methods=['GET'])
+        @handle_s3_errors()
+        def list_buckets():
+            return self.list_buckets()
+
+        @blueprint.route('/<bucket>', methods=['PUT'])
+        @handle_s3_errors()
+        def create_bucket(bucket):
+            return self.create_bucket(bucket)
+
+        @blueprint.route('/<bucket>', methods=['DELETE'])
+        @handle_s3_errors()
+        def delete_bucket(bucket):
+            return self.delete_bucket(bucket)
+
+        @blueprint.route('/<bucket>', methods=['GET'])
+        @handle_s3_errors()
+        def list_objects(bucket):
+            prefix = request.args.get('prefix', '')
+            delimiter = request.args.get('delimiter', '/')
+            max_keys = int(request.args.get('max-keys', '1000'))
+            marker = request.args.get('marker', '')
+            return self.list_objects(bucket, prefix, delimiter, max_keys, marker)
+
+        @blueprint.route('/<bucket>/<path:key>', methods=['PUT'])
+        @handle_s3_errors()
+        def put_object(bucket, key):
+            data = request.get_data()
+            metadata = {
+                'Content-Type': request.headers.get('Content-Type', 'application/octet-stream'),
+                'Content-Length': len(data)
+            }
+            return self.put_object(bucket, key, data, metadata)
+
+        @blueprint.route('/<bucket>/<path:key>', methods=['GET'])
+        @handle_s3_errors()
+        def get_object(bucket, key):
+            return self.get_object(bucket, key)
+
+        @blueprint.route('/<bucket>/<path:key>', methods=['DELETE'])
+        @handle_s3_errors()
+        def delete_object(bucket, key):
+            return self.delete_object(bucket, key)

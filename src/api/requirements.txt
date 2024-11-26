@@ -1,6 +1,4 @@
-quart==0.19.4
-quart-cors==0.7.0
-quart-restx==0.1.0
+
 gunicorn==21.2.0
 kubernetes==26.1.0
 prometheus-client==0.17.1

@@ -1,4 +1,4 @@
-FROM python:3.9-slim
+FROM python:3.8-slim
 
 WORKDIR /app
 
@@ -9,9 +9,12 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy source code
 COPY src /app/src
 
+# Clean up Python bytecode cache files
+RUN find /app -type d -name "__pycache__" -exec rm -r {} +
+
 # Set environment variables
-ENV PYTHONPATH=/app/src
-ENV FLASK_APP=api/app.py
+ENV PYTHONPATH=/app
+ENV FLASK_APP=src/api/app.py
 ENV FLASK_ENV=production
 
 # Create storage directory
@@ -20,5 +23,5 @@ RUN mkdir -p /app/storage/buckets
 # Expose port
 EXPOSE 8080
 
-# Run the API
-CMD ["python", "-m", "api.app"]
+# Run the application
+CMD ["python", "-m", "src.api.app"]

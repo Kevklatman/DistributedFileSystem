@@ -3,8 +3,8 @@
 import os
 import sys
 import logging
-from quart import Quart
-from quart_cors import cors
+from flask import Flask
+from flask_cors import CORS
 from src.api.services.fs_manager import FileSystemManager
 from src.config.base_config import (
     API_HOST,
@@ -25,9 +25,9 @@ from src.api.routes.aws_s3_api import aws_s3_api
 from src.api.routes.advanced_storage import advanced_storage
 from src.infrastructure.manager import InfrastructureManager
 
-# Initialize Quart app
-app = Quart(__name__)
-app = cors(app, allow_origin="*")
+# Initialize Flask app
+app = Flask(__name__)
+CORS(app)
 
 # Configure logging
 logging.basicConfig(
@@ -49,27 +49,22 @@ try:
         replication_factor=REPLICATION_FACTOR
     )
 except Exception as e:
-    logger.error(f"Error initializing infrastructure: {str(e)}")
-    raise
+    logger.error(f"Failed to initialize infrastructure: {str(e)}")
+    sys.exit(1)
 
 # Register blueprints
-app.register_blueprint(s3_api, url_prefix='/s3')
-app.register_blueprint(aws_s3_api, url_prefix='/aws-s3')
-app.register_blueprint(advanced_storage, url_prefix='/storage')
+app.register_blueprint(s3_api)
+app.register_blueprint(aws_s3_api)
+app.register_blueprint(advanced_storage)
 
-# Health check endpoint
 @app.route('/health')
-async def health_check():
+def health_check():
     """Health check endpoint."""
-    return {'status': 'healthy'}, 200
+    return {'status': 'healthy'}
 
 if __name__ == '__main__':
     # Ensure the data directory exists
     os.makedirs(STORAGE_ROOT, exist_ok=True)
     
-    # Start the server
-    app.run(
-        host=API_HOST,
-        port=API_PORT,
-        debug=DEBUG
-    )
+    # Run the Flask application
+    app.run(host=API_HOST, port=API_PORT, debug=DEBUG)

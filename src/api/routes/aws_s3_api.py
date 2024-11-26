@@ -1,6 +1,6 @@
-"""AWS S3-compatible API routes with proper async handling."""
+"""AWS S3-compatible API routes."""
 
-from quart import request, Response, Blueprint
+from flask import request, Response, Blueprint
 from werkzeug.exceptions import BadRequest
 import xmltodict
 import datetime
@@ -33,184 +33,154 @@ class AWSS3ApiHandler(BaseS3Handler):
         """Register AWS S3-compatible routes."""
         
         @blueprint.route('/', methods=['GET'])
-        async def list_buckets():
+        def list_buckets():
             """List all buckets."""
             try:
-                result = await self.list_buckets()
+                result = self.list_buckets()
                 if isinstance(result, bool):
-                    return await format_error_response('ListBucketError', 'Failed to list buckets', 404)
+                    return format_error_response('ListBucketError', 'Failed to list buckets', 404)
                 return result
             except Exception as e:
                 logger.error(f"Error listing buckets: {str(e)}")
-                return await format_error_response('ListBucketError', str(e))
+                return format_error_response('ListBucketError', str(e))
 
         @blueprint.route('/<bucket_name>', methods=['PUT'])
-        async def create_bucket(bucket_name):
+        def create_bucket(bucket_name):
             """Create a new bucket."""
             try:
                 location = request.args.get('location', 'us-east-1')
-                config = {
-                    'LocationConstraint': location,
-                    'Versioning': request.headers.get('x-amz-versioning', 'Disabled'),
-                    'ACL': request.headers.get('x-amz-acl', 'private')
-                }
-                
-                result = await self.create_bucket(bucket_name, config)
+                result = self.create_bucket(bucket_name, location)
                 if not result:
-                    return await format_error_response('CreateBucketError', 'Failed to create bucket', 400)
+                    return format_error_response('BucketCreationError', 'Failed to create bucket', 400)
                 return Response('', status=200)
             except Exception as e:
                 logger.error(f"Error creating bucket: {str(e)}")
-                return await format_error_response('CreateBucketError', str(e))
+                return format_error_response('BucketCreationError', str(e))
 
         @blueprint.route('/<bucket_name>', methods=['DELETE'])
-        async def delete_bucket(bucket_name):
+        def delete_bucket(bucket_name):
             """Delete a bucket."""
             try:
-                force = request.args.get('force', 'false').lower() == 'true'
-                result = await self.delete_bucket(bucket_name, force)
+                result = self.delete_bucket(bucket_name)
                 if not result:
-                    return await format_error_response('DeleteBucketError', 'Bucket not found', 404)
+                    return format_error_response('BucketDeletionError', 'Failed to delete bucket', 404)
                 return Response('', status=204)
             except Exception as e:
                 logger.error(f"Error deleting bucket: {str(e)}")
-                return await format_error_response('DeleteBucketError', str(e))
+                return format_error_response('BucketDeletionError', str(e))
 
         @blueprint.route('/<bucket_name>', methods=['GET'])
-        async def list_objects(bucket_name):
+        def list_objects(bucket_name):
             """List objects in a bucket."""
             try:
-                params = {
-                    'prefix': request.args.get('prefix', ''),
-                    'delimiter': request.args.get('delimiter', '/'),
-                    'max_keys': int(request.args.get('max-keys', '1000')),
-                    'marker': request.args.get('marker', ''),
-                    'encoding_type': request.args.get('encoding-type', 'url')
-                }
+                prefix = request.args.get('prefix', '')
+                delimiter = request.args.get('delimiter', '/')
+                max_keys = int(request.args.get('max-keys', '1000'))
+                marker = request.args.get('marker', '')
                 
-                result = await self.list_objects(bucket_name, **params)
+                result = self.list_objects(
+                    bucket_name,
+                    prefix=prefix,
+                    delimiter=delimiter,
+                    max_keys=max_keys,
+                    marker=marker
+                )
+                
                 if isinstance(result, bool):
-                    return await format_error_response('ListObjectsError', 'Failed to list objects', 404)
+                    return format_error_response('ListObjectsError', 'Failed to list objects', 404)
                 return result
             except Exception as e:
                 logger.error(f"Error listing objects: {str(e)}")
-                return await format_error_response('ListObjectsError', str(e))
+                return format_error_response('ListObjectsError', str(e))
 
-        @blueprint.route('/<bucket_name>/<path:object_key>', methods=['PUT'])
-        async def put_object(bucket_name, object_key):
+        @blueprint.route('/<bucket_name>/<path:key>', methods=['PUT'])
+        def put_object(bucket_name, key):
             """Upload an object."""
             try:
-                data = await request.get_data()
+                content = request.get_data()
                 metadata = {
-                    k[11:]: v for k, v in request.headers.items()
-                    if k.lower().startswith('x-amz-meta-')
+                    'Content-Type': request.headers.get('Content-Type', 'application/octet-stream'),
+                    'Content-Length': len(content)
                 }
                 
-                storage_class = request.headers.get('x-amz-storage-class', 'STANDARD')
+                result = self.put_object(bucket_name, key, content, metadata)
+                if not result:
+                    return format_error_response('PutObjectError', 'Failed to upload object', 400)
                 
-                result = await self.put_object(bucket_name, object_key, data, metadata, storage_class)
-                if isinstance(result, bool):
-                    if not result:
-                        return await format_error_response('PutObjectError', 'Failed to upload object', 400)
-                    return Response('', status=200)
-                
-                response = Response('', status=200)
-                response.headers['ETag'] = result.get('etag', '')
-                return response
+                return Response('', status=200)
             except Exception as e:
                 logger.error(f"Error uploading object: {str(e)}")
-                return await format_error_response('PutObjectError', str(e))
+                return format_error_response('PutObjectError', str(e))
 
-        @blueprint.route('/<bucket_name>/<path:object_key>', methods=['GET'])
-        async def get_object(bucket_name, object_key):
+        @blueprint.route('/<bucket_name>/<path:key>', methods=['GET'])
+        def get_object(bucket_name, key):
             """Download an object."""
             try:
-                result = await self.get_object(bucket_name, object_key)
+                result = self.get_object(bucket_name, key)
+                if not result:
+                    return format_error_response('GetObjectError', 'Object not found', 404)
                 
-                if isinstance(result, bool):
-                    return await format_error_response('GetObjectError', 'Object not found', 404)
-                
-                if not result or 'content' not in result:
-                    return await format_error_response('GetObjectError', 'Object not found', 404)
-                
-                response = Response(result['content'], status=200)
-                response.headers.update({
-                    'Content-Length': str(len(result['content'])),
-                    'Last-Modified': result.get('last_modified', ''),
-                    'ETag': result.get('etag', ''),
-                    'Content-Type': result.get('content_type', 'application/octet-stream')
-                })
-                
-                # Add user metadata
-                for k, v in result.get('metadata', {}).items():
-                    response.headers[f'x-amz-meta-{k}'] = v
-                    
-                return response
+                return Response(
+                    result.content,
+                    headers=result.metadata,
+                    content_type=result.metadata.get('Content-Type', 'application/octet-stream')
+                )
             except Exception as e:
                 logger.error(f"Error downloading object: {str(e)}")
-                return await format_error_response('GetObjectError', str(e))
+                return format_error_response('GetObjectError', str(e))
 
-        @blueprint.route('/<bucket_name>/<path:object_key>', methods=['DELETE'])
-        async def delete_object(bucket_name, object_key):
+        @blueprint.route('/<bucket_name>/<path:key>', methods=['DELETE'])
+        def delete_object(bucket_name, key):
             """Delete an object."""
             try:
-                version_id = request.args.get('versionId')
-                result = await self.delete_object(bucket_name, object_key, version_id)
+                result = self.delete_object(bucket_name, key)
                 if not result:
-                    return await format_error_response('DeleteObjectError', 'Object not found', 404)
+                    return format_error_response('DeleteObjectError', 'Object not found', 404)
                 return Response('', status=204)
             except Exception as e:
                 logger.error(f"Error deleting object: {str(e)}")
-                return await format_error_response('DeleteObjectError', str(e))
+                return format_error_response('DeleteObjectError', str(e))
 
-    async def handle_storage_operation(self, operation: str, **kwargs) -> Union[Dict[str, Any], bool]:
+    def handle_storage_operation(self, operation: str, **kwargs) -> Union[Dict[str, Any], bool]:
         """Handle storage operation using infrastructure manager."""
         try:
-            result = await self.infrastructure.handle_storage_operation(operation, **kwargs)
+            result = self.infrastructure.handle_storage_operation(operation, **kwargs)
             return result
         except Exception as e:
             logger.error(f"Storage operation error: {operation} - {str(e)}")
             return False
 
-    async def list_buckets(self) -> Union[Dict[str, Any], bool]:
+    def list_buckets(self) -> Union[Dict[str, Any], bool]:
         """List all buckets."""
-        return await self.handle_storage_operation('list_buckets')
+        return self.handle_storage_operation('list_buckets')
 
-    async def create_bucket(self, bucket_name: str, config: Dict[str, Any]) -> bool:
+    def create_bucket(self, bucket_name: str, location: str) -> bool:
         """Create a new bucket."""
-        return await self.handle_storage_operation('create_bucket', bucket_name=bucket_name, config=config)
+        return self.handle_storage_operation('create_bucket', bucket_name=bucket_name, location=location)
 
-    async def delete_bucket(self, bucket_name: str, force: bool = False) -> bool:
+    def delete_bucket(self, bucket_name: str) -> bool:
         """Delete a bucket."""
-        return await self.handle_storage_operation('delete_bucket', bucket_name=bucket_name, force=force)
+        return self.handle_storage_operation('delete_bucket', bucket_name=bucket_name)
 
-    async def list_objects(self, bucket_name: str, **params) -> Union[Dict[str, Any], bool]:
+    def list_objects(self, bucket_name: str, **params) -> Union[Dict[str, Any], bool]:
         """List objects in a bucket."""
-        return await self.handle_storage_operation('list_objects', bucket_name=bucket_name, **params)
+        return self.handle_storage_operation('list_objects', bucket_name=bucket_name, **params)
 
-    async def put_object(self, bucket_name: str, object_key: str, data: bytes,
-                        metadata: Optional[Dict[str, str]] = None,
-                        storage_class: Optional[str] = None) -> Union[Dict[str, Any], bool]:
+    def put_object(self, bucket_name: str, object_key: str, data: bytes,
+                   metadata: Optional[Dict[str, str]] = None) -> Union[Dict[str, Any], bool]:
         """Upload an object."""
-        return await self.handle_storage_operation(
+        return self.handle_storage_operation(
             'put_object',
             bucket_name=bucket_name,
             object_key=object_key,
             data=data,
-            metadata=metadata,
-            storage_class=storage_class
+            metadata=metadata
         )
 
-    async def get_object(self, bucket_name: str, object_key: str) -> Union[Dict[str, Any], bool]:
+    def get_object(self, bucket_name: str, object_key: str) -> Union[Dict[str, Any], bool]:
         """Download an object."""
-        return await self.handle_storage_operation('get_object', bucket_name=bucket_name, object_key=object_key)
+        return self.handle_storage_operation('get_object', bucket_name=bucket_name, object_key=object_key)
 
-    async def delete_object(self, bucket_name: str, object_key: str,
-                          version_id: Optional[str] = None) -> bool:
+    def delete_object(self, bucket_name: str, object_key: str) -> bool:
         """Delete an object."""
-        return await self.handle_storage_operation(
-            'delete_object',
-            bucket_name=bucket_name,
-            object_key=object_key,
-            version_id=version_id
-        )
+        return self.handle_storage_operation('delete_object', bucket_name=bucket_name, object_key=object_key)
