@@ -8,95 +8,95 @@ import logging
 from datetime import datetime
 import sys
 
-from .common.test_helpers import TestDirectoryManager
-
 # Add project root to Python path for imports
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
+from .common.test_helpers import TestDirectoryManager
 from src.models.models import Volume, NodeState, DataProtection, CloudTieringPolicy
 from src.storage.infrastructure.active_node import ActiveNode
 from src.storage.infrastructure.storage_efficiency import StorageEfficiencyManager
 
-# Test environment configuration
-os.environ.setdefault("STORAGE_ENV", "test")
-os.environ.setdefault("NODE_ID", "test-node-1")
-os.environ.setdefault("POD_IP", "127.0.0.1")
-
-# Configure logging for tests
-logging.basicConfig(level=logging.INFO)
-
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 
 def pytest_configure(config):
-    """Configure custom markers."""
+    """Configure pytest with custom markers."""
     config.addinivalue_line("markers", "slow: mark test as slow running")
-    config.addinivalue_line("markers", "integration: mark as integration test")
-    config.addinivalue_line("markers", "performance: mark as performance test")
+    config.addinivalue_line("markers", "integration: mark test as integration test")
+    config.addinivalue_line("markers", "performance: mark test as performance test")
 
 
 @pytest.fixture(scope="session")
-def test_storage():
+def test_storage(tmp_path_factory):
     """Create a session-wide test storage directory."""
-    with TestDirectoryManager() as storage_dir:
-        os.environ["TEST_STORAGE_DIR"] = str(storage_dir)
-        yield storage_dir
+    test_dir = tmp_path_factory.mktemp("storage")
+    return test_dir
 
 
 @pytest.fixture
 def volume_dir(test_storage):
     """Get the volumes directory."""
-    return test_storage / "volumes"
+    volume_path = test_storage / "volumes"
+    volume_path.mkdir(exist_ok=True)
+    return volume_path
 
 
 @pytest.fixture
 def metadata_dir(test_storage):
     """Get the metadata directory."""
-    return test_storage / "metadata"
+    metadata_path = test_storage / "metadata"
+    metadata_path.mkdir(exist_ok=True)
+    return metadata_path
 
 
 @pytest.fixture
 def cache_dir(test_storage):
     """Get the cache directory."""
-    return test_storage / "cache"
+    cache_path = test_storage / "cache"
+    cache_path.mkdir(exist_ok=True)
+    return cache_path
 
 
 @pytest.fixture
 def mount_dir(test_storage):
     """Get the mounts directory."""
-    return test_storage / "mounts"
+    mount_path = test_storage / "mounts"
+    mount_path.mkdir(exist_ok=True)
+    return mount_path
 
 
 @pytest.fixture
-async def active_node():
+async def active_node(volume_dir, metadata_dir, cache_dir, mount_dir):
     """Create an ActiveNode instance for testing."""
-    node = ActiveNode(node_id="test-node-1")
+    node = ActiveNode(
+        volume_dir=volume_dir,
+        metadata_dir=metadata_dir,
+        cache_dir=cache_dir,
+        mount_dir=mount_dir
+    )
     await node.initialize()
-    yield node
-    await node.shutdown()
+    return node
 
 
 @pytest.fixture
 def test_volume():
     """Create a test volume with standard configuration."""
     return Volume(
-        volume_id="test-vol-1",
-        size_bytes=1024 * 1024 * 1024,  # 1GB
-        used_bytes=0,
-        created_at=datetime.now(),
-        last_accessed_at=datetime.now(),
-        locations=[],
-        tiering_policy=CloudTieringPolicy(
-            volume_id="test-vol-1", cold_tier_after_days=30, archive_tier_after_days=90
+        name="test_volume",
+        size_gb=100,
+        data_protection=DataProtection(
+            replicas=2,
+            encryption=True,
+            backup_schedule="daily",
         ),
-        protection=DataProtection(
-            volume_id="test-vol-1",
-            local_snapshot_enabled=True,
-            local_snapshot_schedule="0 0 * * *",
-            local_snapshot_retention_days=7,
-            cloud_backup_enabled=True,
-            cloud_backup_schedule="0 0 * * 0",
-            cloud_backup_retention_days=30,
-            disaster_recovery_enabled=False,
+        cloud_tiering=CloudTieringPolicy(
+            enabled=True,
+            temperature="cold",
+            archive_after_days=30,
         ),
     )
 
@@ -108,10 +108,8 @@ def test_node_state():
         node_id="test-node-1",
         status="active",
         last_heartbeat=datetime.now(),
-        load=0.1,
-        available_storage=1024 * 1024 * 1024 * 100,  # 100GB
-        network_latency=10,  # 10ms
-        volumes=[],
+        storage_capacity_gb=1000,
+        storage_used_gb=100
     )
 
 
@@ -119,10 +117,3 @@ def test_node_state():
 def storage_efficiency():
     """Create a StorageEfficiencyManager instance."""
     return StorageEfficiencyManager()
-
-
-@pytest.fixture(autouse=True)
-async def cleanup_test_data():
-    """Cleanup test data after each test."""
-    yield
-    # Add cleanup logic here if needed{{ ... }}

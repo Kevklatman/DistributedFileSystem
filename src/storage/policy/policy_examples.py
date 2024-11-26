@@ -17,6 +17,15 @@ from src.models.models import (
     DataProtection,
 )
 
+
+class DataTemperature:
+    """Temperature classification for data tiering"""
+    HOT = "hot"  # Frequently accessed data
+    WARM = "warm"  # Moderately accessed data
+    COLD = "cold"  # Rarely accessed data
+    FROZEN = "frozen"  # Almost never accessed data
+
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -24,18 +33,22 @@ logger = logging.getLogger(__name__)
 def load_policy_config(config_path: Path) -> Dict[str, Any]:
     """Load policy configuration from JSON file"""
     try:
+        if not config_path.exists():
+            raise FileNotFoundError(f"Config file not found: {config_path}")
         return json.loads(config_path.read_text())
+    except FileNotFoundError as e:
+        logger.error(f"Failed to load policy config: {str(e)}")
+        raise
     except Exception as e:
-        logger.error(f"Failed to load policy config: {e}")
+        logger.error(f"Failed to load policy config: {str(e)}")
         return {}
 
 
-def setup_policy_engine(data_path: Path) -> HybridPolicyEngine:
+async def setup_policy_engine(config_path: Path, data_path: Path) -> HybridPolicyEngine:
     """Set up policy engine with configuration"""
     engine = HybridPolicyEngine(data_path)
 
     # Load configuration
-    config_path = data_path / "config" / "policy_overrides.json"
     config = load_policy_config(config_path)
 
     # Apply global constraints
@@ -49,154 +62,78 @@ def setup_policy_engine(data_path: Path) -> HybridPolicyEngine:
     return engine
 
 
-def example_financial_data_handling():
+def example_financial_data_handling(volume: Volume, engine: HybridPolicyEngine) -> Dict[str, Any]:
     """Example: Handling financial data with strict requirements"""
-    data_path = Path("/Users/kevinklatman/Development/Code/DistributedFileSystem")
-    engine = setup_policy_engine(data_path)
-
-    # Create a test volume with financial data
-    volume = Volume(
-        volume_id="finance-vol-1",
-        size_bytes=1024 * 1024 * 1024 * 100,  # 100GB
-        used_bytes=0,
-        created_at=datetime.now(),
-        last_accessed_at=datetime.now(),
-        locations=[],
-        tiering_policy=CloudTieringPolicy(
-            volume_id="finance-vol-1",
-            cold_tier_after_days=30,
-            archive_tier_after_days=90,
-        ),
-        protection=DataProtection(
-            volume_id="finance-vol-1",
-            local_snapshot_enabled=True,
-            local_snapshot_schedule="0 0 * * *",  # Daily backup at midnight
-            local_snapshot_retention_days=30,
-            cloud_backup_enabled=True,
-            cloud_backup_schedule="0 0 * * *",
-            cloud_backup_retention_days=90,
-            disaster_recovery_enabled=True,
-        ),
+    decision = engine.evaluate_tiering_decision(
+        volume=volume,
+        file_path="financial/reports/q2_2023.xlsx",
+        temp_data=DataTemperature.HOT
     )
-
-    # Test financial data path
-    file_path = "financial/reports/q2_2023.xlsx"
-    temp_data = DataTemperature.HOT
-
-    # Get policy decision
-    decision = engine.evaluate_tiering_decision(volume, file_path, temp_data)
-    logger.info(f"Financial data decision: {decision}")
+    return decision
 
 
-def example_log_data_handling():
+def example_log_data_handling(volume: Volume, engine: HybridPolicyEngine) -> Dict[str, Any]:
     """Example: Handling log data with cost optimization"""
-    data_path = Path("/Users/kevinklatman/Development/Code/DistributedFileSystem")
-    engine = setup_policy_engine(data_path)
-
-    # Create a test volume with log data
-    volume = Volume(
-        volume_id="logs-vol-1",
-        size_bytes=1024 * 1024 * 1024 * 500,  # 500GB
-        used_bytes=0,
-        created_at=datetime.now(),
-        last_accessed_at=datetime.now(),
-        locations=[],
-        tiering_policy=CloudTieringPolicy(
-            volume_id="logs-vol-1", cold_tier_after_days=30, archive_tier_after_days=60
-        ),
-        protection=DataProtection(
-            volume_id="logs-vol-1",
-            local_snapshot_enabled=True,
-            local_snapshot_schedule="0 0 * * 0",  # Weekly backup on Sunday
-            local_snapshot_retention_days=14,
-            cloud_backup_enabled=True,
-            cloud_backup_schedule="0 0 * * 0",
-            cloud_backup_retention_days=60,
-            disaster_recovery_enabled=False,
-        ),
+    decision = engine.evaluate_tiering_decision(
+        volume=volume,
+        file_path="logs/app/2023/11/app.log",
+        temp_data=DataTemperature.COLD
     )
-
-    # Test log data path
-    file_path = "logs/app/2023/11/app.log"
-    temp_data = DataTemperature.COLD
-
-    # Get policy decision
-    decision = engine.evaluate_tiering_decision(volume, file_path, temp_data)
-    logger.info(f"Log data decision: {decision}")
+    return decision
 
 
-def example_ml_training_data():
+def example_ml_training_data(volume: Volume, engine: HybridPolicyEngine) -> Dict[str, Any]:
     """Example: Handling ML training data with balanced requirements"""
-    data_path = Path("/Users/kevinklatman/Development/Code/DistributedFileSystem")
-    engine = setup_policy_engine(data_path)
-
-    # Set to ML mode for this specific case
-    engine.set_mode(PolicyMode.ML)
-
-    # Create a test volume with ML training data
-    volume = Volume(
-        volume_id="ml-vol-1",
-        size_bytes=1024 * 1024 * 1024 * 1000,  # 1TB
-        used_bytes=0,
-        created_at=datetime.now(),
-        last_accessed_at=datetime.now(),
-        locations=[],
-        tiering_policy=CloudTieringPolicy(
-            cold_tier_after_days=30, archive_tier_after_days=90
-        ),
-        protection=DataProtection(
-            replica_count=3,
-            consistency_level="strong",
-            sync_replication=True,
-            backup_schedule="0 0 * * *",  # Daily backup at midnight
-        ),
+    decision = engine.evaluate_tiering_decision(
+        volume=volume,
+        file_path="ml/training/dataset_v2.parquet",
+        temp_data=DataTemperature.WARM
     )
-
-    # Test ML training data path
-    file_path = "ml-training-data/image_dataset_v2.npz"
-    temp_data = DataTemperature.HOT
-
-    # Get policy decision
-    decision = engine.evaluate_tiering_decision(volume, file_path, temp_data)
-    logger.info(f"ML training data decision: {decision}")
+    return decision
 
 
-def example_backup_volume():
+def example_backup_volume(volume: Volume, engine: HybridPolicyEngine) -> Dict[str, Any]:
     """Example: Handling backup volume with retention requirements"""
-    data_path = Path("/Users/kevinklatman/Development/Code/DistributedFileSystem")
-    engine = setup_policy_engine(data_path)
-
-    # Create a test backup volume
-    volume = Volume(
-        volume_id="backup-vol-1",
-        size_bytes=1024 * 1024 * 1024 * 2000,  # 2TB
-        used_bytes=0,
-        created_at=datetime.now(),
-        last_accessed_at=datetime.now(),
-        locations=[],
-        tiering_policy=CloudTieringPolicy(
-            cold_tier_after_days=30, archive_tier_after_days=60
-        ),
-        protection=DataProtection(
-            replica_count=2,
-            consistency_level="eventual",
-            sync_replication=False,
-            backup_schedule="0 0 * * 0",  # Weekly backup on Sunday
-        ),
+    decision = engine.evaluate_tiering_decision(
+        volume=volume,
+        file_path="backups/mysql/daily/backup_2023_11_25.sql",
+        temp_data=DataTemperature.COLD
     )
-
-    # Test backup data
-    file_path = "backups/weekly/2023_w45.tar.gz"
-    temp_data = DataTemperature.COLD
-
-    # Get policy decision
-    decision = engine.evaluate_tiering_decision(volume, file_path, temp_data)
-    logger.info(f"Backup data decision: {decision}")
+    return decision
 
 
 if __name__ == "__main__":
     # Run examples
-    example_financial_data_handling()
-    example_log_data_handling()
-    example_ml_training_data()
-    example_backup_volume()
+    import asyncio
+
+    async def main():
+        data_path = Path("data")
+        config_path = data_path / "config" / "policy_overrides.json"
+        engine = await setup_policy_engine(config_path, data_path)
+
+        volume = Volume(
+            name="test-volume",
+            size_gb=100,
+            data_protection=DataProtection(
+                replicas=3,
+                encryption=True,
+                backup_schedule="daily",
+            ),
+            cloud_tiering=CloudTieringPolicy(
+                enabled=True,
+                temperature=DataTemperature.HOT,
+                archive_after_days=90,
+            ),
+        )
+
+        financial_decision = example_financial_data_handling(volume, engine)
+        log_decision = example_log_data_handling(volume, engine)
+        ml_decision = example_ml_training_data(volume, engine)
+        backup_decision = example_backup_volume(volume, engine)
+
+        print(f"Financial data decision: {financial_decision}")
+        print(f"Log data decision: {log_decision}")
+        print(f"ML training data decision: {ml_decision}")
+        print(f"Backup volume decision: {backup_decision}")
+
+    asyncio.run(main())
