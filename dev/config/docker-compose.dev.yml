@@ -3,7 +3,9 @@ version: '3.8'
 services:
   # Primary storage nodes
   storage-node-1:
-    build: .
+    build:
+      context: ../..
+      dockerfile: Dockerfile
     environment:
       - NODE_ID=node1
       - NODE_ROLE=primary
@@ -14,7 +16,9 @@ services:
       - "8001:8000"
 
   storage-node-2:
-    build: .
+    build:
+      context: ../..
+      dockerfile: Dockerfile
     environment:
       - NODE_ID=node2
       - NODE_ROLE=secondary
@@ -25,7 +29,9 @@ services:
       - "8002:8000"
 
   storage-node-3:
-    build: .
+    build:
+      context: ../..
+      dockerfile: Dockerfile
     environment:
       - NODE_ID=node3
       - NODE_ROLE=secondary
@@ -39,7 +45,7 @@ services:
   localstack:
     image: localstack/localstack
     ports:
-      - "4567:4566"  # Changed from 4566:4566 to avoid port conflict
+      - "4568:4566"
     environment:
       - SERVICES=s3
       - DEFAULT_REGION=us-east-2
@@ -62,22 +68,14 @@ services:
   redis:
     image: redis:6
     ports:
-      - "6379:6379"
-
-  # Prometheus for metrics
-  prometheus:
-    image: prom/prometheus
-    ports:
-      - "9090:9090"
-    volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - "6380:6379"
 
   # Jaeger for distributed tracing
   jaeger:
     image: jaegertracing/all-in-one
     ports:
-      - "16686:16686"
-      - "14250:14250"
+      - "16687:16686"
+      - "14251:14250"
 
 volumes:
   storage-data-1:
