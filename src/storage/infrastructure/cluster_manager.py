@@ -119,6 +119,20 @@ class StorageClusterManager:
             else:
                 raise NodeRegistrationError(f"Failed to register node: {str(e)}")
 
+    async def register_node(self, node_info: StorageNodeInfo) -> bool:
+        """Register a node with the cluster.
+        
+        Args:
+            node_info (StorageNodeInfo): Information about the node to register
+            
+        Returns:
+            bool: True if registration successful, False otherwise
+            
+        Raises:
+            NodeRegistrationError: If registration fails
+        """
+        return await self._register_node(node_info)
+
     async def _acquire_leadership(self) -> bool:
         """Attempt to acquire cluster leadership."""
         lease_name = "storage-cluster-leader"

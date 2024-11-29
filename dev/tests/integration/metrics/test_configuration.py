@@ -3,14 +3,24 @@
 import pytest
 import asyncio
 from dev.simulation import SimulatedMetricsCollector, DEFAULT_CONFIG
+from dev.simulation.simulated_collector import NodeLocation
+
+# Test node configuration
+TEST_NODES = {
+    "node1": NodeLocation(region="us-east-1", zone="a", provider="aws", latency_base=10),
+    "node2": NodeLocation(region="us-east-1", zone="b", provider="aws", latency_base=10),
+    "node3": NodeLocation(region="us-west1", zone="a", provider="gcp", latency_base=15),
+    "node4": NodeLocation(region="us-west1", zone="b", provider="gcp", latency_base=15),
+    "edge1": NodeLocation(region="us-east-1", zone="edge", provider="edge", latency_base=25),
+}
 
 @pytest.fixture
 async def metrics_collector():
     """Create a metrics collector instance for testing."""
-    collector = SimulatedMetricsCollector()
+    collector = SimulatedMetricsCollector(nodes=TEST_NODES)
     yield collector
     # Cleanup
-    await collector.close()
+    await collector.cleanup()
 
 async def test_default_config_values():
     """Test that default configuration values are properly set."""
@@ -58,6 +68,11 @@ async def test_config_affects_behavior(metrics_collector: SimulatedMetricsCollec
 
 async def test_resource_ranges(metrics_collector: SimulatedMetricsCollector):
     """Test that resource usage stays within configured ranges."""
+    # Simulate some operations to generate metrics
+    await metrics_collector.simulate_operation("node1", "node2", "write", 1024 * 1024)
+    await metrics_collector.simulate_operation("edge1", "node1", "write", 1024 * 1024)
+    await asyncio.sleep(0.1)  # Wait for metrics to update
+
     # Test cloud node resources
     cloud_metrics = await metrics_collector.get_node_metrics("node1")
     assert cloud_metrics is not None
@@ -82,32 +97,34 @@ async def test_resource_ranges(metrics_collector: SimulatedMetricsCollector):
     assert edge_memory_range[0] <= edge_metrics.memory_usage <= edge_memory_range[1], \
         f"Edge memory usage ({edge_metrics.memory_usage}) outside range {edge_memory_range}"
 
-async def test_custom_config():
-    """Test that custom configuration can be applied."""
-    custom_config = {
-        'network': {
-            'base_latency': 20,
-            'jitter_range': 10,
-            'edge_latency_multiplier': 3.0,
-            'cross_region_multiplier': 2.0,
-        },
-        'resources': {
-            'cloud_cpu_range': (5, 40),
-            'cloud_memory_range': (10, 50),
-            'edge_cpu_range': (20, 70),
-            'edge_memory_range': (30, 80),
-        }
+async def test_node_configuration():
+    """Test that node configuration is properly applied."""
+    # Create collector with custom node config
+    custom_nodes = {
+        "test_node1": NodeLocation(region="eu-west-1", zone="a", provider="aws", latency_base=20),
+        "test_edge1": NodeLocation(region="eu-west-1", zone="edge", provider="edge", latency_base=40),
     }
     
-    collector = SimulatedMetricsCollector(config=custom_config)
-    
-    # Test that custom config affects latency
-    cloud_latency = await metrics_collector.get_network_latency("node1", "node2")
-    assert cloud_latency >= custom_config['network']['base_latency'], \
-        f"Base latency ({cloud_latency}ms) should respect custom config ({custom_config['network']['base_latency']}ms)"
-    
-    # Cleanup
-    await collector.close()
+    collector = SimulatedMetricsCollector(nodes=custom_nodes)
+    try:
+        # Test that nodes are properly configured
+        metrics1 = await collector.get_node_metrics("test_node1")
+        assert metrics1 is not None, "Should get metrics for custom cloud node"
+        
+        metrics2 = await collector.get_node_metrics("test_edge1")
+        assert metrics2 is not None, "Should get metrics for custom edge node"
+        
+        # Test that non-existent nodes return None
+        metrics3 = await collector.get_node_metrics("nonexistent_node")
+        assert metrics3 is None, "Should return None for non-existent node"
+        
+        # Test latency between custom nodes
+        latency = await collector.get_network_latency("test_node1", "test_edge1")
+        assert latency > 0, "Should calculate latency between custom nodes"
+        
+    finally:
+        # Cleanup
+        await collector.cleanup()
 
 if __name__ == '__main__':
     asyncio.run(pytest.main([__file__]))

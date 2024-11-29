@@ -44,76 +44,127 @@ class AdvancedStorageService:
         cloud_backup: bool = False,
     ) -> Volume:
         """Create a new volume with specified features."""
-        volume = self.hybrid_storage.create_volume(name, size_gb, pool_id)
+        try:
+            # Create storage pool directory if it doesn't exist
+            pool_path = self.storage_root / "pools" / pool_id
+            pool_path.mkdir(parents=True, exist_ok=True)
+            
+            # Create volume
+            volume = self.hybrid_storage.create_volume(name, size_gb, pool_id)
 
-        if dedup or compression:
-            self.efficiency_manager.configure_volume(
-                volume, deduplication_enabled=dedup, compression_enabled=compression
-            )
+            if dedup or compression:
+                self.efficiency_manager.configure_volume(
+                    volume, deduplication_enabled=dedup, compression_enabled=compression
+                )
 
-        if cloud_backup:
-            policy = DataProtectionPolicy(
-                backup_enabled=True,
-                retention=RetentionPolicy(hourly=24, daily=7, weekly=4, monthly=12),
-            )
-            self.data_protection.set_protection_policy(volume.id, policy)
+            if cloud_backup:
+                policy = DataProtectionPolicy(
+                    backup_enabled=True,
+                    retention=RetentionPolicy(hourly=24, daily=7, weekly=4, monthly=12),
+                )
+                self.data_protection.set_protection_policy(volume.id, policy)
 
-        return volume
+            return volume
+        except Exception as e:
+            logger.error(f"Failed to create volume: {str(e)}")
+            raise
 
     def write_file(self, volume_id: str, file_path: str, data: bytes) -> bool:
         """Write a file with efficiency features."""
-        # Write file through hybrid storage
-        success = self.hybrid_storage.write_file(volume_id, file_path, data)
-        if not success:
-            return False
+        try:
+            # Write file through hybrid storage
+            success = self.hybrid_storage.write_file(volume_id, file_path, data)
+            if not success:
+                return False
 
-        # Apply efficiency features
-        volume = self.hybrid_storage.get_volume(volume_id)
-        if volume.deduplication_enabled:
-            self.efficiency_manager.deduplicate_file(volume, file_path)
-        if volume.compression_enabled:
-            self.efficiency_manager.compress_file(volume, file_path)
+            # Apply efficiency features
+            volume = self.hybrid_storage.get_volume(volume_id)
+            if volume.deduplication_enabled:
+                self.efficiency_manager.deduplicate_file(volume, file_path)
+            if volume.compression_enabled:
+                self.efficiency_manager.compress_file(volume, file_path)
 
-        return True
+            return True
+        except Exception as e:
+            logger.error(f"Failed to write file: {str(e)}")
+            raise
 
     def read_file(self, volume_id: str, file_path: str) -> Optional[bytes]:
         """Read a file with efficiency features."""
-        return self.hybrid_storage.read_file(volume_id, file_path)
+        try:
+            return self.hybrid_storage.read_file(volume_id, file_path)
+        except Exception as e:
+            logger.error(f"Failed to read file: {str(e)}")
+            raise
 
     def create_snapshot(self, volume_id: str, name: str) -> str:
         """Create a volume snapshot."""
-        return self.data_protection.create_snapshot(volume_id, name)
+        try:
+            return self.data_protection.create_snapshot(volume_id, name)
+        except Exception as e:
+            logger.error(f"Failed to create snapshot: {str(e)}")
+            raise
 
     def restore_snapshot(self, volume_id: str, snapshot_id: str) -> bool:
         """Restore from a snapshot."""
-        return self.data_protection.restore_snapshot(volume_id, snapshot_id)
+        try:
+            volume = self.hybrid_storage.get_volume(volume_id)
+            if not volume:
+                raise ValueError(f"Volume {volume_id} not found")
+                
+            return self.data_protection.restore_snapshot(volume_id, snapshot_id)
+        except Exception as e:
+            logger.error(f"Failed to restore snapshot: {str(e)}")
+            raise
 
     def create_backup(self, volume_id: str, target_location: str) -> str:
         """Create a backup to specified location."""
-        return self.data_protection.create_backup(volume_id, target_location)
+        try:
+            return self.data_protection.create_backup(volume_id, target_location)
+        except Exception as e:
+            logger.error(f"Failed to create backup: {str(e)}")
+            raise
 
     def restore_backup(self, volume_id: str, backup_id: str) -> bool:
         """Restore from a backup."""
-        return self.data_protection.restore_backup(volume_id, backup_id)
+        try:
+            volume = self.hybrid_storage.get_volume(volume_id)
+            if not volume:
+                raise ValueError(f"Volume {volume_id} not found")
+                
+            return self.data_protection.restore_backup(volume_id, backup_id)
+        except Exception as e:
+            logger.error(f"Failed to restore backup: {str(e)}")
+            raise
 
     def get_efficiency_stats(self, volume_id: str) -> Dict:
         """Get storage efficiency statistics."""
-        volume = self.hybrid_storage.get_volume(volume_id)
-        stats = {
-            "deduplication": self.efficiency_manager.get_dedup_stats(volume),
-            "compression": self.efficiency_manager.get_compression_stats(volume),
-            "thin_provisioning": self.efficiency_manager.get_thin_provision_stats(
-                volume
-            ),
-        }
-        return stats
+        try:
+            volume = self.hybrid_storage.get_volume(volume_id)
+            if not volume:
+                raise ValueError(f"Volume {volume_id} not found")
+                
+            return {
+                "deduplication_ratio": self.efficiency_manager.get_dedup_ratio(volume),
+                "compression_ratio": self.efficiency_manager.get_compression_ratio(volume),
+                "total_savings": self.efficiency_manager.get_total_savings(volume),
+            }
+        except Exception as e:
+            logger.error(f"Failed to get efficiency stats: {str(e)}")
+            raise
 
     def get_protection_status(self, volume_id: str) -> Dict:
         """Get data protection status."""
-        return {
-            "snapshots": self.data_protection.list_snapshots(volume_id),
-            "backups": self.data_protection.list_backups(volume_id),
-            "policy": self.data_protection.get_protection_policy(volume_id),
-            "last_backup": self.data_protection.get_last_backup(volume_id),
-            "recovery_points": self.data_protection.list_recovery_points(volume_id),
-        }
+        try:
+            volume = self.hybrid_storage.get_volume(volume_id)
+            if not volume:
+                raise ValueError(f"Volume {volume_id} not found")
+                
+            return {
+                "snapshots": self.data_protection.list_snapshots(volume_id),
+                "backups": self.data_protection.list_backups(volume_id),
+                "policy": self.data_protection.get_protection_policy(volume_id),
+            }
+        except Exception as e:
+            logger.error(f"Failed to get protection status: {str(e)}")
+            raise

@@ -129,14 +129,20 @@ class SimulatedMetricsCollector(MetricsCollector):
             while self._running:
                 async with self._lock:
                     for node_id, metrics in self._metrics.items():
-                        # Simulate CPU usage (fluctuating between 10-90%)
+                        # Adjust CPU usage based on node type (edge nodes run hotter)
+                        base_cpu = 30 if metrics.location.provider == "edge" else 10
+                        cpu_range = 50 if metrics.location.provider == "edge" else 80
+                        
                         metrics.cpu_usage = min(
-                            90, max(10, metrics.cpu_usage + random.uniform(-5, 5))
+                            cpu_range, max(base_cpu, metrics.cpu_usage + random.uniform(-5, 5))
                         )
 
-                        # Simulate memory usage (more stable, 20-80%)
+                        # Adjust memory usage based on node type
+                        base_memory = 40 if metrics.location.provider == "edge" else 20
+                        memory_range = 90 if metrics.location.provider == "edge" else 80
+                        
                         metrics.memory_usage = min(
-                            80, max(20, metrics.memory_usage + random.uniform(-2, 2))
+                            memory_range, max(base_memory, metrics.memory_usage + random.uniform(-2, 2))
                         )
 
                         # Simulate disk usage (slowly increasing)

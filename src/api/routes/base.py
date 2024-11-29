@@ -17,9 +17,16 @@ from src.api.services.fs_manager import FileSystemManager
 logger = logging.getLogger(__name__)
 
 
-def handle_s3_errors():
-    """Decorator to handle S3 API errors in a consistent way."""
-
+def handle_s3_errors(func=None):
+    """Decorator to handle S3 API errors in a consistent way.
+    
+    Can be used with or without parameters:
+    @handle_s3_errors
+    def my_func(): ...
+    
+    @handle_s3_errors()
+    def my_func(): ...
+    """
     def decorator(f):
         @functools.wraps(f)
         def decorated_function(*args, **kwargs):
@@ -43,10 +50,11 @@ def handle_s3_errors():
                     status=500,
                     content_type="application/xml",
                 )
-
         return decorated_function
-
-    return decorator
+        
+    if func is None:
+        return decorator
+    return decorator(func)
 
 
 def format_error_response(code: str, message: str, status_code: int = 500) -> Response:

@@ -232,7 +232,13 @@ def get_node_metrics(node_id: str, timeframe: str = "5m") -> NodeMetrics:
                 error_rate=1.0 - success_rate,
                 avg_latency=extract_value(request_duration),
                 p95_latency=extract_value(request_p95),
-                queue_length=0,  # TODO: Add queue length metric
+                queue_length=int(
+                    extract_value(
+                        query_prometheus(
+                            f'dfs_request_queue_length{{instance="{node_id}"}}'
+                        )
+                    )
+                ),  # Get queue length from Prometheus metrics
             ),
             operations=FileOperationMetrics(
                 reads=int(extract_value(reads)),

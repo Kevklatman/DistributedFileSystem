@@ -57,9 +57,32 @@ class LocalStorageBackend(StorageBackend):
         self._init_node_status()
 
     def _init_node_status(self):
-        """Initialize node status"""
-        # TODO: Implement node status initialization
-        pass
+        """Initialize node status.
+        
+        This method initializes the status tracking for all nodes in the distributed system.
+        It discovers nodes from the filesystem structure and sets their initial status.
+        """
+        # Get node IDs from filesystem structure
+        node_dir = os.path.join(os.path.dirname(self.data_root), "nodes")
+        os.makedirs(node_dir, exist_ok=True)
+        
+        # Initialize status for local node
+        local_node_id = os.environ.get("NODE_ID", "node-0")
+        self.node_status[local_node_id] = "healthy"
+        self.node_last_seen[local_node_id] = datetime.now()
+        
+        # Discover and initialize other nodes from filesystem
+        try:
+            for entry in os.listdir(node_dir):
+                node_path = os.path.join(node_dir, entry)
+                if os.path.isdir(node_path) and entry != local_node_id:
+                    self.node_status[entry] = "unknown"
+                    self.node_last_seen[entry] = datetime.now()
+            logger.info(f"Initialized status for {len(self.node_status)} nodes")
+        except Exception as e:
+            logger.error(f"Error initializing node status: {str(e)}")
+            # Continue with just local node if discovery fails
+            pass
 
     def _check_consistency(self, consistency_level):
         """Check if consistency level can be satisfied"""

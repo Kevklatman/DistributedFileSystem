@@ -250,6 +250,88 @@ PUT    /storage/config                   # Update system configuration
 
 All endpoints support proper error handling and return appropriate HTTP status codes. Authentication is required for all operations.
 
+## Deployment Guide
+
+### Pre-deployment Checklist
+
+1. AWS Credentials
+   - [ ] Generate new AWS credentials
+   - [ ] Update `.env` file with new credentials
+   - [ ] Verify AWS region is correct (currently us-east-2)
+
+2. Environment Configuration
+   - [ ] Verify STORAGE_ENV setting (aws/local)
+   - [ ] Check STORAGE_ROOT path exists
+   - [ ] Confirm STORAGE_TYPE is set correctly (hybrid)
+
+3. Kubernetes Requirements
+   - [ ] Kubernetes cluster is running
+   - [ ] kubectl configured with correct context
+   - [ ] Prometheus operator installed (for metrics)
+   - [ ] Storage class available for PVCs
+
+4. Resource Requirements
+   - [ ] Minimum 3 nodes available for storage StatefulSet
+   - [ ] Each node has at least:
+     - 2Gi memory
+     - 1 CPU core
+     - 10Gi storage
+
+### Deployment Steps
+
+1. Configure AWS Credentials:
+   ```bash
+   export AWS_ACCESS_KEY=<your_access_key>
+   export AWS_SECRET_KEY=<your_secret_key>
+   ```
+
+2. Run the deployment script:
+   ```bash
+   ./deploy.sh
+   ```
+
+3. Verify deployment:
+   ```bash
+   # Check pods
+   kubectl -n distributed-fs get pods
+
+   # Check services
+   kubectl -n distributed-fs get services
+
+   # Check metrics
+   curl http://<EXTERNAL_IP>:9091/metrics
+   ```
+
+### Monitoring
+
+- Service endpoints:
+  - Main API: http://<EXTERNAL_IP>:8000
+  - Metrics: http://<EXTERNAL_IP>:9091/metrics
+  - HAProxy Stats: http://<EXTERNAL_IP>:8404
+
+- Prometheus metrics:
+  - Request queue length
+  - Node status
+  - Storage utilization
+  - Operation latencies
+
+### Troubleshooting
+
+1. Pod not starting:
+   - Check pod logs: `kubectl -n distributed-fs logs <pod-name>`
+   - Verify resource limits
+   - Check PVC status
+
+2. Service unavailable:
+   - Verify LoadBalancer service status
+   - Check HAProxy configuration
+   - Ensure firewall rules allow traffic
+
+3. Metrics not showing:
+   - Verify ServiceMonitor configuration
+   - Check Prometheus operator status
+   - Confirm metrics port (9091) is accessible
+
 ## Architecture
 
 ### Core Components
