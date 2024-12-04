@@ -96,3 +96,7 @@ node_modules/
 # Prevent old manager files from reappearing
 src/storage/data/consistency_manager.py
 src/storage/data/replication_manager.py
+
+# Interview prep
+docs/INTERVIEW.md
+INTERVIEW.md
