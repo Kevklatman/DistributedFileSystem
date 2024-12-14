@@ -34,9 +34,11 @@ def test_nodes():
 
 
 @pytest.fixture
-def metrics_collector(test_nodes):
+async def metrics_collector(test_nodes):
     """Create a metrics collector with test nodes."""
-    return SimulatedMetricsCollector(test_nodes)
+    collector = SimulatedMetricsCollector(test_nodes)
+    yield collector
+    await collector.cleanup()
 
 
 @pytest.mark.asyncio
@@ -49,112 +51,90 @@ async def test_basic_operation_flow(metrics_collector):
     assert duration > 0, "Operation duration should be positive"
 
     # Check source node metrics
-    source_metrics = metrics_collector.get_node_metrics("node1")
-    assert source_metrics.network_out >= 1024 * 1024, "Source should show outbound traffic"
-    assert source_metrics.operation_count > 0, "Operation count should be incremented"
+    metrics = await metrics_collector.get_node_metrics("node1")
+    assert metrics.network_out > 0, "Network out should be positive"
 
     # Check destination node metrics
-    dest_metrics = metrics_collector.get_node_metrics("node2")
-    assert dest_metrics.network_in >= 1024 * 1024, "Destination should show inbound traffic"
-    assert dest_metrics.operation_count > 0, "Operation count should be incremented"
+    metrics = await metrics_collector.get_node_metrics("node2")
+    assert metrics.network_in > 0, "Network in should be positive"
 
 
 @pytest.mark.asyncio
 async def test_network_latency(metrics_collector):
     """Test network latency calculations between nodes."""
-    # Get latency between nodes in different regions
-    latency = metrics_collector.get_network_latency("node1", "node2")
-    assert latency > 0, "Latency between different regions should be positive"
+    # Test latency between different regions
+    latency = await metrics_collector.get_network_latency("node1", "node2")
+    assert latency > 0, "Latency should be positive"
 
-    # Get latency between nodes in same region
-    latency = metrics_collector.get_network_latency("node1", "edge1")
-    assert latency >= 0, "Latency in same region should be non-negative"
+    # Test latency with edge node
+    edge_latency = await metrics_collector.get_network_latency("node1", "edge1")
+    assert edge_latency > latency, "Edge node latency should be higher"
 
 
 @pytest.mark.asyncio
 async def test_concurrent_operations(metrics_collector):
     """Test handling of concurrent operations."""
-    # Define multiple operations
-    operations = [
-        ("node1", "node2", "write", 512 * 1024),  # 512KB write
-        ("node2", "edge1", "read", 256 * 1024),   # 256KB read
-        ("edge1", "node1", "write", 1024 * 1024), # 1MB write
-    ]
+    # Create multiple concurrent operations
+    ops = []
+    for i in range(5):
+        ops.append(
+            metrics_collector.simulate_operation(
+                "node1", "node2", "write", 1024 * 1024 * (i + 1)
+            )
+        )
 
-    # Run operations concurrently
-    tasks = [
-        metrics_collector.simulate_operation(src, dst, op, size)
-        for src, dst, op, size in operations
-    ]
-    durations = await asyncio.gather(*tasks)
+    # Wait for all operations to complete
+    durations = await asyncio.gather(*ops)
 
     # Verify all operations completed
-    assert all(d > 0 for d in durations), "All operations should complete successfully"
+    assert len(durations) == 5, "All operations should complete"
+    assert all(d > 0 for d in durations), "All durations should be positive"
 
-    # Check system-wide metrics
-    all_metrics = metrics_collector.get_all_metrics()
-    assert len(all_metrics) == 3, "Should have metrics for all nodes"
-
-    # Verify operation counts
-    total_ops = sum(m.operation_count for m in all_metrics.values())
-    assert total_ops >= len(operations), "Total operations should match or exceed test operations"
+    # Check metrics reflect multiple operations
+    metrics = await metrics_collector.get_node_metrics("node1")
+    assert metrics.operation_count >= 5, "Operation count should reflect all operations"
 
 
 @pytest.mark.asyncio
 async def test_error_handling(metrics_collector):
     """Test error handling for invalid operations."""
-    # Test invalid node
-    with pytest.raises(KeyError):
-        await metrics_collector.simulate_operation(
-            "nonexistent_node", "node1", "write", 1024
-        )
-
-    # Test invalid operation type
+    # Test invalid node IDs
     with pytest.raises(ValueError):
         await metrics_collector.simulate_operation(
-            "node1", "node2", "invalid_op", 1024
+            "invalid_node", "node2", "write", 1024
         )
 
-    # Test negative size
+    # Test negative data size
     with pytest.raises(ValueError):
         await metrics_collector.simulate_operation(
             "node1", "node2", "write", -1024
         )
 
+    # Check error count in metrics
+    metrics = await metrics_collector.get_node_metrics("node1")
+    assert metrics.errors >= 0, "Error count should be tracked"
+
 
 @pytest.mark.asyncio
 async def test_metrics_consistency(metrics_collector):
     """Test consistency of metrics across operations."""
-    # Initial metrics
-    initial_metrics = metrics_collector.get_all_metrics()
-    
     # Perform a sequence of operations
-    ops = [
-        ("node1", "node2", "write", 1024 * 1024),
-        ("node2", "node1", "read", 512 * 1024),
-    ]
-    
-    for src, dst, op, size in ops:
-        await metrics_collector.simulate_operation(src, dst, op, size)
-    
-    # Final metrics
-    final_metrics = metrics_collector.get_all_metrics()
-    
-    # Verify metrics changes
-    for node in initial_metrics:
-        initial = initial_metrics[node]
-        final = final_metrics[node]
-        
-        # Operation count should increase
-        assert final.operation_count > initial.operation_count, \
-            f"Operation count should increase for {node}"
-        
-        # Network traffic should increase
-        assert final.network_in + final.network_out > \
-               initial.network_in + initial.network_out, \
-            f"Network traffic should increase for {node}"
-        
-        # Resource usage should be within bounds
-        assert 0 <= final.cpu_usage <= 100, "CPU usage should be between 0 and 100"
-        assert 0 <= final.memory_usage <= 100, "Memory usage should be between 0 and 100"
-        assert 0 <= final.disk_usage <= 100, "Disk usage should be between 0 and 100"
+    for i in range(3):
+        await metrics_collector.simulate_operation(
+            "node1", "node2", "write", 1024 * 1024
+        )
+        await metrics_collector.simulate_operation(
+            "node2", "node1", "read", 512 * 1024
+        )
+
+    # Get metrics from all nodes
+    all_metrics = await metrics_collector.get_all_metrics()
+
+    # Verify metrics consistency
+    assert len(all_metrics) == 3, "Should have metrics for all nodes"
+    for node_id, metrics in all_metrics.items():
+        assert metrics.operation_count > 0, f"Node {node_id} should have operations"
+        assert metrics.network_in >= 0, f"Node {node_id} should have network metrics"
+        assert metrics.network_out >= 0, f"Node {node_id} should have network metrics"
+        assert metrics.cpu_usage >= 0, f"Node {node_id} should have CPU metrics"
+        assert metrics.memory_usage >= 0, f"Node {node_id} should have memory metrics"

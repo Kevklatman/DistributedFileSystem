@@ -12,9 +12,7 @@ class TestSyncManager(unittest.TestCase):
 
     def setUp(self):
         """Set up test environment."""
-        self.cache = CacheStore(
-            max_size=5, ttl_seconds=1, consistency_level=ConsistencyLevel.EVENTUAL
-        )
+        self.cache = CacheStore(max_size=5, ttl_seconds=1)
         self.sync_manager = SyncManager(
             cache=self.cache,
             sync_interval=0.1,  # Short interval for testing
