@@ -25,15 +25,17 @@ def test_data_path():
 def test_volume():
     """Create a test volume with efficiency features enabled."""
     return Volume(
-        volume_id=str(uuid.uuid4()),
-        size_bytes=100 * 1024 * 1024 * 1024,  # 100GB
+        id=str(uuid.uuid4()),
+        name="test_volume",
+        size_gb=100,  # 100GB
+        primary_pool_id=str(uuid.uuid4()),
         deduplication_enabled=True,
         compression_state=CompressionState(
             enabled=True,
             algorithm="zstd"
         ),
         thin_provisioning_state=ThinProvisioningState(
-            allocated_size=100 * 1024 * 1024 * 1024,
+            allocated_size=100 * 1024 * 1024 * 1024,  # 100GB
             used_size=0
         )
     )
@@ -121,7 +123,7 @@ class TestThinProvisioning:
         requested_size = 1024 * 1024 * 1024  # 1GB
         success = efficiency_manager.setup_thin_provisioning(test_volume, requested_size)
         assert success
-        assert test_volume.volume_id in efficiency_manager.thin_provision_map
+        assert test_volume.id in efficiency_manager.thin_provision_map
 
     def test_allocate_blocks_success(self, efficiency_manager, test_volume):
         """Test successful block allocation."""

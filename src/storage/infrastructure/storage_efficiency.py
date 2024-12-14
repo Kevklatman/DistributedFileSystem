@@ -30,7 +30,7 @@ class StorageEfficiencyManager:
 
     def get_volume_state(self, volume: Volume) -> Dict:
         """Get the current state for a volume."""
-        volume_id = volume.volume_id
+        volume_id = volume.id
         if volume_id not in self.volume_states:
             self.volume_states[volume_id] = {
                 "thin_provisioning": {
@@ -68,7 +68,7 @@ class StorageEfficiencyManager:
                     self.dedup_index[chunk_hash] = {str(full_path)}
 
         # Store deduplication stats in our manager instead of volume
-        volume_id = volume.volume_id
+        volume_id = volume.id
         if volume_id not in self.dedup_stats:
             self.dedup_stats[volume_id] = {"total_savings": 0, "last_run": None}
         
@@ -132,7 +132,7 @@ class StorageEfficiencyManager:
         if not volume.thin_provisioning_state:
             return False
 
-        volume_id = volume.volume_id
+        volume_id = volume.id
         self.thin_provision_map[volume_id] = {
             "allocated": requested_size,
             "used": 0,
@@ -146,7 +146,7 @@ class StorageEfficiencyManager:
         if not volume.thin_provisioning_state:
             return False
 
-        volume_id = volume.volume_id
+        volume_id = volume.id
         if volume_id not in self.thin_provision_map:
             return False
 
@@ -178,7 +178,7 @@ class StorageEfficiencyManager:
         if not volume.thin_provisioning_state:
             return 0
 
-        volume_id = volume.volume_id
+        volume_id = volume.id
         if volume_id not in self.thin_provision_map:
             return 0
 
@@ -219,7 +219,7 @@ class StorageEfficiencyManager:
             # Special case: first allocation
             new_size = state.allocated_size * 1.5  # Grow by 50%
             state.allocated_size = new_size
-            self.thin_provision_map[volume.volume_id]["allocated"] = new_size
+            self.thin_provision_map[volume.id]["allocated"] = new_size
             return True
 
         current_ratio = state.allocated_size / state.used_size
@@ -227,7 +227,7 @@ class StorageEfficiencyManager:
             # Can grow the volume
             new_size = state.allocated_size * 1.5  # Grow by 50%
             state.allocated_size = new_size
-            self.thin_provision_map[volume.volume_id]["allocated"] = new_size
+            self.thin_provision_map[volume.id]["allocated"] = new_size
             return True
 
         return False
