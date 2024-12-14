@@ -4,12 +4,13 @@ This package provides tools and utilities for simulating distributed system beha
 including network latency, resource usage, and metrics collection.
 """
 
-from .simulated_collector import SimulatedMetricsCollector
+from .simulated_collector import SimulatedMetricsCollector, NodeLocation
 from .network_simulator import NetworkSimulator
 
 __all__ = [
     'SimulatedMetricsCollector',
     'NetworkSimulator',
+    'NodeLocation'
 ]
 
 # Default configuration for simulation

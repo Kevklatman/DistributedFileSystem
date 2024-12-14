@@ -1,12 +1,12 @@
 """Test utilities and mock classes."""
 
 from unittest.mock import create_autospec
-from storage.infrastructure.providers import CloudStorageProvider
+from storage.infrastructure.providers import CloudProviderBase
 
 
 def create_mock_provider(success=True, latency=50, offline_mode=False):
     """Create a mock cloud provider with configurable behavior."""
-    mock = create_autospec(CloudStorageProvider, instance=True)
+    mock = create_autospec(CloudProviderBase, instance=True)
     mock.success = success
     mock.latency = latency
     mock.offline_mode = offline_mode

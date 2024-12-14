@@ -5,7 +5,7 @@ from flask import Flask
 import os
 import json
 from pathlib import Path
-from src.api.routes.s3_api import s3_api
+from src.api.routes.aws_s3_api import aws_s3_api
 from src.api.services.s3_service import S3Service
 from src.api.services.fs_manager import FileSystemManager
 
@@ -26,9 +26,9 @@ def app():
     app.config['s3_service'] = s3_service
     
     # Register blueprint
-    import src.api.routes.s3_api as s3_api_module
+    import src.api.routes.aws_s3_api as s3_api_module
     s3_api_module.s3_service = s3_service
-    app.register_blueprint(s3_api)
+    app.register_blueprint(aws_s3_api)
     
     return app
 

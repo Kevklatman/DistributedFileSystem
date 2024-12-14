@@ -8,7 +8,7 @@ import signal
 import subprocess
 import time
 
-from ...common.test_helpers import PROJECT_ROOT
+from tests.common.test_helpers import PROJECT_ROOT
 
 STORAGE_NODE_BIN = PROJECT_ROOT / "src" / "storage-node" / "storage-node"
 
